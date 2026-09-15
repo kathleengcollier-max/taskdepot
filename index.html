@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Task Depot</title>
+<meta name="app-version" content="1.9">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f3a7a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.26.10/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+:root{
+  --navy:#1f3a7a; --navy-ink:#152b5c; --red:#c62828; --red-soft:#fdecec;
+  --ink:#1c1f26; --muted:#5f6675; --line:#dfe3ea; --paper:#f6f7f9; --white:#fff;
+  --ok:#2e7d32; --ok-soft:#e8f4ea; --warn:#b26a00; --warn-soft:#fff4e0;
+  --radius:10px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.45}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--navy)}
+h1,h2,h3{margin:0;line-height:1.2}
+.top{background:var(--navy);color:#fff;position:sticky;top:0;z-index:20;padding-top:env(safe-area-inset-top)}
+.top .bar{max-width:1080px;margin:0 auto;display:flex;align-items:center;gap:10px;padding:10px 16px}
+.brand{font-weight:700;font-size:18px;letter-spacing:.2px;display:flex;align-items:center;gap:8px}
+.brand i{display:inline-block;width:10px;height:10px;background:var(--red);transform:rotate(45deg)}
+.nav{display:flex;gap:2px;margin-left:auto;overflow-x:auto}
+.nav button{background:transparent;border:0;color:#d9e0f0;padding:8px 10px;border-radius:6px;cursor:pointer;white-space:nowrap;font-weight:500}
+.nav button.on{background:rgba(255,255,255,.14);color:#fff}
+.nav button .pin{background:var(--red);color:#fff;border-radius:10px;font-size:11px;padding:1px 6px;margin-left:5px;font-weight:600}
+.who{color:#cfd7ea;font-size:13px;white-space:nowrap}
+.who button{background:transparent;border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:4px 8px;margin-left:8px;cursor:pointer}
+main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
+.h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:22px 0 10px}
+.h h2{font-size:20px;font-weight:600}
+.h .sub{color:var(--muted);font-size:14px}
+.card{background:var(--white);border:1px solid var(--line);border-radius:var(--radius)}
+.attn{border-left:4px solid var(--red)}
+.row{display:grid;grid-template-columns:1fr auto;gap:8px 14px;padding:12px 14px;border-top:1px solid var(--line);cursor:pointer;align-items:center}
+.row:first-child{border-top:0}
+.row:hover{background:#fafbfd}
+.row .t{font-weight:500}
+.row .m{color:var(--muted);font-size:13px;margin-top:2px}
+.row .why{font-size:13px;font-weight:600;color:var(--red);text-align:right}
+.row .why.ok{color:var(--ok)} .row .why.warn{color:var(--warn)} .row .why.navy{color:var(--navy)}
+.counts{display:flex;gap:0;background:var(--white);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-top:10px}
+.counts button{flex:1;border:0;background:transparent;padding:12px 8px;cursor:pointer;border-left:1px solid var(--line);text-align:center}
+.counts button:first-child{border-left:0}
+.counts b{display:block;font-size:22px;font-weight:600}
+.counts span{font-size:12px;color:var(--muted)}
+.counts button.on{background:#eef2fa}
+.pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:12px;background:#eef0f4;color:var(--muted);font-weight:500}
+.pill.not_started{background:#eef0f4} .pill.working{background:#e6edfb;color:var(--navy)} .pill.waiting{background:var(--warn-soft);color:var(--warn)}
+.pill.ready_for_review{background:#efe8fb;color:#5b3fa0} .pill.done{background:var(--ok-soft);color:var(--ok)} .pill.skipped{background:#eef0f4;color:var(--muted)}
+.pill.high{background:var(--red-soft);color:var(--red)}
+.empty{padding:26px 14px;color:var(--muted);text-align:center}
+.btn{border:1px solid var(--line);background:var(--white);border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:500}
+.btn.p{background:var(--navy);border-color:var(--navy);color:#fff}
+.btn.r{background:var(--red);border-color:var(--red);color:#fff}
+.btn.q{background:transparent;border-color:transparent;color:var(--navy)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn.sm{padding:5px 10px;font-size:13px}
+.big{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:8px 0 4px}
+.big button{border:0;border-radius:var(--radius);padding:16px 6px;font-weight:700;font-size:15px;cursor:pointer;color:#fff}
+.big .done{background:var(--ok)} .big .upd{background:var(--navy)} .big .blk{background:var(--warn)} .big .help{background:var(--red)}
+.form{display:grid;gap:12px}
+.form label{display:grid;gap:5px;font-size:13px;color:var(--muted);font-weight:500}
+.form input,.form select,.form textarea{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#fff;width:100%}
+.form textarea{min-height:84px;resize:vertical}
+.form input:focus,.form select:focus,.form textarea:focus,button:focus-visible{outline:2px solid var(--navy);outline-offset:1px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:6px}
+.modalbg{position:fixed;inset:0;background:rgba(20,26,40,.5);z-index:40;display:flex;align-items:flex-end;justify-content:center}
+.modal{background:#fff;width:100%;max-width:760px;max-height:92vh;overflow:auto;border-radius:14px 14px 0 0;padding:18px 18px 28px}
+.modal h2{font-size:19px;font-weight:600;margin-bottom:12px}
+.modal .x{position:sticky;top:0;float:right;background:#fff;border:0;font-size:22px;cursor:pointer;color:var(--muted);line-height:1}
+.detail dl{display:grid;grid-template-columns:130px 1fr;gap:6px 12px;margin:0 0 14px;font-size:14px}
+.detail dt{color:var(--muted)} .detail dd{margin:0}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:10px 0}
+.tabs button{border:0;background:transparent;padding:8px 10px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:500}
+.tabs button.on{color:var(--navy);border-bottom-color:var(--navy)}
+.cmt{padding:10px 0;border-top:1px solid var(--line);font-size:14px}
+.cmt .by{color:var(--muted);font-size:12px}
+.cmt.priv{background:#fffbea;padding:10px;border-radius:8px;border:1px dashed #e6d39a;margin-top:8px}
+.hist{font-size:13px;color:var(--muted);padding:5px 0;border-top:1px solid var(--line)}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 16px;border-radius:10px;z-index:60;display:flex;gap:14px;align-items:center;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:92vw}
+.toast button{background:transparent;border:0;color:#9fc0ff;font-weight:600;cursor:pointer}
+.ai{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+.ai textarea{width:100%;min-height:90px;border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.auth{max-width:400px;margin:60px auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px}
+.auth h1{font-size:24px;font-weight:600;margin-bottom:4px}
+.auth p{color:var(--muted);margin:0 0 18px}
+.err{background:var(--red-soft);color:var(--red);padding:10px 12px;border-radius:8px;font-size:14px}
+.note{background:#eef2fa;color:var(--navy-ink);padding:10px 12px;border-radius:8px;font-size:14px}
+.person{padding:12px 14px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;cursor:pointer}
+.person:first-child{border-top:0}
+.person .stats{display:flex;gap:12px;font-size:13px;color:var(--muted)}
+.person .stats b{color:var(--ink)}
+.chip{display:inline-block;border:1px solid var(--line);border-radius:14px;padding:3px 10px;font-size:13px;margin:0 6px 6px 0;background:#fff}
+.section-title{font-size:13px;color:var(--muted);font-weight:600;margin:16px 0 6px}
+.att a{display:block;padding:6px 0;font-size:14px}
+@media (max-width:640px){
+  .two,.three{grid-template-columns:1fr}
+  .detail dl{grid-template-columns:1fr}
+  .who span{display:none}
+  .row{grid-template-columns:1fr}
+  .row .why{text-align:left}
+  .counts b{font-size:18px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const SUPABASE_URL = "https://ikauupqthnwxohhumzlv.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlrYXV1cHF0aG53eG9oaHVtemx2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkxODczMzMsImV4cCI6MjEwNDc2MzMzM30.NisxCBnDtkSlHWyVorckxzlCiA8UwPMtnOvD8PB3Dcs";
+const APP_VERSION = document.querySelector('meta[name="app-version"]').content;
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+const APP_NAME = "Task Depot";
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+let ALL_TASKS = [];
+
+const DOW = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const recurLabel = (t) => !t.recur_rule ? "" : t.recur_rule==="daily" ? "Repeats daily" : t.recur_rule==="weekly" ? `Repeats ${DOW[t.recur_day??0]}s` : `Repeats monthly on the ${t.recur_day||1}`;
+const STATUS = {not_started:"Not started", working:"Working", waiting:"Waiting", ready_for_review:"Ready for review", done:"Done", skipped:"Skipped"};
+const CLOSED = (st) => st==="done" || st==="skipped";
+const CHANGELOG = [
+  {v:"1.9", d:"September 12, 2026", items:[
+    "Only company email addresses can create an account. The check runs in the database, not just on the sign-up screen, so it can't be stepped around.",
+    "An Access section on the Team screen: approve another domain, or approve one specific outside address (a contractor, a temp, someone at a sister company) with a note about why.",
+    "Someone turned away now gets a plain explanation instead of a database error.",
+    "The very first account ever created is always allowed, so the app can never lock its own owner out."
+  ]},
+  {v:"1.8", d:"September 12, 2026", items:[
+    "New Reports tab, managers only. Open and completed work by day or by month, with a bar chart of the last 14 days or 12 months.",
+    "Totals across the top: open right now, overdue right now, completed in the window, and skipped.",
+    "A per-person table showing what each person has open, how much of that is overdue, and what they closed out in the window — sortable by any column.",
+    "Every number is clickable context, not a scorecard: skipped is counted separately from completed so a holiday never looks like a miss."
+  ]},
+  {v:"1.7", d:"September 12, 2026", items:[
+    "Assign the same task to several people at once. Tick the names in the assign form and each person gets their own copy — separate due dates, separate progress, no shared checkbox to fight over.",
+    "Copy an existing task to other people from the task itself, optionally with a new due date. Useful when one person's version turns out to be everyone's job.",
+    "Standing notes. Instructions that ride along with every occurrence of a recurring task — where the file lives, who to call, what tripped people up last time. Edit them on any occurrence and every future one inherits the change.",
+    "Comments still belong to the one task they were written on, which is the point: this month's voicemail shouldn't follow you into next month."
+  ]},
+  {v:"1.6", d:"September 12, 2026", items:[
+    "The app has a name: Task Depot.",
+    "Everything reads from that name now — the header, the sign-in screen, the emails, and the one-tap pages — so a future rename is a settings change, not a rebuild."
+  ]},
+  {v:"1.5", d:"September 12, 2026", items:[
+    "Assign someone a task and they get an email right away — the title, due date, context, and what done means, plus a one-tap Got it button. Reassigning a task emails the new person too.",
+    "You don't get an email for a task you assigned to yourself, and nobody gets the same assignment email twice.",
+    "Both kinds of email have their own switch in Settings, so someone can keep the assignment emails and skip the reminders, or the other way round."
+  ]},
+  {v:"1.4", d:"September 12, 2026", items:[
+    "Nudges. A task due tomorrow, or one due soon that's gone quiet for a few days, gets an email to whoever it's assigned to with three buttons: Yes on track, I need help, Change the date. One tap, no sign-in — the answer lands back in the app.",
+    "A weekday morning digest for managers: what needs your decision, what's ready for review, what's overdue, which recurring tasks have stalled, and how many tasks still need an owner or a date. Nothing to say means no email.",
+    "Stalled recurring series now reach you by email instead of waiting for you to open the app.",
+    "Nobody gets emailed twice about the same task on the same day.",
+    "A Settings screen where anyone can turn their own emails off."
+  ]},
+  {v:"1.3", d:"September 12, 2026", items:[
+    "Recurring tasks now work the way real obligations do. Weekly and monthly tasks appear on schedule — five days before they're due — whether or not the last one got finished, so a missed month-end stacks up instead of disappearing.",
+    "Daily tasks still roll forward instead of piling up: one open item that just gets older.",
+    "A cap per task. Once three instances of the same recurring task are open, the app stops generating and flags it for the manager. That's a management problem, not a longer list.",
+    "Skip is a real action now, separate from Done. Holiday, branch closed, not applicable this month — close it with a reason and the chain moves on cleanly.",
+    "Recurring tasks group together on Home: one line saying how many are open and how overdue the oldest one is, instead of three rows shouting at you.",
+    "Pause a series to stop generating without losing the history, and resume it later."
+  ]},
+  {v:"1.2", d:"September 12, 2026", items:[
+    "Forgot your password? There's a link on the sign-in screen now. You get an email, tap it, and set a new one.",
+    "Manager Home has a Needs sorting section for tasks with no assignee or no due date, so parked tasks stop hiding.",
+    "Employees see the task's definition of done right above the Done button.",
+    "Attachments can be removed, with an Undo right after.",
+    "Trash now has Delete permanently, with a confirmation. Everything else in Trash still restores with one tap.",
+    "A recurring task no longer respawns onto someone who's been deactivated. It comes back unassigned and flagged for the manager."
+  ]},
+  {v:"1.1", d:"September 12, 2026", items:[
+    "Employees can add their own tasks with the new + Add task button. They show up in their 1:1 view marked self-assigned.",
+    "Subtasks. Open any task and add a subtask under it. An employee can point a subtask at their manager, and it shows up in a new Assigned to you section on the manager's Home.",
+    "Recurring tasks: daily, weekly on a chosen weekday, or monthly on a chosen date. Marking one done creates the next one automatically.",
+    "A task's parent, its subtasks, and whether it repeats now all show on the task card."
+  ]},
+  {v:"1.0", d:"September 12, 2026", items:[
+    "First release. Assign a task in seconds, or type it in plain English and let the AI capture box fill in the form.",
+    "Manager Home shows only what needs your attention: overdue, stuck waiting, ready for review, flagged for you, or due soon with no update.",
+    "Employee My Day with four big buttons: Done, Update, Blocked, Need help.",
+    "Comments, private manager notes, attachments, and a full change history on every task.",
+    "Trash with restore, plus an undo button right after you trash something."
+  ]}
+];
+
+// ---------- helpers ----------
+const todayISO = () => { const d = new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); };
+const daysBetween = (a,b) => Math.round((new Date(b) - new Date(a)) / 86400000);
+const fmtDate = (iso) => { if(!iso) return "—"; const d = new Date(iso+"T00:00:00"); return d.toLocaleDateString(undefined,{month:"short",day:"numeric"}); };
+const fmtWhen = (ts) => new Date(ts).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+const hoursSince = (ts) => (Date.now() - new Date(ts)) / 3600000;
+const nameOf = (people, id) => (people.find(p=>p.id===id)||{}).full_name || "Unassigned";
+
+// Why does this task need attention? Returns {why, tone} or null.
+function attention(t, today) {
+  if (CLOSED(t.status)) return null;
+  const due = t.due_date;
+  const overdue = due && due < today ? daysBetween(due, today) : 0;
+  const stale = hoursSince(t.last_update_at) / 24;
+  if (t.need_manager) return {why:"Needs you", tone:"", rank:0};
+  if (t.status === "ready_for_review") return {why:"Ready for your review", tone:"navy", rank:1};
+  if (t.need_help) return {why:"Asked for help", tone:"", rank:1};
+  if (overdue) return {why:`Overdue ${overdue} day${overdue>1?"s":""}`, tone:"", rank:2};
+  if (t.status === "waiting" && stale >= 3) return {why:`Waiting on ${t.waiting_on||"someone"} ${Math.floor(stale)} days`, tone:"warn", rank:3};
+  if (due && daysBetween(today, due) <= 1 && stale >= 2) return {why: due===today ? "Due today, no update" : "Due tomorrow, no update", tone:"warn", rank:4};
+  return null;
+}
+
+// ---------- root ----------
+function App(){
+  const [session, setSession] = useState(undefined);
+  const [me, setMe] = useState(null);
+  const [recovery, setRecovery] = useState(false);
+  useEffect(()=>{
+    sb.auth.getSession().then(({data})=>setSession(data.session));
+    const {data:sub} = sb.auth.onAuthStateChange((e,s)=>{ setSession(s); if(e==="PASSWORD_RECOVERY") setRecovery(true); });
+    return ()=>sub.subscription.unsubscribe();
+  },[]);
+  useEffect(()=>{
+    if(!session){ setMe(null); return; }
+    sb.from("profiles").select("*").eq("id",session.user.id).single().then(({data})=>setMe(data));
+  },[session]);
+  if (session === undefined) return null;
+  if (!session) return <Auth/>;
+  if (recovery) return <NewPassword onDone={()=>setRecovery(false)}/>;
+  if (!me) return <main><div className="empty">Loading your profile…</div></main>;
+  if (!me.active) return <main><div className="auth"><h1>Account inactive</h1><p>Ask your manager to reactivate it.</p><button className="btn" onClick={()=>sb.auth.signOut()}>Sign out</button></div></main>;
+  return <Shell me={me} setMe={setMe}/>;
+}
+
+function Auth(){
+  const [mode,setMode] = useState("in"); // in | up | forgot
+  const [f,setF] = useState({name:"",email:"",password:""});
+  const [err,setErr] = useState(""); const [busy,setBusy]=useState(false); const [msg,setMsg]=useState("");
+  const go = async () => {
+    setErr(""); setBusy(true);
+    try{
+      if(mode==="forgot"){ const {error} = await sb.auth.resetPasswordForEmail(f.email,{redirectTo:window.location.origin+window.location.pathname}); if(error) throw error; setMsg("If that email has an account, a reset link is on its way. Tap it on this device to set a new password."); }
+      else if(mode==="in"){ const {error} = await sb.auth.signInWithPassword({email:f.email,password:f.password}); if(error) throw error; }
+      else { const {data,error} = await sb.auth.signUp({email:f.email,password:f.password,options:{data:{full_name:f.name}}}); if(error) throw error;
+             if(!data.session) setMsg("Account created. Check your email to confirm, then sign in."); }
+    }catch(e){
+      const m = String(e.message||e);
+      setErr(/not approved|Database error saving new user/i.test(m)
+        ? "That email address isn't approved for this app. Use your company email, or ask Kathleen to approve the address you're using."
+        : m);
+    } finally{ setBusy(false); }
+  };
+  return <main><div className="auth">
+    <div className="brand" style={{color:"var(--navy)",marginBottom:14}}><i/>{APP_NAME}</div>
+    <h1>{mode==="in"?"Sign in":mode==="up"?"Create your account":"Reset your password"}</h1>
+    <p>{mode==="in"?"Where work gets handed off, not dropped.":mode==="up"?"Use your work email. Your manager sets your role after you join.":"Enter the email you signed up with."}</p>
+    <div className="form">
+      {mode==="up" && <label>Full name<input value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></label>}
+      <label>Email<input type="email" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></label>
+      {mode!=="forgot" && <label>Password<input type="password" value={f.password} onChange={e=>setF({...f,password:e.target.value})} onKeyDown={e=>e.key==="Enter"&&go()}/></label>}
+      {err && <div className="err">{err}</div>}
+      {msg && <div className="note">{msg}</div>}
+      <button className="btn p" disabled={busy} onClick={go}>{mode==="in"?"Sign in":mode==="up"?"Create account":"Send reset link"}</button>
+      <button className="btn q" onClick={()=>{setMode(mode==="in"?"up":"in");setErr("");setMsg("");}}>{mode==="in"?"New here? Create an account":"Back to sign in"}</button>
+      {mode==="in" && <button className="btn q" onClick={()=>{setMode("forgot");setErr("");setMsg("");}}>Forgot your password?</button>}
+    </div>
+  </div></main>;
+}
+
+function NewPassword({onDone}){
+  const [pw,setPw]=useState(""); const [err,setErr]=useState(""); const [busy,setBusy]=useState(false);
+  const go = async ()=>{ setBusy(true); setErr(""); const {error} = await sb.auth.updateUser({password:pw}); setBusy(false); if(error) setErr(error.message); else onDone(); };
+  return <main><div className="auth"><h1>Set a new password</h1><p>At least 6 characters.</p>
+    <div className="form"><label>New password<input type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()}/></label>
+    {err && <div className="err">{err}</div>}<button className="btn p" disabled={busy||pw.length<6} onClick={go}>Save password</button></div></div></main>;
+}
+
+// ---------- shell: loads data, routes by role ----------
+function Shell({me,setMe}){
+  const isMgr = me.role === "manager";
+  const [view,setView] = useState(isMgr?"home":"myday");
+  const [people,setPeople] = useState([]);
+  const [tasks,setTasks] = useState([]);
+  const [open,setOpen] = useState(null);       // task id in detail modal
+  const [assign,setAssign] = useState(null); // {parent} when open
+  const [toast,setToast] = useState(null);
+  const today = todayISO();
+
+  const load = useCallback(async ()=>{
+    const [{data:p},{data:t}] = await Promise.all([
+      sb.from("profiles").select("*").order("full_name"),
+      sb.from("tasks").select("*").order("due_date",{ascending:true,nullsFirst:false})
+    ]);
+    setPeople(p||[]); setTasks(t||[]);
+  },[]);
+  useEffect(()=>{ load(); const id=setInterval(load,60000); return ()=>clearInterval(id); },[load]);
+
+  const showToast = (text, undo) => { setToast({text,undo}); setTimeout(()=>setToast(null), undo?8000:3000); };
+
+  const update = async (id, patch) => {
+    const {error} = await sb.from("tasks").update(patch).eq("id",id);
+    if(error){ showToast("Couldn't save: "+error.message); return false; }
+    await load(); return true;
+  };
+  const trash = async (t) => {
+    if(await update(t.id,{deleted_at:new Date().toISOString()})) {
+      setOpen(null);
+      showToast(`"${t.title}" moved to Trash`, ()=>update(t.id,{deleted_at:null}));
+    }
+  };
+
+  const live = tasks.filter(t=>!t.deleted_at); ALL_TASKS = live;
+  const openTask = tasks.find(t=>t.id===open);
+  const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,showToast,isMgr};
+
+  const attnCount = isMgr ? live.filter(t=>attention(t,today)).length : 0;
+  const nav = isMgr
+    ? [["home","Home",attnCount],["people","People"],["all","All tasks"],["reports","Reports"],["team","Team"],["trash","Trash"],["settings","Settings"],["new","What's new"]]
+    : [["myday","My day"],["all","All my tasks"],["settings","Settings"],["new","What's new"]];
+
+  return <>
+    <header className="top"><div className="bar">
+      <div className="brand"><i/>{APP_NAME}</div>
+      <nav className="nav">{nav.map(([k,l,n])=><button key={k} className={view===k?"on":""} onClick={()=>setView(k)}>{l}{n?<span className="pin">{n}</span>:null}</button>)}</nav>
+      <div className="who"><span>{me.full_name}</span><button onClick={()=>sb.auth.signOut()}>Sign out</button></div>
+    </div></header>
+    <main>
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:-8}}><button className="btn p" onClick={()=>setAssign({parent:null})}>{isMgr?"+ Assign":"+ Add task"}</button></div>
+      {view==="home" && <ManagerHome {...ctx}/>}
+      {view==="people" && <People {...ctx}/>}
+      {view==="all" && <AllTasks {...ctx}/>}
+      {view==="team" && <Team {...ctx} setMe={setMe}/>}
+      {view==="trash" && <Trash {...ctx} trashed={tasks.filter(t=>t.deleted_at)}/>}
+      {view==="myday" && <MyDay {...ctx}/>}
+      {view==="reports" && isMgr && <Reports {...ctx}/>}
+      {view==="settings" && <Settings me={me} setMe={setMe} showToast={showToast} isMgr={isMgr}/>}
+      {view==="new" && <WhatsNew/>}
+    </main>
+    {assign && <AssignModal {...ctx} parent={assign.parent} onClose={()=>setAssign(null)}/>}
+    {openTask && <TaskModal {...ctx} task={openTask} onClose={()=>setOpen(null)} addSub={()=>setAssign({parent:openTask})}/>}
+    {toast && <div className="toast">{toast.text}{toast.undo && <button onClick={()=>{toast.undo();setToast(null);}}>Undo</button>}</div>}
+  </>;
+}
+
+// Collapse a list so each recurring series shows as one line (the oldest open instance)
+function groupSeries(list){
+  const out=[], seen={};
+  for(const t of list){
+    if(!t.series_id){ out.push({t,extra:0}); continue; }
+    if(seen[t.series_id]!==undefined){ out[seen[t.series_id]].extra++; continue; }
+    seen[t.series_id]=out.length; out.push({t,extra:0});
+  }
+  return out;
+}
+
+// ---------- task row ----------
+function Row({t,people,today,setOpen,showWho=true,why,extra=0}){
+  const allTasks = ALL_TASKS;
+  const a = why === undefined ? attention(t,today) : why;
+  return <div className="row" onClick={()=>setOpen(t.id)}>
+    <div>
+      <div className="t">{showWho && <b style={{color:"var(--navy)"}}>{nameOf(people,t.assignee_id)}</b>}{showWho?" — ":""}{t.title}</div>
+      <div className="m">
+        <span className={"pill "+t.status}>{STATUS[t.status]}</span>{" "}
+        {t.priority==="high" && <span className="pill high">High</span>}{" "}
+        {t.due_date ? `Due ${fmtDate(t.due_date)}` : "No due date"}
+        {t.status==="waiting" && t.waiting_on ? ` · waiting on ${t.waiting_on}` : ""}
+        {t.context ? ` · ${t.context}` : ""}
+        {t.parent_id ? ` · ↳ ${(allTasks.find(p=>p.id===t.parent_id)||{}).title||"subtask"}` : ""}
+        {t.recur_rule ? ` · ${recurLabel(t).toLowerCase()}` : ""}
+        {extra>0 ? ` · ${extra+1} open, oldest due ${fmtDate(t.due_date)}` : ""}
+        {showWho && t.created_by===t.assignee_id && (people.find(p=>p.id===t.created_by)||{}).role!=="manager" ? " · self-assigned" : ""}
+      </div>
+    </div>
+    {a && <div className={"why "+a.tone}>{a.why}</div>}
+  </div>;
+}
+
+// ---------- manager home ----------
+function ManagerHome(ctx){
+  const {tasks,today,people} = ctx;
+  const [filter,setFilter] = useState(null);
+  const flagged = tasks.filter(t=>t.assignee_id!==ctx.me.id).map(t=>({t,a:attention(t,today)})).filter(x=>x.a).sort((x,y)=>x.a.rank-y.a.rank || (x.t.due_date||"9").localeCompare(y.t.due_date||"9"));
+  const openT = tasks.filter(t=>!CLOSED(t.status) && t.assignee_id!==ctx.me.id);
+  const week = new Date(); week.setDate(week.getDate()+7); const weekISO = week.toISOString().slice(0,10);
+  const buckets = {
+    track: openT.filter(t=>!attention(t,today) && t.status!=="waiting" && t.assignee_id && t.due_date),
+    waiting: openT.filter(t=>t.status==="waiting"),
+    week: openT.filter(t=>t.due_date && t.due_date>=today && t.due_date<=weekISO),
+    overdue: openT.filter(t=>t.due_date && t.due_date<today),
+  };
+  const shown = filter ? buckets[filter] : null;
+  const mineToDo = tasks.filter(t=>!CLOSED(t.status) && t.assignee_id===ctx.me.id);
+  const sorting = tasks.filter(t=>!CLOSED(t.status) && (!t.assignee_id || !t.due_date));
+  return <>
+    {mineToDo.length>0 && <><div className="h"><h2>Assigned to you</h2><span className="sub">{mineToDo.length} — things your team handed up</span></div>
+      <div className="card">{mineToDo.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} showWho={false} why={attention(t,today)||(t.created_by!==ctx.me.id?{why:`${nameOf(people,t.created_by)} is waiting on you`,tone:"warn"}:null)}/>)}</div></>}
+    <div className="h"><h2>Needs your attention</h2><span className="sub">{flagged.length ? `${flagged.length} item${flagged.length>1?"s":""}` : "Nothing — enjoy it"}</span></div>
+    <div className="card attn">
+      {flagged.length ? groupSeries(flagged.map(x=>x.t)).map(({t,extra})=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} why={attention(t,today)} extra={extra}/>)
+        : <div className="empty">Everything you've delegated is on track. The other {openT.length} open tasks are fine without you.</div>}
+    </div>
+    {sorting.length>0 && <><div className="h"><h2>Needs sorting</h2><span className="sub">{sorting.length} without an owner or a date</span></div>
+      <div className="card">{sorting.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} why={{why:!t.assignee_id&&!t.due_date?"No owner, no date":!t.assignee_id?"No owner":"No due date",tone:"warn"}}/>)}</div></>}
+    <div className="counts">
+      {[["track","On track"],["waiting","Waiting"],["week","Due this week"],["overdue","Overdue"]].map(([k,l])=>
+        <button key={k} className={filter===k?"on":""} onClick={()=>setFilter(filter===k?null:k)}><b>{buckets[k].length}</b><span>{l}</span></button>)}
+    </div>
+    {shown && <div className="card" style={{marginTop:10}}>
+      {shown.length ? groupSeries(shown).map(({t,extra})=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} extra={extra}/>) : <div className="empty">Nothing here.</div>}
+    </div>}
+  </>;
+}
+
+// ---------- people (manager) ----------
+function People(ctx){
+  const {tasks,people,today,me} = ctx;
+  const [pick,setPick] = useState(null);
+  const staff = people.filter(p=>p.active && p.id!==me.id);
+  if(pick){
+    const p = people.find(x=>x.id===pick); const mine = tasks.filter(t=>t.assignee_id===pick);
+    const groups = [
+      ["Needs you", mine.filter(t=>!CLOSED(t.status) && (t.need_manager||t.status==="ready_for_review"||t.need_help))],
+      ["Overdue", mine.filter(t=>!CLOSED(t.status) && t.due_date && t.due_date<today)],
+      ["Waiting on others", mine.filter(t=>t.status==="waiting")],
+      ["Still open", mine.filter(t=>!CLOSED(t.status) && !(t.due_date&&t.due_date<today) && t.status!=="waiting" && !(t.need_manager||t.status==="ready_for_review"||t.need_help))],
+      ["Completed in the last 14 days", mine.filter(t=>CLOSED(t.status) && t.completed_at && hoursSince(t.completed_at)<24*14)],
+    ];
+    return <>
+      <div className="h"><h2>{p.full_name}</h2><button className="btn sm" onClick={()=>setPick(null)}>All people</button></div>
+      <div className="note">A ready-made 1:1 agenda. Open any task to add a private note before you meet.</div>
+      {groups.map(([l,list])=><React.Fragment key={l}><div className="section-title">{l} ({list.length})</div>
+        <div className="card">{list.length?list.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} showWho={false}/>):<div className="empty">None</div>}</div></React.Fragment>)}
+    </>;
+  }
+  return <>
+    <div className="h"><h2>People</h2><span className="sub">Tap a name for their 1:1 view</span></div>
+    <div className="card">{staff.length ? staff.map(p=>{
+      const mine = tasks.filter(t=>t.assignee_id===p.id && !CLOSED(t.status));
+      const flag = mine.filter(t=>attention(t,today)).length;
+      return <div className="person" key={p.id} onClick={()=>setPick(p.id)}>
+        <div><b>{p.full_name}</b><div style={{fontSize:13,color:"var(--muted)"}}>{p.email}</div></div>
+        <div className="stats"><span><b>{mine.length}</b> open</span><span><b style={{color:flag?"var(--red)":"inherit"}}>{flag}</b> flagged</span></div>
+      </div>;
+    }) : <div className="empty">No one on your team yet. Once people create accounts, they show up here.</div>}</div>
+  </>;
+}
+
+// ---------- all tasks ----------
+function AllTasks(ctx){
+  const {tasks,people,today,isMgr} = ctx;
+  const [q,setQ] = useState(""); const [st,setSt] = useState("open"); const [who,setWho]=useState("");
+  const list = tasks.filter(t=>(st==="open"?!CLOSED(t.status):st==="done"?CLOSED(t.status):true))
+    .filter(t=>!who||t.assignee_id===who)
+    .filter(t=>!q||(t.title+" "+t.context+" "+t.details).toLowerCase().includes(q.toLowerCase()));
+  return <>
+    <div className="h"><h2>{isMgr?"All tasks":"All my tasks"}</h2><span className="sub">{list.length} shown</span></div>
+    <div className="form three" style={{marginBottom:10}}>
+      <input placeholder="Search" value={q} onChange={e=>setQ(e.target.value)}/>
+      <select value={st} onChange={e=>setSt(e.target.value)}><option value="open">Open</option><option value="done">Done or skipped</option><option value="all">All</option></select>
+      {isMgr && <select value={who} onChange={e=>setWho(e.target.value)}><option value="">Everyone</option>{people.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select>}
+    </div>
+    <div className="card">{list.length?list.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} showWho={isMgr}/>):<div className="empty">No tasks match.</div>}</div>
+  </>;
+}
+
+// ---------- employee my day ----------
+function MyDay(ctx){
+  const {tasks,today,people,update,me} = ctx;
+  const mine = tasks.filter(t=>!CLOSED(t.status) && t.assignee_id===me.id);
+  const handedUp = tasks.filter(t=>!CLOSED(t.status) && t.created_by===me.id && t.assignee_id!==me.id);
+  const dueToday = mine.filter(t=>t.due_date && t.due_date<=today);
+  const waiting = mine.filter(t=>t.status==="waiting");
+  const review = mine.filter(t=>t.status==="ready_for_review");
+  const upcoming = mine.filter(t=>!dueToday.includes(t) && t.status!=="waiting" && t.status!=="ready_for_review");
+  const groups = [["Due today or overdue",dueToday],["Waiting on someone",waiting],["Waiting for your manager's review",review],["Upcoming",upcoming],["Handed to your manager",handedUp]];
+  return <>
+    <div className="h"><h2>My day</h2><span className="sub">{fmtDate(today)} · {mine.length} open</span></div>
+    {mine.length===0 && handedUp.length===0 && <div className="card"><div className="empty">Nothing on your plate right now. Tap + Add task to give yourself one.</div></div>}
+    {groups.map(([l,list])=> list.length ? <React.Fragment key={l}><div className="section-title">{l} ({list.length})</div>
+      <div className="card">{groupSeries(list).map(({t,extra})=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} showWho={false} why={null} extra={extra}/>)}</div></React.Fragment> : null)}
+  </>;
+}
+
+// ---------- assign modal (manager) ----------
+function AssignModal(ctx){
+  const {people,me,onClose,load,showToast,today,isMgr,parent} = ctx;
+  const blank = {title:"",assignee_id:isMgr?"":me.id,due_date:"",priority:"normal",context:parent?parent.context:"",details:"",definition_of_done:"",standing_notes:"",recur_rule:"",recur_day:"",recur_cap:3};
+  const [several,setSeveral] = useState([]);   // extra people to give a copy to
+  const [f,setF] = useState(blank); const [ai,setAi] = useState(""); const [busy,setBusy]=useState(false); const [err,setErr]=useState("");
+  const staff = isMgr ? people.filter(p=>p.active) : people.filter(p=>p.active && (p.id===me.id || (parent && p.role==="manager")));
+  const capture = async () => {
+    if(!ai.trim()) return; setBusy(true); setErr("");
+    try{
+      const roster = Object.fromEntries(staff.map(p=>[p.full_name,p.id]));
+      const {data,error} = await sb.functions.invoke("ai",{body:{action:"capture",text:ai,roster,today}});
+      if(error) throw error; if(data.error) throw new Error(data.error);
+      const t = data.task; setF({...blank, ...Object.fromEntries(Object.entries(t).filter(([k,v])=>v!==null && k in blank))});
+    }catch(e){ setErr(e.message||String(e)); } finally{ setBusy(false); }
+  };
+  const save = async () => {
+    if(!f.title.trim()) { setErr("A task needs a title."); return; }
+    setBusy(true);
+    const row = {...f, created_by:me.id, assignee_id:f.assignee_id||null, due_date:f.due_date||null, parent_id:parent?parent.id:null,
+                 recur_rule:f.recur_rule||null, recur_day:(!f.recur_rule||f.recur_rule==="daily")?null:(parseInt(f.recur_day)||null), recur_cap:parseInt(f.recur_cap)||3};
+    const targets = several.length ? several : [row.assignee_id];
+    const rows = targets.map(id=>({...row, assignee_id:id||null}));
+    const {error} = await sb.from("tasks").insert(rows);
+    setBusy(false);
+    if(error){ setErr(error.message); return; }
+    await load();
+    showToast(rows.length>1 ? `Assigned to ${rows.length} people` : `Assigned to ${nameOf(people,row.assignee_id)}`);
+    onClose();
+  };
+  return <div className="modalbg" onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}>
+    <button className="x" onClick={onClose} aria-label="Close">×</button>
+    <h2>{parent ? "Add a subtask" : isMgr ? "Assign a task" : "Add a task"}</h2>
+    {parent && <div className="note" style={{marginBottom:12}}>Under: <b>{parent.title}</b>{!isMgr && " — assign it to yourself or to your manager."}</div>}
+    {isMgr && <div className="ai">
+      <div style={{fontWeight:600,marginBottom:6}}>Or just describe it</div>
+      <textarea placeholder='"Ilah needs to get an updated freight quote from Goodman for the Anaheim equipment order by Friday." Or paste an email.' value={ai} onChange={e=>setAi(e.target.value)}/>
+      <div className="actions"><button className="btn" disabled={busy||!ai.trim()} onClick={capture}>{busy?"Reading…":"Fill in the form for me"}</button></div>
+    </div>}
+    <div className="form" style={{marginTop:14}}>
+      <label>Task<input autoFocus value={f.title} onChange={e=>setF({...f,title:e.target.value})} placeholder="Get updated freight quote from Goodman"/></label>
+      <div className="three">
+        <label>Assign to<select value={several.length?"":f.assignee_id} disabled={several.length>0} onChange={e=>setF({...f,assignee_id:e.target.value})}><option value="">{several.length?`${several.length} people selected below`:"Unassigned"}</option>{staff.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select></label>
+        <label>Due<input type="date" value={f.due_date} onChange={e=>setF({...f,due_date:e.target.value})}/></label>
+        <label>Priority<select value={f.priority} onChange={e=>setF({...f,priority:e.target.value})}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></label>
+      </div>
+      <label>Context<input value={f.context} onChange={e=>setF({...f,context:e.target.value})} placeholder="Anaheim equipment order"/></label>
+      <label>Details<textarea value={f.details} onChange={e=>setF({...f,details:e.target.value})}/></label>
+      <label>Definition of done<input value={f.definition_of_done} onChange={e=>setF({...f,definition_of_done:e.target.value})} placeholder="Quote attached + PO updated"/></label>
+      {isMgr && staff.length>1 && <div>
+        <div className="section-title" style={{marginTop:0}}>Or give the same task to several people</div>
+        <div>{staff.map(p=><button key={p.id} type="button" className="chip" style={several.includes(p.id)?{background:"var(--navy)",color:"#fff",borderColor:"var(--navy)"}:{}}
+          onClick={()=>setSeveral(several.includes(p.id)?several.filter(x=>x!==p.id):[...several,p.id])}>{p.full_name}</button>)}</div>
+        {several.length>0 && <div style={{fontSize:13,color:"var(--muted)",marginTop:4}}>Each person gets their own copy with its own progress and due date. Tap a name again to remove them.</div>}
+      </div>}
+      <label>Standing notes{f.recur_rule?" (carried to every occurrence)":""}<textarea value={f.standing_notes} onChange={e=>setF({...f,standing_notes:e.target.value})} placeholder="Where the file lives, who to call, what tripped people up last time"/></label>
+      <Recur f={f} setF={setF}/>
+      {err && <div className="err">{err}</div>}
+      <div className="actions"><button className="btn" onClick={onClose}>Cancel</button><button className="btn p" disabled={busy} onClick={save}>{isMgr?"Assign":"Add"}</button></div>
+    </div>
+  </div></div>;
+}
+
+// ---------- task detail modal ----------
+function TaskModal(ctx){
+  const {task:t,people,me,isMgr,update,trash,onClose,showToast,addSub,tasks,setOpen,today} = ctx;
+  const iCreated = t.created_by===me.id;
+  const children = tasks.filter(c=>c.parent_id===t.id);
+  const parent = t.parent_id ? tasks.find(p=>p.id===t.parent_id) : null;
+  const siblings = t.series_id ? tasks.filter(x=>x.series_id===t.series_id && !CLOSED(x.status)).sort((a,b)=>(a.due_date||"").localeCompare(b.due_date||"")) : [];
+  const root = t.series_id ? tasks.find(x=>x.id===t.series_id) : null;
+  const [skipping,setSkipping] = useState(false);
+  const [copying,setCopying] = useState(false);
+  const [copyTo,setCopyTo] = useState([]);
+  const [copyDue,setCopyDue] = useState("");
+  const doCopy = async () => {
+    const {data,error} = await sb.rpc("copy_task_to",{src:t.id, people:copyTo, new_due:copyDue||null});
+    if(error){ showToast(error.message); return; }
+    setCopying(false); setCopyTo([]); setCopyDue("");
+    await ctx.load(); showToast(`Copied to ${data} ${data===1?"person":"people"}`);
+  };
+  const [skipWhy,setSkipWhy] = useState("");
+  const doSkip = async () => {
+    const ok = await update(t.id,{status:"skipped",skip_reason:skipWhy||"No reason given",need_manager:false,need_help:false});
+    if(ok){ setSkipping(false); setSkipWhy(""); showToast("Skipped — the next one is unaffected"); }
+  };
+  const [tab,setTab] = useState("activity");
+  const [edit,setEdit] = useState(false);
+  const [upd,setUpd] = useState(null); // employee update form
+  const [comments,setComments] = useState([]); const [hist,setHist] = useState([]); const [files,setFiles]=useState([]);
+  const [body,setBody] = useState(""); const [priv,setPriv] = useState(false);
+  const fileRef = useRef();
+  const refresh = useCallback(async ()=>{
+    const [c,h,f] = await Promise.all([
+      sb.from("task_comments").select("*").eq("task_id",t.id).order("created_at"),
+      sb.from("task_history").select("*").eq("task_id",t.id).order("created_at",{ascending:false}),
+      sb.from("task_attachments").select("*").eq("task_id",t.id).is("deleted_at",null).order("created_at"),
+    ]);
+    setComments(c.data||[]); setHist(h.data||[]); setFiles(f.data||[]);
+  },[t.id]);
+  useEffect(()=>{refresh();},[refresh, t.updated_at]);
+
+  const addComment = async () => {
+    if(!body.trim()) return;
+    const {error} = await sb.from("task_comments").insert({task_id:t.id,author_id:me.id,body,is_private:priv});
+    if(error){ showToast(error.message); return; }
+    setBody(""); refresh();
+  };
+  const upload = async (file) => {
+    if(!file) return;
+    const path = `${t.id}/${Date.now()}_${file.name}`;
+    const {error} = await sb.storage.from("attachments").upload(path,file);
+    if(error){ showToast("Upload failed: "+error.message); return; }
+    await sb.from("task_attachments").insert({task_id:t.id,uploader_id:me.id,file_name:file.name,storage_path:path,size_bytes:file.size});
+    refresh(); showToast("Attached");
+  };
+  const removeFile = async (f) => {
+    const {error} = await sb.from("task_attachments").update({deleted_at:new Date().toISOString()}).eq("id",f.id);
+    if(error){ showToast(error.message); return; }
+    refresh(); showToast(`Removed ${f.file_name}`, async ()=>{ await sb.from("task_attachments").update({deleted_at:null}).eq("id",f.id); refresh(); });
+  };
+  const openFile = async (f) => {
+    const {data,error} = await sb.storage.from("attachments").createSignedUrl(f.storage_path,300);
+    if(error){ showToast(error.message); return; } window.open(data.signedUrl,"_blank");
+  };
+  const quick = (patch, msg) => update(t.id,patch).then(ok=>ok&&showToast(msg));
+  const histText = (h) => {
+    const who = nameOf(people,h.actor_id);
+    switch(h.action){
+      case "created": return `${who} created this task`;
+      case "status": return `${who}: ${STATUS[h.from_value]} → ${STATUS[h.to_value]}`;
+      case "due_date": return `${who} changed due date ${fmtDate(h.from_value)} → ${fmtDate(h.to_value)}`;
+      case "reassigned": return `${who} reassigned ${nameOf(people,h.from_value)} → ${nameOf(people,h.to_value)}`;
+      case "waiting_on": return `${who} set waiting on: ${h.to_value||"(cleared)"}`;
+      case "need_manager_on": return `${who} flagged: needs manager`;
+      case "need_manager_off": return `${who} cleared the needs-manager flag`;
+      case "need_help_on": return `${who} asked for help`;
+      case "need_help_off": return `${who} cleared the help flag`;
+      case "trashed": return `${who} moved to Trash`;
+      case "restored": return `${who} restored from Trash`;
+      case "title": return `${who} renamed: "${h.from_value}" → "${h.to_value}"`;
+      default: return `${who}: ${h.action}`;
+    }
+  };
+
+  return <div className="modalbg" onClick={onClose}><div className="modal detail" onClick={e=>e.stopPropagation()}>
+    <button className="x" onClick={onClose} aria-label="Close">×</button>
+    <h2>{t.title}</h2>
+    <div style={{marginBottom:10}}>
+      <span className={"pill "+t.status}>{STATUS[t.status]}</span>{" "}
+      {t.priority==="high" && <span className="pill high">High priority</span>}{" "}
+      {t.need_manager && <span className="pill high">Needs manager</span>}{" "}
+      {t.need_help && <span className="pill high">Help requested</span>}{" "}
+      {t.recur_rule && <span className="pill">{recurLabel(t)}</span>}
+    </div>
+    {siblings.length>1 && <div className="note" style={{marginBottom:10}}>
+      <b>{siblings.length} open</b> in this recurring series — {siblings.map(x=>fmtDate(x.due_date)).join(", ")}.
+      {siblings.length>=(t.recur_cap||3) ? " That's the cap, so no new ones are being created until some are closed out." : ""}
+    </div>}
+    {parent && <div className="note" style={{marginBottom:10}}>Subtask of <a href="#" onClick={e=>{e.preventDefault();setOpen(parent.id);}}>{parent.title}</a></div>}
+
+    {!isMgr && !upd && t.assignee_id===me.id && t.definition_of_done && !CLOSED(t.status) && <div className="note" style={{marginBottom:6}}><b>Done means:</b> {t.definition_of_done}</div>}
+    {skipping && <div className="form card" style={{padding:14,marginBottom:12}}>
+      <label>Why are you skipping this one?<input autoFocus value={skipWhy} onChange={e=>setSkipWhy(e.target.value)} placeholder="Holiday, branch closed, not applicable this month…"/></label>
+      <div className="actions"><button className="btn" onClick={()=>setSkipping(false)}>Cancel</button><button className="btn p" onClick={doSkip}>Skip this one</button></div>
+    </div>}
+    {!isMgr && !upd && !skipping && t.assignee_id===me.id && <div className="big">
+      <button className="done" onClick={()=>quick({status:"done",need_help:false,need_manager:false},"Marked done")}>Done</button>
+      <button className="upd" onClick={()=>setUpd({status:t.status==="not_started"?"working":t.status,waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Update</button>
+      <button className="blk" onClick={()=>setUpd({status:"waiting",waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Blocked</button>
+      <button className="help" onClick={()=>quick({need_help:true,need_manager:true},"Flagged — your manager will see it")}>Need help</button>
+    </div>}
+    {upd && <div className="form card" style={{padding:14,marginBottom:12}}>
+      <div className="two">
+        <label>Status<select value={upd.status} onChange={e=>setUpd({...upd,status:e.target.value})}>{Object.entries(STATUS).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label>
+        <label>Expected completion<input type="date" value={upd.expected_completion} onChange={e=>setUpd({...upd,expected_completion:e.target.value})}/></label>
+      </div>
+      {upd.status==="waiting" && <label>Waiting on<input value={upd.waiting_on} onChange={e=>setUpd({...upd,waiting_on:e.target.value})} placeholder="Vendor, customer, a coworker, Kathleen…"/></label>}
+      <label>Next action<input value={upd.next_action} onChange={e=>setUpd({...upd,next_action:e.target.value})} placeholder="Call Goodman back Thursday"/></label>
+      <label>Add a note (optional)<textarea value={upd.note} onChange={e=>setUpd({...upd,note:e.target.value})}/></label>
+      <div className="actions"><button className="btn" onClick={()=>setUpd(null)}>Cancel</button>
+        <button className="btn p" onClick={async()=>{
+          const ok = await update(t.id,{status:upd.status,waiting_on:upd.status==="waiting"?upd.waiting_on:"",next_action:upd.next_action,expected_completion:upd.expected_completion||null});
+          if(ok){ if(upd.note.trim()) await sb.from("task_comments").insert({task_id:t.id,author_id:me.id,body:upd.note,is_private:false}); setUpd(null); refresh(); showToast("Updated"); }
+        }}>Save update</button></div>
+    </div>}
+
+    {!isMgr && iCreated && !edit && <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
+      {!CLOSED(t.status) && t.assignee_id!==me.id && <button className="btn" onClick={()=>quick({status:"done"},"Marked done")}>Mark done</button>}
+      <button className="btn" onClick={()=>setEdit(true)}>Edit</button>
+      <button className="btn" onClick={addSub}>+ Subtask</button>
+      <button className="btn" onClick={()=>setCopying(true)}>Copy to others</button>
+      <button className="btn" style={{color:"var(--red)"}} onClick={()=>trash(t)}>Trash</button>
+    </div>}
+    {copying && <div className="form card" style={{padding:14,marginBottom:12}}>
+      <div><b>Give this task to other people</b><div style={{fontSize:13,color:"var(--muted)"}}>Each person gets their own copy with its own progress. Comments and attachments stay with this one.</div></div>
+      <div>{people.filter(p=>p.active && p.id!==t.assignee_id).map(p=><button key={p.id} type="button" className="chip" style={copyTo.includes(p.id)?{background:"var(--navy)",color:"#fff",borderColor:"var(--navy)"}:{}}
+        onClick={()=>setCopyTo(copyTo.includes(p.id)?copyTo.filter(x=>x!==p.id):[...copyTo,p.id])}>{p.full_name}</button>)}</div>
+      <label>Due date for the copies<input type="date" value={copyDue} onChange={e=>setCopyDue(e.target.value)}/>
+        <span style={{fontSize:13,color:"var(--muted)"}}>Leave blank to keep {fmtDate(t.due_date)}.</span></label>
+      <div className="actions"><button className="btn" onClick={()=>{setCopying(false);setCopyTo([]);}}>Cancel</button>
+        <button className="btn p" disabled={!copyTo.length} onClick={doCopy}>Copy to {copyTo.length||""} {copyTo.length===1?"person":"people"}</button></div>
+    </div>}
+    {!isMgr && t.assignee_id===me.id && !edit && !skipping && <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
+      <button className="btn" onClick={addSub}>+ Subtask</button>
+      {t.recur_rule && !CLOSED(t.status) && <button className="btn" onClick={()=>setSkipping(true)}>Skip this one</button>}
+    </div>}
+    {isMgr && !edit && <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
+      {t.status==="ready_for_review" && <button className="btn p" onClick={()=>quick({status:"done",need_manager:false},"Approved and closed")}>Approve — mark done</button>}
+      {t.status==="ready_for_review" && <button className="btn" onClick={()=>quick({status:"working"},"Sent back")}>Send back</button>}
+      {(t.need_manager||t.need_help) && <button className="btn" onClick={()=>quick({need_manager:false,need_help:false},"Flag cleared")}>Clear flag</button>}
+      {!CLOSED(t.status) && <button className="btn" onClick={()=>quick({status:"done"},"Marked done")}>Mark done</button>}
+      {CLOSED(t.status) && <button className="btn" onClick={()=>quick({status:"working",skip_reason:null},"Reopened")}>Reopen</button>}
+      {t.recur_rule && !CLOSED(t.status) && <button className="btn" onClick={()=>setSkipping(true)}>Skip this one</button>}
+      {root && <button className="btn" onClick={()=>update(root.id,{recur_paused:!root.recur_paused}).then(ok=>ok&&showToast(root.recur_paused?"Series resumed":"Series paused — no new ones will be created"))}>{root.recur_paused?"Resume series":"Pause series"}</button>}
+      <button className="btn" onClick={()=>setEdit(true)}>Edit / reassign</button>
+      <button className="btn" onClick={addSub}>+ Subtask</button>
+      <button className="btn" style={{color:"var(--red)"}} onClick={()=>trash(t)}>Trash</button>
+    </div>}
+    {edit && <EditForm t={t} people={people} isMgr={isMgr} me={me} onCancel={()=>setEdit(false)} onSave={async p=>{ if(await update(t.id,p)){ setEdit(false); showToast("Saved"); } }}/>}
+
+    <dl>
+      <dt>Assigned to</dt><dd>{nameOf(people,t.assignee_id)}{t.created_by!==t.assignee_id ? ` · assigned by ${nameOf(people,t.created_by)}` : " · self-assigned"}</dd>
+      <dt>Due</dt><dd>{fmtDate(t.due_date)}{t.expected_completion && t.expected_completion!==t.due_date ? ` (expected ${fmtDate(t.expected_completion)})` : ""}</dd>
+      {t.status==="waiting" && <><dt>Waiting on</dt><dd>{t.waiting_on||"—"}</dd></>}
+      {t.next_action && <><dt>Next action</dt><dd>{t.next_action}</dd></>}
+      {t.context && <><dt>Context</dt><dd>{t.context}</dd></>}
+      {t.details && <><dt>Details</dt><dd style={{whiteSpace:"pre-wrap"}}>{t.details}</dd></>}
+      {t.definition_of_done && <><dt>Done means</dt><dd>{t.definition_of_done}</dd></>}
+      {t.standing_notes && <><dt>Standing notes</dt><dd style={{whiteSpace:"pre-wrap"}}>{t.standing_notes}{t.recur_rule?<div style={{fontSize:13,color:"var(--muted)"}}>Carried to every occurrence of this recurring task.</div>:null}</dd></>}
+      {t.status==="skipped" && t.skip_reason && <><dt>Skipped because</dt><dd>{t.skip_reason}</dd></>}
+      {root && root.recur_paused && <><dt>Series</dt><dd>Paused — no new occurrences are being created</dd></>}
+      <dt>Last update</dt><dd>{fmtWhen(t.last_update_at)}</dd>
+    </dl>
+
+    {children.length>0 && <><div className="section-title">Subtasks ({children.filter(c=>CLOSED(c.status)).length} of {children.length} done)</div>
+      <div className="card" style={{marginBottom:12}}>{children.map(c=><Row key={c.id} t={c} people={people} today={today} setOpen={setOpen} showWho={true} why={c.assignee_id===me.id&&c.status!=="done"?{why:"Yours",tone:"navy"}:null}/>)}</div></>}
+    <div className="tabs">
+      <button className={tab==="activity"?"on":""} onClick={()=>setTab("activity")}>Comments ({comments.length})</button>
+      <button className={tab==="files"?"on":""} onClick={()=>setTab("files")}>Attachments ({files.length})</button>
+      <button className={tab==="history"?"on":""} onClick={()=>setTab("history")}>History</button>
+    </div>
+    {tab==="activity" && <div>
+      {comments.map(c=><div key={c.id} className={"cmt"+(c.is_private?" priv":"")}><div className="by">{nameOf(people,c.author_id)} · {fmtWhen(c.created_at)}{c.is_private?" · private manager note":""}</div>{c.body}</div>)}
+      <div className="form" style={{marginTop:10}}>
+        <textarea value={body} onChange={e=>setBody(e.target.value)} placeholder={priv?"Private note only you can see":"Add a comment"}/>
+        <div className="actions" style={{justifyContent:"space-between"}}>
+          {isMgr ? <label style={{display:"flex",gap:6,alignItems:"center",fontSize:14}}><input type="checkbox" checked={priv} onChange={e=>setPriv(e.target.checked)} style={{width:"auto"}}/>Private manager note</label> : <span/>}
+          <button className="btn p" onClick={addComment} disabled={!body.trim()}>Post</button>
+        </div>
+      </div>
+    </div>}
+    {tab==="files" && <div className="att">
+      {files.map(f=><div key={f.id} style={{display:"flex",alignItems:"center",gap:8}}><a href="#" style={{flex:1}} onClick={e=>{e.preventDefault();openFile(f);}}>{f.file_name} <span style={{color:"var(--muted)",fontSize:12}}>· {nameOf(people,f.uploader_id)}</span></a>
+        {(isMgr||f.uploader_id===me.id) && <button className="btn sm" onClick={()=>removeFile(f)}>Remove</button>}</div>)}
+      {!files.length && <div className="empty">No attachments yet. Emails, quotes, photos, PDFs — up to 25 MB each.</div>}
+      <input type="file" ref={fileRef} style={{display:"none"}} onChange={e=>upload(e.target.files[0])}/>
+      <button className="btn" onClick={()=>fileRef.current.click()}>Attach a file</button>
+    </div>}
+    {tab==="history" && <div>{hist.map(h=><div key={h.id} className="hist">{fmtWhen(h.created_at)} — {histText(h)}</div>)}</div>}
+  </div></div>;
+}
+
+function Recur({f,setF}){
+  return <div className="two">
+    <label>Repeats<select value={f.recur_rule} onChange={e=>setF({...f,recur_rule:e.target.value,recur_day:e.target.value==="weekly"||e.target.value==="monthly"?"1":""})}>
+      <option value="">Does not repeat</option><option value="daily">Every day</option><option value="weekly">Every week</option><option value="monthly">Every month</option></select></label>
+    {f.recur_rule==="weekly" && <label>On<select value={f.recur_day} onChange={e=>setF({...f,recur_day:e.target.value})}>{DOW.map((d,i)=><option key={i} value={i}>{d}</option>)}</select></label>}
+    {f.recur_rule==="monthly" && <label>On day<input type="number" min="1" max="31" value={f.recur_day} onChange={e=>setF({...f,recur_day:e.target.value})}/></label>}
+    {f.recur_rule && <label>Stop and flag me after<select value={f.recur_cap??3} onChange={e=>setF({...f,recur_cap:e.target.value})}>{[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n} open at once</option>)}</select></label>}
+    {f.recur_rule && f.recur_rule!=="daily" && <div style={{gridColumn:"1 / -1",fontSize:13,color:"var(--muted)"}}>These appear on schedule — five days before each due date — whether or not the last one got finished.</div>}
+    {f.recur_rule==="daily" && <div style={{gridColumn:"1 / -1",fontSize:13,color:"var(--muted)"}}>A daily task rolls forward instead of piling up: the next one appears when this one is closed.</div>}
+  </div>;
+}
+
+function EditForm({t,people,onCancel,onSave,isMgr,me}){
+  const [f,setF] = useState({title:t.title,assignee_id:t.assignee_id||"",due_date:t.due_date||"",priority:t.priority,context:t.context,details:t.details,definition_of_done:t.definition_of_done,standing_notes:t.standing_notes||"",recur_rule:t.recur_rule||"",recur_day:t.recur_day??"",recur_cap:t.recur_cap??3});
+  return <div className="form card" style={{padding:14,marginBottom:12}}>
+    <label>Task<input value={f.title} onChange={e=>setF({...f,title:e.target.value})}/></label>
+    <div className="three">
+      <label>Assign to<select value={f.assignee_id} onChange={e=>setF({...f,assignee_id:e.target.value})}><option value="">Unassigned</option>{people.filter(p=>p.active && (isMgr||p.id===me.id||p.role==="manager")).map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select></label>
+      <label>Due<input type="date" value={f.due_date} onChange={e=>setF({...f,due_date:e.target.value})}/></label>
+      <label>Priority<select value={f.priority} onChange={e=>setF({...f,priority:e.target.value})}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></label>
+    </div>
+    <label>Context<input value={f.context} onChange={e=>setF({...f,context:e.target.value})}/></label>
+    <label>Details<textarea value={f.details} onChange={e=>setF({...f,details:e.target.value})}/></label>
+    <label>Definition of done<input value={f.definition_of_done} onChange={e=>setF({...f,definition_of_done:e.target.value})}/></label>
+    <label>Standing notes{t.recur_rule?" (carried to every occurrence)":""}<textarea value={f.standing_notes} onChange={e=>setF({...f,standing_notes:e.target.value})}/></label>
+    <Recur f={f} setF={setF}/>
+    <div className="actions"><button className="btn" onClick={onCancel}>Cancel</button><button className="btn p" onClick={()=>onSave({...f,assignee_id:f.assignee_id||null,due_date:f.due_date||null,recur_rule:f.recur_rule||null,recur_day:f.recur_rule&&f.recur_rule!=="daily"?(parseInt(f.recur_day)||null):null,recur_cap:parseInt(f.recur_cap)||3})}>Save</button></div>
+  </div>;
+}
+
+// ---------- team (manager) ----------
+function Access({showToast}){
+  const [doms,setDoms] = useState([]); const [mails,setMails] = useState([]);
+  const [d,setD] = useState(""); const [m,setM] = useState(""); const [note,setNote] = useState("");
+  const refresh = async () => {
+    const [a,b] = await Promise.all([
+      sb.from("allowed_domains").select("*").order("domain"),
+      sb.from("allowed_emails").select("*").order("email")]);
+    setDoms(a.data||[]); setMails(b.data||[]);
+  };
+  useEffect(()=>{refresh();},[]);
+  const addDom = async () => {
+    const v = d.trim().toLowerCase().replace(/^@/,"");
+    if(!v.includes(".")) { showToast("That doesn't look like a domain"); return; }
+    const {error} = await sb.from("allowed_domains").insert({domain:v});
+    if(error){ showToast(error.message); return; } setD(""); refresh(); showToast("Domain approved");
+  };
+  const addMail = async () => {
+    const v = m.trim().toLowerCase();
+    if(!v.includes("@")) { showToast("That doesn't look like an email address"); return; }
+    const {error} = await sb.from("allowed_emails").insert({email:v, note});
+    if(error){ showToast(error.message); return; } setM(""); setNote(""); refresh(); showToast("Address approved");
+  };
+  const drop = async (table, col, val) => {
+    const {error} = await sb.from(table).delete().eq(col,val);
+    if(error){ showToast(error.message); return; } refresh(); showToast("Removed");
+  };
+  return <>
+    <div className="section-title">Access — who can create an account</div>
+    <div className="note" style={{marginBottom:10}}>Anyone with a company email can sign themselves up. Everyone else is turned away unless their exact address is approved below. Removing an entry doesn't touch accounts that already exist — deactivate those on the list above.</div>
+    <div className="card" style={{padding:14,marginBottom:10}}>
+      <div style={{fontWeight:600,marginBottom:6}}>Approved domains</div>
+      <div>{doms.map(x=><span key={x.domain} className="chip">{x.domain}{doms.length>1 && <button className="btn q" style={{padding:"0 0 0 8px"}} onClick={()=>drop("allowed_domains","domain",x.domain)}>×</button>}</span>)}</div>
+      <div className="form two" style={{marginTop:10}}>
+        <input value={d} onChange={e=>setD(e.target.value)} placeholder="another-company.com" onKeyDown={e=>e.key==="Enter"&&addDom()}/>
+        <button className="btn" onClick={addDom}>Approve domain</button>
+      </div>
+    </div>
+    <div className="card" style={{padding:14}}>
+      <div style={{fontWeight:600,marginBottom:6}}>Approved individual addresses</div>
+      {mails.length ? mails.map(x=><div key={x.email} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0"}}>
+        <span style={{flex:1}}>{x.email}{x.note?<span style={{color:"var(--muted)",fontSize:13}}> — {x.note}</span>:null}</span>
+        <button className="btn sm" onClick={()=>drop("allowed_emails","email",x.email)}>Remove</button>
+      </div>) : <div style={{color:"var(--muted)",fontSize:14}}>None. Add one for a contractor, a temp, or someone at a sister company.</div>}
+      <div className="form three" style={{marginTop:10}}>
+        <input value={m} onChange={e=>setM(e.target.value)} placeholder="person@elsewhere.com"/>
+        <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Why (optional)"/>
+        <button className="btn" onClick={addMail}>Approve address</button>
+      </div>
+    </div>
+  </>;
+}
+
+function Team({people,me,load,showToast,setMe}){
+  const set = async (p,patch) => {
+    const {error} = await sb.from("profiles").update(patch).eq("id",p.id);
+    if(error){ showToast(error.message); return; } await load(); if(p.id===me.id) setMe({...me,...patch}); showToast("Saved");
+  };
+  return <>
+    <div className="h"><h2>Team</h2><span className="sub">People create their own account; you set the role here</span></div>
+    <div className="note" style={{marginBottom:10}}>Send new people to this site and have them tap "Create an account." They start as Employee. Deactivate anyone who leaves — their tasks stay so you can reassign them. Only approved email addresses can sign up; see Access below.</div>
+    <div className="card">{people.map(p=><div className="person" key={p.id} style={{cursor:"default"}}>
+      <div><b>{p.full_name}</b>{p.id===me.id?" (you)":""}<div style={{fontSize:13,color:"var(--muted)"}}>{p.email}</div></div>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <select value={p.role} disabled={p.id===me.id} onChange={e=>set(p,{role:e.target.value})} style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}><option value="employee">Employee</option><option value="manager">Manager</option></select>
+        <button className="btn sm" disabled={p.id===me.id} onClick={()=>set(p,{active:!p.active})}>{p.active?"Deactivate":"Reactivate"}</button>
+      </div>
+    </div>)}</div>
+    <Access showToast={showToast}/>
+  </>;
+}
+
+// ---------- trash ----------
+function Trash({trashed,people,today,update,showToast,setOpen,load}){
+  const purge = async (t) => {
+    if(!window.confirm(`Delete "${t.title}" permanently? Its comments, attachments, and history go with it. There is no undo.`)) return;
+    const {data:files} = await sb.storage.from("attachments").list(t.id);
+    if(files && files.length) await sb.storage.from("attachments").remove(files.map(f=>`${t.id}/${f.name}`));
+    const {error} = await sb.from("tasks").delete().eq("id",t.id);
+    if(error){ showToast(error.message); return; }
+    await load(); showToast("Deleted permanently");
+  };
+  return <>
+    <div className="h"><h2>Trash</h2><span className="sub">Restore anything here with one tap</span></div>
+    <div className="card">{trashed.length ? trashed.map(t=><div className="row" key={t.id} style={{cursor:"default"}}>
+      <div><div className="t">{nameOf(people,t.assignee_id)} — {t.title}</div><div className="m">Trashed {fmtWhen(t.updated_at)}</div></div>
+      <div style={{display:"flex",gap:6}}><button className="btn sm" onClick={()=>update(t.id,{deleted_at:null}).then(ok=>ok&&showToast("Restored"))}>Restore</button>
+        <button className="btn sm" style={{color:"var(--red)"}} onClick={()=>purge(t)}>Delete permanently</button></div>
+    </div>) : <div className="empty">Trash is empty.</div>}</div>
+  </>;
+}
+
+function Reports({tasks,people,today,setOpen}){
+  const [grain,setGrain] = useState("day");
+  const [rows,setRows] = useState(null);
+  const [per,setPer] = useState([]);
+  const [sort,setSort] = useState("open_now");
+  const back = grain==="day" ? 14 : 12;
+  useEffect(()=>{ let live=true;
+    Promise.all([sb.rpc("task_activity",{grain,back}), sb.rpc("person_activity",{grain,back})])
+      .then(([a,b])=>{ if(!live) return; setRows(a.data||[]); setPer(b.data||[]); });
+    return ()=>{live=false;};
+  },[grain,back]);
+
+  const openNow = tasks.filter(t=>!CLOSED(t.status));
+  const overdueNow = openNow.filter(t=>t.due_date && t.due_date<today);
+  const done = (rows||[]).reduce((n,r)=>n+r.completed,0);
+  const skipped = (rows||[]).reduce((n,r)=>n+r.skipped,0);
+  const made = (rows||[]).reduce((n,r)=>n+r.created,0);
+  const peak = Math.max(1, ...(rows||[]).map(r=>Math.max(r.created,r.completed)));
+  const label = (b) => grain==="day"
+    ? new Date(b+"T00:00:00").toLocaleDateString(undefined,{month:"numeric",day:"numeric"})
+    : new Date(b+"T00:00:00").toLocaleDateString(undefined,{month:"short"});
+  const sorted = [...per].sort((a,b)=> (b[sort]??0)-(a[sort]??0) || a.full_name.localeCompare(b.full_name));
+  const cols = [["open_now","Open"],["overdue_now","Overdue"],["completed","Completed"],["skipped","Skipped"]];
+
+  return <>
+    <div className="h"><h2>Reports</h2>
+      <div style={{display:"flex",gap:6}}>
+        <button className={"btn sm"+(grain==="day"?" p":"")} onClick={()=>setGrain("day")}>By day</button>
+        <button className={"btn sm"+(grain==="month"?" p":"")} onClick={()=>setGrain("month")}>By month</button>
+      </div></div>
+    <div className="counts">
+      <button style={{cursor:"default"}}><b>{openNow.length}</b><span>Open right now</span></button>
+      <button style={{cursor:"default"}}><b style={{color:overdueNow.length?"var(--red)":"inherit"}}>{overdueNow.length}</b><span>Overdue right now</span></button>
+      <button style={{cursor:"default"}}><b style={{color:"var(--ok)"}}>{done}</b><span>Completed</span></button>
+      <button style={{cursor:"default"}}><b>{skipped}</b><span>Skipped</span></button>
+    </div>
+    <div className="section-title">{grain==="day"?"Last 14 days":"Last 12 months"} — {made} created, {done} completed</div>
+    <div className="card" style={{padding:"16px 14px"}}>
+      {rows===null ? <div className="empty">Loading…</div> :
+       made+done===0 ? <div className="empty">Nothing recorded in this window yet.</div> :
+       <div style={{display:"flex",alignItems:"flex-end",gap:4,height:150,overflowX:"auto"}}>
+        {rows.map(r=><div key={r.bucket} style={{flex:"1 0 26px",textAlign:"center"}} title={`${label(r.bucket)} — ${r.created} created, ${r.completed} completed, ${r.skipped} skipped`}>
+          <div style={{display:"flex",gap:2,alignItems:"flex-end",height:110,justifyContent:"center"}}>
+            <div style={{width:9,height:`${Math.round(r.created/peak*100)}%`,background:"var(--navy)",borderRadius:"2px 2px 0 0",minHeight:r.created?3:0}}/>
+            <div style={{width:9,height:`${Math.round(r.completed/peak*100)}%`,background:"var(--ok)",borderRadius:"2px 2px 0 0",minHeight:r.completed?3:0}}/>
+          </div>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:4,whiteSpace:"nowrap"}}>{label(r.bucket)}</div>
+        </div>)}
+       </div>}
+      <div style={{marginTop:12,fontSize:13,color:"var(--muted)"}}>
+        <span style={{display:"inline-block",width:10,height:10,background:"var(--navy)",marginRight:5}}/>Created
+        <span style={{display:"inline-block",width:10,height:10,background:"var(--ok)",margin:"0 5px 0 14px"}}/>Completed
+      </div>
+    </div>
+    <div className="section-title">By person</div>
+    <div className="card">
+      <div className="person" style={{cursor:"default",background:"#fafbfd"}}>
+        <div style={{fontSize:13,color:"var(--muted)",fontWeight:600}}>Name</div>
+        <div className="stats">{cols.map(([k,l])=><button key={k} className="btn sm" style={{padding:"2px 8px",fontWeight:sort===k?700:500}} onClick={()=>setSort(k)}>{l}</button>)}</div>
+      </div>
+      {sorted.length ? sorted.map(p=><div className="person" key={p.person_id} style={{cursor:"default"}}>
+        <div><b>{p.full_name}</b></div>
+        <div className="stats">
+          <span style={{minWidth:54,textAlign:"center"}}><b>{p.open_now}</b></span>
+          <span style={{minWidth:54,textAlign:"center"}}><b style={{color:p.overdue_now?"var(--red)":"inherit"}}>{p.overdue_now}</b></span>
+          <span style={{minWidth:54,textAlign:"center"}}><b style={{color:"var(--ok)"}}>{p.completed}</b></span>
+          <span style={{minWidth:54,textAlign:"center"}}><b>{p.skipped}</b></span>
+        </div>
+      </div>) : <div className="empty">No one on the team yet.</div>}
+    </div>
+    <div className="note" style={{marginTop:10}}>Skipped is counted on its own, never as a miss — a holiday or a month that genuinely didn't apply shouldn't look like a failure.</div>
+  </>;
+}
+
+function Settings({me,setMe,showToast,isMgr}){
+  const set = async (patch) => {
+    const {error} = await sb.from("profiles").update(patch).eq("id",me.id);
+    if(error){ showToast(error.message); return; }
+    setMe({...me,...patch}); showToast("Saved");
+  };
+  const Toggle = ({on,onChange,title,sub}) => <div className="person" style={{cursor:"default"}}>
+    <div style={{paddingRight:12}}><b>{title}</b><div style={{fontSize:13,color:"var(--muted)"}}>{sub}</div></div>
+    <button className="btn sm" onClick={()=>onChange(!on)}>{on?"On":"Off"}</button>
+  </div>;
+  return <>
+    <div className="h"><h2>Settings</h2><span className="sub">{me.full_name}</span></div>
+    <div className="card">
+      <Toggle on={me.notify_on_assign} onChange={v=>set({notify_on_assign:v})}
+        title="Email me when something is assigned to me"
+        sub="Sent right away, with everything you need to start and a one-tap Got it button."/>
+      <Toggle on={me.notify_email} onChange={v=>set({notify_email:v})}
+        title="Remind me about my tasks"
+        sub="A note the day before something is due, and a check-in if a task due soon has gone quiet. Three buttons, one tap, no sign-in."/>
+      {isMgr && <Toggle on={me.notify_daily_digest} onChange={v=>set({notify_daily_digest:v})}
+        title="Weekday morning digest"
+        sub="What needs your decision, what's ready for review, what's overdue, and which recurring tasks have stalled. No email on a quiet day."/>}
+    </div>
+    <div className="note" style={{marginTop:10}}>Emails go out on weekday mornings. Turning this off doesn't change anything in the app — you'll still see everything when you open it.</div>
+  </>;
+}
+
+function WhatsNew(){
+  return <>
+    <div className="h"><h2>What's new</h2><span className="sub">Version {APP_VERSION}</span></div>
+    {CHANGELOG.map(c=><div className="card" key={c.v} style={{padding:14,marginBottom:10}}>
+      <b>v{c.v}</b> <span style={{color:"var(--muted)",fontSize:13}}>· {c.d}</span>
+      <ul style={{margin:"8px 0 0",paddingLeft:20}}>{c.items.map((i,k)=><li key={k}>{i}</li>)}</ul>
+    </div>)}
+  </>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

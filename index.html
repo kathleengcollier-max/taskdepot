@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="1.9">
+<meta name="app-version" content="2.0">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -131,6 +131,13 @@ const recurLabel = (t) => !t.recur_rule ? "" : t.recur_rule==="daily" ? "Repeats
 const STATUS = {not_started:"Not started", working:"Working", waiting:"Waiting", ready_for_review:"Ready for review", done:"Done", skipped:"Skipped"};
 const CLOSED = (st) => st==="done" || st==="skipped";
 const CHANGELOG = [
+  {v:"2.0", d:"September 22, 2026", items:[
+    "New Finished tab, managers only — everything your team has completed or skipped, newest first, so you can check on something you handed off weeks ago without hunting for it.",
+    "A quiet counter on the tab shows how many have been finished since you last looked. No email per completion; it just waits for you.",
+    "Tap \"Mark as seen\" to clear the counter when you've read them. Nothing disappears — the full history stays.",
+    "Filter by person, and by finished today, this week, this month, or everything.",
+    "Skipped items are shown alongside completed ones, labelled and with the reason, so you can tell a holiday from a finish."
+  ]},
   {v:"1.9", d:"September 12, 2026", items:[
     "Only company email addresses can create an account. The check runs in the database, not just on the sign-up screen, so it can't be stepped around.",
     "An Access section on the Team screen: approve another domain, or approve one specific outside address (a contractor, a temp, someone at a sister company) with a note about why.",
@@ -323,8 +330,10 @@ function Shell({me,setMe}){
   const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,showToast,isMgr};
 
   const attnCount = isMgr ? live.filter(t=>attention(t,today)).length : 0;
+  const freshDone = isMgr ? live.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id
+      && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0)).length : 0;
   const nav = isMgr
-    ? [["home","Home",attnCount],["people","People"],["all","All tasks"],["reports","Reports"],["team","Team"],["trash","Trash"],["settings","Settings"],["new","What's new"]]
+    ? [["home","Home",attnCount],["people","People"],["finished","Finished",freshDone],["all","All tasks"],["reports","Reports"],["team","Team"],["trash","Trash"],["settings","Settings"],["new","What's new"]]
     : [["myday","My day"],["all","All my tasks"],["settings","Settings"],["new","What's new"]];
 
   return <>
@@ -341,6 +350,7 @@ function Shell({me,setMe}){
       {view==="team" && <Team {...ctx} setMe={setMe}/>}
       {view==="trash" && <Trash {...ctx} trashed={tasks.filter(t=>t.deleted_at)}/>}
       {view==="myday" && <MyDay {...ctx}/>}
+      {view==="finished" && isMgr && <Finished {...ctx} setMe={setMe}/>}
       {view==="reports" && isMgr && <Reports {...ctx}/>}
       {view==="settings" && <Settings me={me} setMe={setMe} showToast={showToast} isMgr={isMgr}/>}
       {view==="new" && <WhatsNew/>}
@@ -873,6 +883,63 @@ function Trash({trashed,people,today,update,showToast,setOpen,load}){
       <div style={{display:"flex",gap:6}}><button className="btn sm" onClick={()=>update(t.id,{deleted_at:null}).then(ok=>ok&&showToast("Restored"))}>Restore</button>
         <button className="btn sm" style={{color:"var(--red)"}} onClick={()=>purge(t)}>Delete permanently</button></div>
     </div>) : <div className="empty">Trash is empty.</div>}</div>
+  </>;
+}
+
+function Finished({tasks,people,today,setOpen,me,setMe,showToast}){
+  const [who,setWho] = useState("");
+  const [range,setRange] = useState("month");
+  const seen = new Date(me.completions_seen_at || 0);
+  const finishedAt = (t) => new Date(t.status==="skipped" ? t.updated_at : (t.completed_at || t.updated_at));
+  const cutoff = () => {
+    const d = new Date();
+    if(range==="today"){ d.setHours(0,0,0,0); return d; }
+    if(range==="week"){ d.setDate(d.getDate()-7); return d; }
+    if(range==="month"){ d.setDate(d.getDate()-30); return d; }
+    return new Date(0);
+  };
+  const list = tasks.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id)
+    .filter(t=>!who || t.assignee_id===who)
+    .filter(t=>finishedAt(t) >= cutoff())
+    .sort((a,b)=>finishedAt(b)-finishedAt(a));
+  const fresh = list.filter(t=>finishedAt(t) > seen);
+  const markSeen = async () => {
+    const now = new Date().toISOString();
+    const {error} = await sb.from("profiles").update({completions_seen_at:now}).eq("id",me.id);
+    if(error){ showToast(error.message); return; }
+    setMe({...me, completions_seen_at:now}); showToast("Cleared");
+  };
+  const when = (t) => {
+    const d = finishedAt(t), days = Math.round((Date.now()-d)/86400000);
+    const time = d.toLocaleDateString(undefined,{month:"short",day:"numeric"});
+    return days<=0 ? "today" : days===1 ? "yesterday" : `${time} (${days} days ago)`;
+  };
+  return <>
+    <div className="h"><h2>Finished</h2>
+      {fresh.length>0 && <button className="btn sm p" onClick={markSeen}>Mark {fresh.length} as seen</button>}</div>
+    <div className="note" style={{marginBottom:10}}>Everything your team has closed out. Nothing emails you when a task is finished — it just collects here until you look.</div>
+    <div className="form two" style={{marginBottom:10}}>
+      <select value={who} onChange={e=>setWho(e.target.value)}><option value="">Everyone</option>{people.filter(p=>p.id!==me.id).map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select>
+      <select value={range} onChange={e=>setRange(e.target.value)}>
+        <option value="today">Finished today</option><option value="week">Last 7 days</option>
+        <option value="month">Last 30 days</option><option value="all">Everything</option></select>
+    </div>
+    <div className="card">
+      {list.length ? list.map(t=><div className="row" key={t.id} onClick={()=>setOpen(t.id)}>
+        <div>
+          <div className="t">
+            {finishedAt(t)>seen && <span style={{color:"var(--red)",fontWeight:700,marginRight:6}}>•</span>}
+            <b style={{color:"var(--navy)"}}>{nameOf(people,t.assignee_id)}</b> — {t.title}
+          </div>
+          <div className="m">
+            <span className={"pill "+t.status}>{t.status==="skipped"?"Skipped":"Done"}</span>{" "}
+            {when(t)}
+            {t.status==="skipped" && t.skip_reason ? ` · ${t.skip_reason}` : ""}
+            {t.context ? ` · ${t.context}` : ""}
+          </div>
+        </div>
+      </div>) : <div className="empty">Nothing finished in this window.</div>}
+    </div>
   </>;
 }
 

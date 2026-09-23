@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="4.8">
+<meta name="app-version" content="5.1">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -196,6 +196,17 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"5.1", d:"September 23, 2026", items:[
+    "Who can change a task is now decided by who assigned it, not by job title. A manager can't trash or re-date something you handed them either — they update progress or ask for a new date, same as anyone.",
+    "They keep full control of their own tasks, and of anything their own reports hand up to them.",
+    "The refusal names who assigned it, so it's obvious who to ask."
+  ]},
+  {v:"5.0", d:"September 23, 2026", items:[
+    "Ask for a new due date. On a task someone else assigned, there's now a \"Need more time\" button — pick a date, say why, and it goes to whoever assigned it. The date doesn't move until they agree.",
+    "The manager sees the request on the task with Accept and Keep the date, and either way the answer is posted as a comment so there's a record of it.",
+    "Everyone can open their own 1:1 — the same agenda their manager sees, minus the manager's private notes. It's under My 1:1 for employees, and on your own row in People.",
+    "Note on trashing: employees already can't trash or re-date work assigned to them. Managers can, for their own reports — so anyone you make a Manager gets that power."
+  ]},
   {v:"4.8", d:"September 23, 2026", items:[
     "All tasks: the person filter now lists people you've invited who haven't signed up yet, under \"Not signed up yet\", so you can pull up everything waiting for Jeff or Bianca before they ever log in.",
     "Their tasks were always in the list — there was just no way to filter down to one of them."
@@ -557,7 +568,7 @@ function Shell({me,setMe}){
       && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0)).length : 0;
   const nav = isMgr
     ? [["home","Home",attnCount],["all","All tasks"],["repeating","Repeating"],["finished","Finished",freshDone],["reports","Reports"],["trash","Trash"],["people","People"],["settings","Settings"],["search","Search"]]
-    : [["myday","My day"],["all","All my tasks"],["settings","Settings"],["search","Search"]];
+    : [["myday","My day"],["all","All my tasks"],["one","My 1:1"],["settings","Settings"],["search","Search"]];
 
   return <>
     <header className="top"><div className="bar">
@@ -572,6 +583,7 @@ function Shell({me,setMe}){
       {view==="all" && <AllTasks {...ctx}/>}
       {view==="trash" && <Trash {...ctx} trashed={tasks.filter(t=>t.deleted_at)}/>}
       {view==="myday" && <MyDay {...ctx}/>}
+      {view==="one" && <Agenda personId={me.id} people={people} onBack={()=>setView(isMgr?"home":"myday")} showToast={showToast} setOpen={setOpen}/>}
       {view==="repeating" && <Repeating {...ctx}/>}
       {view==="search" && <Search {...ctx}/>}
       {view==="finished" && isMgr && <Finished {...ctx} setMe={setMe}/>}
@@ -870,6 +882,11 @@ function TaskModal(ctx){
   const at = queue.indexOf(t.id);
   const go = (delta) => { const n = queue[at+delta]; if(n) setOpen(n, queue); };
   const iCreated = t.created_by===me.id;
+  // you may reshape a task (dates, owner, title, trash) only if it's yours to reshape:
+  // you created it, you're the owner, or it came up from someone who reports to you
+  const creatorProfile = people.find(p=>p.id===t.created_by);
+  const canReshape = iCreated || me.role==="owner" || !t.assignee_id
+    || (isMgr && creatorProfile && creatorProfile.manager_id===me.id);
   const children = tasks.filter(c=>c.parent_id===t.id);
   const parent = t.parent_id ? tasks.find(p=>p.id===t.parent_id) : null;
   const siblings = t.series_id ? tasks.filter(x=>x.series_id===t.series_id && !CLOSED(x.status)).sort((a,b)=>(a.due_date||"").localeCompare(b.due_date||"")) : [];
@@ -899,6 +916,21 @@ function TaskModal(ctx){
   };
   const [replying,setReplying] = useState(false);
   const [asking,setAsking] = useState(false);
+  const [dating,setDating] = useState(false);
+  const [wantDate,setWantDate] = useState("");
+  const [wantWhy,setWantWhy] = useState("");
+  const askDate = async () => {
+    if(!wantDate){ showToast("Pick a date first"); return; }
+    const {error} = await sb.rpc("request_due_change",{p_task:t.id, p_date:wantDate, p_reason:wantWhy});
+    if(error){ showToast(error.message); return; }
+    setDating(false); setWantDate(""); setWantWhy("");
+    await ctx.load(); showToast("Asked — they'll get an email");
+  };
+  const answerDate = async (accept) => {
+    const {error} = await sb.rpc("answer_due_change",{p_task:t.id, p_accept:accept, p_note:""});
+    if(error){ showToast(error.message); return; }
+    await ctx.load(); showToast(accept?"Date moved":"Date kept");
+  };
   const [askNote,setAskNote] = useState("");
   const doAsk = async () => {
     const {error} = await sb.rpc("request_help",{p_task:t.id, p_note:askNote});
@@ -1004,6 +1036,23 @@ function TaskModal(ctx){
       <b>{siblings.length} open</b> in this recurring series — {siblings.map(x=>fmtDate(x.due_date)).join(", ")}.
       {siblings.length>=(t.recur_cap||3) ? " That's the cap, so no new ones are being created until some are closed out." : ""}
     </div>}
+    {t.requested_due && <div className="note" style={{marginBottom:10,background:"var(--warn-soft)",borderLeft:"3px solid var(--warn)"}}>
+      <b>{nameOf(people,t.requested_by)} asked to move this to {fmtDate(t.requested_due)}</b>
+      {t.requested_reason ? <div style={{marginTop:4}}>"{t.requested_reason}"</div> : null}
+      {(isMgr || t.created_by===me.id) && <div className="actions" style={{justifyContent:"flex-start",marginTop:8}}>
+        <button className="btn p" onClick={()=>answerDate(true)}>Accept {fmtDate(t.requested_due)}</button>
+        <button className="btn" onClick={()=>answerDate(false)}>Keep {fmtDate(t.due_date)}</button>
+      </div>}
+    </div>}
+    {dating && <div className="form card" style={{padding:14,marginBottom:12}}>
+      <div><b>Ask for a new due date</b><div style={{fontSize:13,color:"var(--muted)"}}>It stays due {fmtDate(t.due_date)} until {nameOf(people,t.created_by)} agrees.</div></div>
+      <div className="two">
+        <label>New date<input type="date" value={wantDate} onChange={e=>setWantDate(e.target.value)}/></label>
+      </div>
+      <label>Why<textarea value={wantWhy} onChange={e=>setWantWhy(e.target.value)} placeholder="Waiting on the vendor to confirm pricing."/></label>
+      <div className="actions"><button className="btn" onClick={()=>{setDating(false);setWantDate("");setWantWhy("");}}>Cancel</button>
+        <button className="btn p" onClick={askDate}>Send the request</button></div>
+    </div>}
     {parent && <div className="note" style={{marginBottom:10}}>Part of <a href="#" onClick={e=>{e.preventDefault();setOpen(parent.id);}}>{parent.title}</a></div>}
 
     {!isMgr && !upd && t.assignee_id===me.id && t.definition_of_done && !CLOSED(t.status) && <div className="note" style={{marginBottom:6}}><b>Done means:</b> {t.definition_of_done}</div>}
@@ -1060,15 +1109,17 @@ function TaskModal(ctx){
       {isMgr && t.status==="ready_for_review" && <button className="btn p" onClick={()=>quick({status:"done",need_manager:false},"Approved and closed")}>Approve — mark done</button>}
       {isMgr && t.status==="ready_for_review" && <button className="btn" onClick={()=>quick({status:"working"},"Sent back")}>Send back</button>}
       {isMgr && (t.need_manager||t.need_help) && <button className="btn r" onClick={()=>setReplying(true)}>Reply &amp; clear flag</button>}
-      {(isMgr || iCreated) && !CLOSED(t.status) && <button className="btn" onClick={()=>quick({status:"done"},"Marked done")}>Mark done</button>}
+      {!CLOSED(t.status) && <button className="btn" onClick={()=>quick({status:"done"},"Marked done")}>Mark done</button>}
       {(isMgr || iCreated) && CLOSED(t.status) && <button className="btn" onClick={()=>quick({status:"working",skip_reason:null},"Reopened")}>Reopen</button>}
       {t.recur_rule && !CLOSED(t.status) && (isMgr || t.assignee_id===me.id) && <button className="btn" onClick={()=>setSkipping(true)}>Skip this one</button>}
       {isMgr && root && <button className="btn" onClick={()=>update(root.id,{recur_paused:!root.recur_paused}).then(ok=>ok&&showToast(root.recur_paused?"Series resumed":"Series paused — no new ones will be created"))}>{root.recur_paused?"Resume series":"Pause series"}</button>}
-      {(isMgr || iCreated) && <button className="btn" onClick={()=>setEdit(true)}>{isMgr?"Edit / reassign":"Edit"}</button>}
+      {canReshape && <button className="btn" onClick={()=>setEdit(true)}>{isMgr?"Edit / reassign":"Edit"}</button>}
+      {!canReshape && t.assignee_id===me.id && !CLOSED(t.status) && !t.requested_due &&
+        <button className="btn" onClick={()=>setDating(true)}>Need more time</button>}
       <button className="btn" onClick={addSub}>Split off a linked task</button>
       {isMgr && people.filter(p=>p.active && p.id!==t.assignee_id).length>0 &&
         <button className="btn" onClick={()=>setCopying(true)}>Copy to others</button>}
-      {(isMgr || iCreated) && <button className="btn" style={{color:"var(--red)"}} onClick={()=>trash(t)}>Trash</button>}
+      {canReshape && <button className="btn" style={{color:"var(--red)"}} onClick={()=>trash(t)}>Trash</button>}
     </div>}
     {edit && <EditForm t={t} people={people} isMgr={isMgr} me={me} onCancel={()=>setEdit(false)} onSave={async p=>{ if(await update(t.id,p)){ setEdit(false); showToast("Saved"); } }}/>}
 
@@ -1393,7 +1444,7 @@ function Agenda({personId,people,onBack,showToast,setOpen}){
   if(!a) return <div className="empty">Building the agenda…</div>;
   if(a.error) return <div className="note">That person doesn't report to you.</div>;
   return <>
-    <div className="h"><h2>1:1 — {a.person}</h2>
+    <div className="h"><h2>{a.own_view ? "My 1:1" : `1:1 — ${a.person}`}</h2>
       <div style={{display:"flex",gap:6}}>
         <select value={days} onChange={e=>setDays(parseInt(e.target.value))} style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}>
           <option value={7}>Last 7 days</option><option value={14}>Last 14 days</option><option value={30}>Last 30 days</option></select>
@@ -1408,6 +1459,7 @@ function Agenda({personId,people,onBack,showToast,setOpen}){
     <Sec title="Still open" items={a.open} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:"no date"}{x.next?` · next: ${x.next}`:""}</span></>}/>
     <Sec title="They've asked you for" items={a.they_asked_you} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:""}</span></>}/>
     <Sec title="Your private notes" items={a.notes} render={x=><><b>{x.title}</b><div className="meta">{x.body}</div></>}/>
+    {a.own_view && <div className="note">This is what your manager sees when they open your 1:1, minus any private notes they've written.</div>}
     {!a.completed.length && !a.overdue.length && !a.open.length && !a.waiting_on_you.length &&
       <div className="card"><div className="empty">Nothing to talk about yet — no tasks in this window.</div></div>}
   </>;

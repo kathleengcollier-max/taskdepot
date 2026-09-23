@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="5.1">
+<meta name="app-version" content="5.2">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -196,6 +196,11 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"5.2", d:"September 23, 2026", items:[
+    "Add the steps while you're writing the task, instead of saving it and going back in. Type a step, press Enter, keep going — they're saved with the task.",
+    "Paste a list and it splits into one step per line, so a checklist out of an email or a document comes straight in.",
+    "Assign the same task to several people and each copy gets its own set of the steps."
+  ]},
   {v:"5.1", d:"September 23, 2026", items:[
     "Who can change a task is now decided by who assigned it, not by job title. A manager can't trash or re-date something you handed them either — they update progress or ask for a new date, same as anyone.",
     "They keep full control of their own tasks, and of anything their own reports hand up to them.",
@@ -811,6 +816,13 @@ function AssignModal(ctx){
   const {people,me,onClose,load,showToast,today,isMgr,parent} = ctx;
   const blank = {title:"",assignee_id:isMgr?"":me.id,due_date:"",priority:"normal",context:parent?parent.context:"",details:"",definition_of_done:"",standing_notes:"",recur_rule:"",recur_day:"",recur_cap:3};
   const [several,setSeveral] = useState([]);   // extra people to give a copy to
+  const [steps,setSteps] = useState([]);      // checklist typed while writing the task
+  const [stepText,setStepText] = useState("");
+  const addStep = () => {
+    const lines = stepText.split(/\r?\n/).map(x=>x.replace(/^\s*[-*\u2022]\s*/,"").trim()).filter(Boolean);
+    if(!lines.length) return;
+    setSteps([...steps, ...lines]); setStepText("");
+  };
   const [f,setF] = useState(blank); const [ai,setAi] = useState(""); const [busy,setBusy]=useState(false); const [err,setErr]=useState("");
   const staff = isMgr ? people.filter(p=>p.active) : people.filter(p=>p.active && (p.id===me.id || (parent && p.role==="manager")));
   const pending = isMgr ? (ctx.invitees||[]) : [];
@@ -833,7 +845,12 @@ function AssignModal(ctx){
                  recur_rule:f.recur_rule||null, recur_day:(!f.recur_rule||f.recur_rule==="daily")?null:(parseInt(f.recur_day)||null), recur_cap:parseInt(f.recur_cap)||3};
     const targets = several.length ? several : [row.assignee_id];
     const rows = targets.map(id=>({...row, assignee_id:id||null}));
-    const {error} = await sb.from("tasks").insert(rows);
+    const {data:made, error} = await sb.from("tasks").insert(rows).select("id");
+    if(!error && steps.length && made && made.length){
+      const stepRows = made.flatMap(t => steps.map((body,i)=>({task_id:t.id, body, position:i, created_by:me.id})));
+      const {error:se} = await sb.from("task_steps").insert(stepRows);
+      if(se) showToast("Task saved, but the steps didn't: "+se.message);
+    }
     setBusy(false);
     if(error){ setErr(error.message); return; }
     await load();
@@ -867,6 +884,22 @@ function AssignModal(ctx){
           onClick={()=>setSeveral(several.includes(p.id)?several.filter(x=>x!==p.id):[...several,p.id])}>{p.full_name}</button>)}</div>
         {several.length>0 && <div style={{fontSize:13,color:"var(--muted)",marginTop:4}}>Each person gets their own copy with its own progress and due date. Tap a name again to remove them.</div>}
       </div>}
+      <div>
+        <div className="section-title" style={{marginTop:0}}>Steps {steps.length?`(${steps.length})`:""}</div>
+        <div style={{fontSize:13,color:"var(--muted)",marginBottom:6}}>A checklist inside the task — no separate cards, no separate owner. Paste a list and each line becomes a step.</div>
+        {steps.map((x,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderTop:"1px solid var(--line)"}}>
+          <span style={{color:"var(--muted)",fontSize:13,minWidth:18}}>{i+1}.</span>
+          <span style={{flex:1}}>{x}</span>
+          <button type="button" className="btn q" style={{padding:"0 6px",color:"var(--muted)"}} onClick={()=>setSteps(steps.filter((_,j)=>j!==i))}>×</button>
+        </div>)}
+        <div style={{display:"flex",gap:8,marginTop:8}}>
+          <textarea value={stepText} onChange={e=>setStepText(e.target.value)}
+            onKeyDown={e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); addStep(); } }}
+            placeholder="Add a step, then Enter" rows={1}
+            style={{flex:1,border:"1px solid var(--line)",borderRadius:8,padding:"9px 11px",minHeight:42,resize:"vertical"}}/>
+          <button type="button" className="btn sm" onClick={addStep} disabled={!stepText.trim()}>Add</button>
+        </div>
+      </div>
       <label>Standing notes{f.recur_rule?" (carried to every occurrence)":""}<textarea value={f.standing_notes} onChange={e=>setF({...f,standing_notes:e.target.value})} placeholder="Where the file lives, who to call, what tripped people up last time"/></label>
       <Recur f={f} setF={setF}/>
       {err && <div className="err">{err}</div>}

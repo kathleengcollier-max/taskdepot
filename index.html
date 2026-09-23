@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="3.3">
+<meta name="app-version" content="3.4">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CjxyZWN0IHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgcng9IjEyIiBmaWxsPSIjMWYzYTdhIi8+CjxyZWN0IHg9IjEyIiB5PSIxNCIgd2lkdGg9IjQwIiBoZWlnaHQ9IjMwIiByeD0iNiIgZmlsbD0iI2ZmZmZmZiIvPgo8cmVjdCB4PSIxNiIgeT0iMTkiIHdpZHRoPSIxNCIgaGVpZ2h0PSIxMCIgcng9IjIiIGZpbGw9IiMxZjNhN2EiLz4KPHJlY3QgeD0iMzQiIHk9IjE5IiB3aWR0aD0iMTQiIGhlaWdodD0iMTAiIHJ4PSIyIiBmaWxsPSIjMWYzYTdhIi8+CjxyZWN0IHg9IjE2IiB5PSIzMyIgd2lkdGg9IjMyIiBoZWlnaHQ9IjQiIHJ4PSIyIiBmaWxsPSIjYzYyODI4Ii8+CjxyZWN0IHg9IjE0IiB5PSI0NCIgd2lkdGg9IjYiIGhlaWdodD0iNSIgcng9IjIiIGZpbGw9IiMxZjNhN2EiLz4KPHJlY3QgeD0iNDQiIHk9IjQ0IiB3aWR0aD0iNiIgaGVpZ2h0PSI1IiByeD0iMiIgZmlsbD0iIzFmM2E3YSIvPgo8Y2lyY2xlIGN4PSIyMSIgY3k9IjUwIiByPSI1IiBmaWxsPSIjMTYxODFkIi8+PGNpcmNsZSBjeD0iMjEiIGN5PSI1MCIgcj0iMiIgZmlsbD0iI2ZmZmZmZiIvPgo8Y2lyY2xlIGN4PSI0MyIgY3k9IjUwIiByPSI1IiBmaWxsPSIjMTYxODFkIi8+PGNpcmNsZSBjeD0iNDMiIGN5PSI1MCIgcj0iMiIgZmlsbD0iI2ZmZmZmZiIvPgo8L3N2Zz4=">
@@ -77,8 +77,16 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
 .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:6px}
-.modalbg{position:fixed;inset:0;background:rgba(20,26,40,.5);z-index:40;display:flex;align-items:flex-end;justify-content:center}
-.modal{background:#fff;width:100%;max-width:760px;max-height:92vh;overflow:auto;border-radius:14px 14px 0 0;padding:18px 18px 28px}
+.modalbg{position:fixed;inset:0;background:rgba(20,26,40,.45);z-index:40;display:flex;align-items:stretch;justify-content:flex-end;animation:fade .15s ease-out}
+.modal{background:var(--paper);width:100%;max-width:560px;height:100%;overflow:auto;border-radius:0;padding:18px 18px 28px;box-shadow:-8px 0 28px rgba(20,26,40,.18);animation:slidein .2s ease-out;padding-top:calc(18px + env(safe-area-inset-top,0px));padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
+@keyframes slidein{from{transform:translateX(100%)}to{transform:translateX(0)}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.panel{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
+.panel.tint{background:#f2f5fb;border-color:#dde4f2}
+.panel h3{font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:var(--muted);font-weight:700;margin:0 0 10px}
+.kv{display:grid;grid-template-columns:118px 1fr;gap:7px 12px;font-size:14px;margin:0}
+.kv dt{color:var(--muted)} .kv dd{margin:0}
+@media (max-width:640px){.modal{max-width:100%}.kv{grid-template-columns:100px 1fr}}
 .modal h2{font-size:19px;font-weight:600;margin-bottom:12px}
 .modal .x{position:sticky;top:0;float:right;background:#fff;border:0;font-size:22px;cursor:pointer;color:var(--muted);line-height:1}
 .detail dl{display:grid;grid-template-columns:130px 1fr;gap:6px 12px;margin:0 0 14px;font-size:14px}
@@ -133,6 +141,12 @@ const recurLabel = (t) => !t.recur_rule ? "" : t.recur_rule==="daily" ? "Repeats
 const STATUS = {not_started:"Not started", working:"Working", waiting:"Waiting", ready_for_review:"Ready for review", done:"Done", skipped:"Skipped"};
 const CLOSED = (st) => st==="done" || st==="skipped";
 const CHANGELOG = [
+  {v:"3.4", d:"September 22, 2026", items:[
+    "Task and assign windows are drawers now — they slide in from the right, like the other apps, and close with the button at the bottom or by tapping the shaded area.",
+    "Cleaner structure inside a task: real sections with headers, tinted panels and a two-column grid for the facts, instead of one long strip.",
+    "\"Hand a piece to someone\" is now \"Split off a linked task\" — it makes a separate task for someone else, linked back to this one.",
+    "Buttons appear once, in a single row, and only when you can actually use them. Copy to others is hidden unless there's somebody to copy to."
+  ]},
   {v:"3.3", d:"September 22, 2026", items:[
     "New Owner level above manager. Only an owner can change roles, set who reports to whom, or manage who's allowed to sign up — so a manager can't promote themselves or demote you.",
     "Managers are now scoped to their own people. Each person has a \"reports to\", and a manager sees, assigns and reports on their own reports only.",
@@ -626,7 +640,7 @@ function AssignModal(ctx){
     onClose();
   };
   return <div className="modalbg" style={{zIndex:50}} onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}>
-    <h2>{parent ? "Hand a piece to someone" : isMgr ? "Assign a task" : "Add a task"}</h2>
+    <h2>{parent ? "Split off a linked task" : isMgr ? "Assign a task" : "Add a task"}</h2>
     {parent && <div className="note" style={{marginBottom:12}}>This becomes its own task, linked back to <b>{parent.title}</b>, with its own owner and due date.{!isMgr && " You can hand it to yourself or to your manager."}</div>}
     {isMgr && <div className="ai">
       <div style={{fontWeight:600,marginBottom:6}}>Or just describe it</div>
@@ -826,13 +840,6 @@ function TaskModal(ctx){
         }}>Save update</button></div>
     </div>}
 
-    {!isMgr && (iCreated || t.assignee_id===me.id) && !edit && !skipping && !asking && <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
-      {iCreated && !CLOSED(t.status) && t.assignee_id!==me.id && <button className="btn" onClick={()=>quick({status:"done"},"Marked done")}>Mark done</button>}
-      {iCreated && <button className="btn" onClick={()=>setEdit(true)}>Edit</button>}
-      <button className="btn" onClick={addSub}>Hand a piece to someone</button>
-      {t.recur_rule && !CLOSED(t.status) && <button className="btn" onClick={()=>setSkipping(true)}>Skip this one</button>}
-      {iCreated && <button className="btn" style={{color:"var(--red)"}} onClick={()=>trash(t)}>Trash</button>}
-    </div>}
     {replying && <div className="form card" style={{padding:14,marginBottom:12}}>
       <div><b>Reply to {nameOf(people,t.assignee_id)}</b>
         <div style={{fontSize:13,color:"var(--muted)"}}>What you write is added to the task's comments and emailed to them. Leave it blank and they just get a note that you've looked at it.</div></div>
@@ -849,21 +856,24 @@ function TaskModal(ctx){
       <div className="actions"><button className="btn" onClick={()=>{setCopying(false);setCopyTo([]);}}>Cancel</button>
         <button className="btn p" disabled={!copyTo.length} onClick={doCopy}>Copy to {copyTo.length||""} {copyTo.length===1?"person":"people"}</button></div>
     </div>}
-    {isMgr && !edit && <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
-      {t.status==="ready_for_review" && <button className="btn p" onClick={()=>quick({status:"done",need_manager:false},"Approved and closed")}>Approve — mark done</button>}
-      {t.status==="ready_for_review" && <button className="btn" onClick={()=>quick({status:"working"},"Sent back")}>Send back</button>}
-      {(t.need_manager||t.need_help) && <button className="btn r" onClick={()=>setReplying(true)}>Reply &amp; clear flag</button>}
-      {!CLOSED(t.status) && <button className="btn" onClick={()=>quick({status:"done"},"Marked done")}>Mark done</button>}
-      {CLOSED(t.status) && <button className="btn" onClick={()=>quick({status:"working",skip_reason:null},"Reopened")}>Reopen</button>}
-      {t.recur_rule && !CLOSED(t.status) && <button className="btn" onClick={()=>setSkipping(true)}>Skip this one</button>}
-      {root && <button className="btn" onClick={()=>update(root.id,{recur_paused:!root.recur_paused}).then(ok=>ok&&showToast(root.recur_paused?"Series resumed":"Series paused — no new ones will be created"))}>{root.recur_paused?"Resume series":"Pause series"}</button>}
-      <button className="btn" onClick={()=>setEdit(true)}>Edit / reassign</button>
-      <button className="btn" onClick={addSub}>Hand a piece to someone</button>
-      <button className="btn" style={{color:"var(--red)"}} onClick={()=>trash(t)}>Trash</button>
+    {!edit && !skipping && !asking && !replying && !copying && (isMgr || iCreated || t.assignee_id===me.id) &&
+     <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
+      {isMgr && t.status==="ready_for_review" && <button className="btn p" onClick={()=>quick({status:"done",need_manager:false},"Approved and closed")}>Approve — mark done</button>}
+      {isMgr && t.status==="ready_for_review" && <button className="btn" onClick={()=>quick({status:"working"},"Sent back")}>Send back</button>}
+      {isMgr && (t.need_manager||t.need_help) && <button className="btn r" onClick={()=>setReplying(true)}>Reply &amp; clear flag</button>}
+      {(isMgr || iCreated) && !CLOSED(t.status) && <button className="btn" onClick={()=>quick({status:"done"},"Marked done")}>Mark done</button>}
+      {(isMgr || iCreated) && CLOSED(t.status) && <button className="btn" onClick={()=>quick({status:"working",skip_reason:null},"Reopened")}>Reopen</button>}
+      {t.recur_rule && !CLOSED(t.status) && (isMgr || t.assignee_id===me.id) && <button className="btn" onClick={()=>setSkipping(true)}>Skip this one</button>}
+      {isMgr && root && <button className="btn" onClick={()=>update(root.id,{recur_paused:!root.recur_paused}).then(ok=>ok&&showToast(root.recur_paused?"Series resumed":"Series paused — no new ones will be created"))}>{root.recur_paused?"Resume series":"Pause series"}</button>}
+      {(isMgr || iCreated) && <button className="btn" onClick={()=>setEdit(true)}>{isMgr?"Edit / reassign":"Edit"}</button>}
+      <button className="btn" onClick={addSub}>Split off a linked task</button>
+      {isMgr && people.filter(p=>p.active && p.id!==t.assignee_id).length>0 &&
+        <button className="btn" onClick={()=>setCopying(true)}>Copy to others</button>}
+      {(isMgr || iCreated) && <button className="btn" style={{color:"var(--red)"}} onClick={()=>trash(t)}>Trash</button>}
     </div>}
     {edit && <EditForm t={t} people={people} isMgr={isMgr} me={me} onCancel={()=>setEdit(false)} onSave={async p=>{ if(await update(t.id,p)){ setEdit(false); showToast("Saved"); } }}/>}
 
-    <dl>
+    <div className="panel"><h3>The task</h3><dl className="kv">
       <dt>Assigned to</dt><dd>{t.assignee_id ? nameOf(people,t.assignee_id) : t.assignee_email ? `${t.assignee_email} — waiting for them to sign up` : "Unassigned"}{t.assignee_id && t.created_by!==t.assignee_id ? ` · assigned by ${nameOf(people,t.created_by)}` : t.assignee_id ? " · self-assigned" : ""}</dd>
       <dt>Due</dt><dd>{fmtDate(t.due_date)}{t.expected_completion && t.expected_completion!==t.due_date ? ` (expected ${fmtDate(t.expected_completion)})` : ""}</dd>
       {t.status==="waiting" && <><dt>Waiting on</dt><dd>{t.waiting_on||"—"}</dd></>}
@@ -875,10 +885,9 @@ function TaskModal(ctx){
       {t.status==="skipped" && t.skip_reason && <><dt>Skipped because</dt><dd>{t.skip_reason}</dd></>}
       {root && root.recur_paused && <><dt>Series</dt><dd>Paused — no new occurrences are being created</dd></>}
       <dt>Last update</dt><dd>{fmtWhen(t.last_update_at)}</dd>
-    </dl>
+    </dl></div>
 
-    <div className="section-title">Steps{steps.length?` (${steps.filter(x=>x.done).length} of ${steps.length} done)`:""}</div>
-    <div className="card" style={{padding:"6px 14px 12px",marginBottom:12}}>
+    <div className="panel"><h3>Steps{steps.length?` — ${steps.filter(x=>x.done).length} of ${steps.length} done`:""}</h3>
       {steps.map(st=><div key={st.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"8px 0",borderTop:"1px solid var(--line)"}}>
         <input type="checkbox" checked={st.done} onChange={()=>toggleStep(st)} style={{width:18,height:18,marginTop:2,flexShrink:0}}/>
         <span style={{flex:1,textDecoration:st.done?"line-through":"none",color:st.done?"var(--muted)":"inherit"}}>{st.body}</span>
@@ -891,9 +900,9 @@ function TaskModal(ctx){
         <button className="btn sm" onClick={addStep} disabled={!newStep.trim()}>Add</button>
       </div>
     </div>
-    {children.length>0 && <><div className="section-title">Pieces handed to other people ({children.filter(c=>CLOSED(c.status)).length} of {children.length} done)</div>
-      <div className="card" style={{marginBottom:12}}>{children.map(c=><Row key={c.id} t={c} people={people} today={today} setOpen={setOpen} showWho={true} why={c.assignee_id===me.id&&c.status!=="done"?{why:"Yours",tone:"navy"}:null}/>)}</div></>}
-    <div className="tabs">
+    {children.length>0 && <div className="panel tint"><h3>Linked tasks — {children.filter(c=>CLOSED(c.status)).length} of {children.length} done</h3>
+      <div className="card" style={{marginBottom:12}}>{children.map(c=><Row key={c.id} t={c} people={people} today={today} setOpen={setOpen} showWho={true} why={c.assignee_id===me.id&&c.status!=="done"?{why:"Yours",tone:"navy"}:null}/>)}</div></div>}
+    <div className="panel"><div className="tabs" style={{marginTop:0}}>
       <button className={tab==="activity"?"on":""} onClick={()=>setTab("activity")}>Comments ({comments.length})</button>
       <button className={tab==="files"?"on":""} onClick={()=>setTab("files")}>Attachments ({files.length})</button>
       <button className={tab==="history"?"on":""} onClick={()=>setTab("history")}>History</button>
@@ -916,6 +925,7 @@ function TaskModal(ctx){
       <button className="btn" onClick={()=>fileRef.current.click()}>Attach a file</button>
     </div>}
     {tab==="history" && <div>{hist.map(h=><div key={h.id} className="hist">{fmtWhen(h.created_at)} — {histText(h)}</div>)}</div>}
+    </div>
     <div style={{marginTop:20,paddingTop:14,borderTop:"1px solid var(--line)"}}>
       <button className="btn p" style={{width:"100%"}} onClick={onClose}>Close</button>
     </div>

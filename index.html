@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="5.5">
+<meta name="app-version" content="5.6">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -33,14 +33,14 @@ button,input,select,textarea{font:inherit;color:inherit}
 a{color:var(--navy)}
 h1,h2,h3{margin:0;line-height:1.2}
 .top{background:var(--navy);color:#fff;position:sticky;top:0;z-index:20;padding-top:env(safe-area-inset-top)}
-.top .bar{max-width:1080px;margin:0 auto;display:flex;align-items:center;gap:10px;padding:10px 16px}
-.brand{font-weight:700;font-size:18px;letter-spacing:.2px;display:flex;align-items:center;gap:8px}
+.top .bar{max-width:1080px;margin:0 auto;display:flex;align-items:center;gap:12px;padding:10px 16px}
+.brand{font-weight:700;font-size:18px;letter-spacing:.2px;display:flex;align-items:center;gap:8px;flex:0 0 auto;white-space:nowrap}
 .brand i{display:inline-block;width:10px;height:10px;background:var(--red);transform:rotate(45deg)}
-.nav{display:flex;gap:2px;margin-left:auto;overflow-x:auto}
+.nav{display:flex;flex-wrap:wrap;gap:2px;flex:1 1 auto;justify-content:flex-end;row-gap:4px}
 .nav button{background:transparent;border:0;color:#d9e0f0;padding:8px 10px;border-radius:6px;cursor:pointer;white-space:nowrap;font-weight:500}
 .nav button.on{background:rgba(255,255,255,.14);color:#fff}
 .nav button .pin{background:var(--red);color:#fff;border-radius:10px;font-size:11px;padding:1px 6px;margin-left:5px;font-weight:600}
-.who{color:#cfd7ea;font-size:13px;white-space:nowrap}
+.who{color:#cfd7ea;font-size:13px;white-space:nowrap;flex:0 0 auto;order:9}
 .who button{background:transparent;border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:4px 8px;margin-left:8px;cursor:pointer}
 main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:22px 0 10px}
@@ -144,11 +144,11 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
   body{font-size:16px}
   .top .bar{flex-wrap:wrap;padding:8px 12px;gap:6px}
   .brand{font-size:16px}
-  .nav{width:100%;order:3;margin-left:0;gap:6px;padding-bottom:2px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
-  .nav::-webkit-scrollbar{display:none}
+  .nav{width:100%;order:3;margin-left:0;gap:6px;flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;padding-bottom:2px;-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none}
+  .nav::-webkit-scrollbar{display:none;width:0;height:0}
   .nav button{background:rgba(255,255,255,.1);padding:8px 12px;border-radius:16px;font-size:14px;min-height:38px}
   .nav button.on{background:#fff;color:var(--navy)}
-  .who{margin-left:auto}
+  .who{margin-left:auto;order:2}
   main{padding:14px 12px 90px}
   .h{flex-wrap:wrap;gap:6px;margin:18px 0 8px}
   .h h2{font-size:19px}
@@ -210,6 +210,9 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"5.6", d:"September 23, 2026", items:[
+    "No more scrollbar under the menu. On a wide screen the tabs wrap onto a second line; on a phone they still slide sideways, but the bar itself is gone."
+  ]},
   {v:"5.5", d:"September 23, 2026", items:[
     "New Week ahead view: the next seven or fourteen days as columns, each listing what's due that day, with a colour per person so you can see at a glance who's carrying Thursday.",
     "Anything overdue sits in a red band at the top rather than disappearing into the past, and tasks with no date get their own column at the end.",

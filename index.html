@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="4.4">
+<meta name="app-version" content="4.5">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -65,6 +65,8 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .pill.not_started{background:#eef0f4} .pill.working{background:#e6edfb;color:var(--navy)} .pill.waiting{background:var(--warn-soft);color:var(--warn)}
 .pill.ready_for_review{background:#efe8fb;color:#5b3fa0} .pill.done{background:var(--ok-soft);color:var(--ok)} .pill.skipped{background:#eef0f4;color:var(--muted)}
 .pill.high{background:var(--red-soft);color:var(--red)}
+.pill.origin{background:#e6edfb;color:var(--navy);font-weight:600}
+.pill.origin.own{background:#eef0f4;color:var(--muted)}
 .empty{padding:26px 14px;color:var(--muted);text-align:center}
 .btn{border:1px solid var(--line);background:var(--white);border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:500}
 .btn.p{background:var(--navy);border-color:var(--navy);color:#fff}
@@ -177,14 +179,24 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 const APP_NAME = "Task Depot";
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 let ALL_TASKS = [];
+let ME = null;
 let INVITEES = [];
 
 const DOW = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const recurLabel = (t) => !t.recur_rule ? "" : t.recur_rule==="daily" ? "Repeats daily" : t.recur_rule==="weekly" ? `Repeats ${DOW[t.recur_day??0]}s` : `Repeats monthly on the ${t.recur_day||1}`;
 const STATUS = {not_started:"Not started", working:"Working", waiting:"Waiting", ready_for_review:"Ready for review", done:"Done", skipped:"Skipped"};
 const CLOSED = (st) => st==="done" || st==="skipped";
-const DELEGATED = (t) => !!t.assignee_id && !!t.created_by && t.assignee_id !== t.created_by;
+// Delegated = it belongs to someone other than whoever created it. Covers people
+// who haven't signed up yet, where the owner is held as an email address.
+const DELEGATED = (t) => !!t.created_by && (
+  (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"4.5", d:"September 23, 2026", items:[
+    "Fixed: tasks assigned to someone who hasn't signed up yet were dropped from the Home attention list and the counts, because the delegated test only recognised people with accounts.",
+    "Where a task came from is now a coloured chip instead of grey text — navy \"From Kathleen\" for work handed to someone, grey \"Their own\" for a task they set themselves.",
+    "The chip shows on every task row, including My day, so people can see at a glance which of their tasks came from someone else.",
+    "Forwarded emails with nobody named now belong to whoever forwarded them, instead of landing ownerless in Needs sorting."
+  ]},
   {v:"4.4", d:"September 23, 2026", items:[
     "Task Depot now works as someone's own to-do list as well as a place to receive work. Anything they wrote for themselves is marked \"their own\"; anything handed to them says who it came from.",
     "Your attention list only covers work that was delegated. Their own overdue tasks are counted separately in a quiet line underneath, which you can expand when you want to look.",
@@ -520,7 +532,7 @@ function Shell({me,setMe}){
     }
   };
 
-  const live = tasks.filter(t=>!t.deleted_at); ALL_TASKS = live; INVITEES = invitees;
+  const live = tasks.filter(t=>!t.deleted_at); ALL_TASKS = live; INVITEES = invitees; ME = me;
   const openTask = tasks.find(t=>t.id===open);
   const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,opener,showToast,isMgr,isOwner,invitees};
 
@@ -580,6 +592,11 @@ function Row({t,people,today,setOpen,showWho=true,why,extra=0}){
       <div className="t">{showWho && <b style={{color:"var(--navy)"}}>{whoLabel}</b>}{showWho?" — ":""}{t.title}</div>
       <div className="m">
         <span className={"pill "+t.status}>{STATUS[t.status]}</span>{" "}
+        {DELEGATED(t)
+          ? <><span className="pill origin">{t.created_by===(ME&&ME.id) ? "You assigned" : "From "+nameOf(people,t.created_by).split(" ")[0]}</span>{" "}</>
+          : t.assignee_id
+            ? <><span className="pill origin own">{t.assignee_id===(ME&&ME.id) ? "Your own" : "Their own"}</span>{" "}</>
+            : null}
         {t.priority==="high" && <span className="pill high">High</span>}{" "}
         {t.due_date ? `Due ${fmtDate(t.due_date)}` : "No due date"}
         {t.status==="waiting" && t.waiting_on ? ` · waiting on ${t.waiting_on}` : ""}
@@ -587,7 +604,7 @@ function Row({t,people,today,setOpen,showWho=true,why,extra=0}){
         {t.parent_id ? ` · ↳ ${(allTasks.find(p=>p.id===t.parent_id)||{}).title||"subtask"}` : ""}
         {t.recur_rule ? ` · ${recurLabel(t).toLowerCase()}` : ""}
         {extra>0 ? ` · ${extra+1} open, oldest due ${fmtDate(t.due_date)}` : ""}
-        {showWho ? (DELEGATED(t) ? ` · from ${nameOf(people,t.created_by)}` : t.assignee_id ? " · their own" : "") : ""}
+
       </div>
     </div>
     {a && <div className={"why "+a.tone}>{a.why}</div>}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="4.3">
+<meta name="app-version" content="4.4">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -183,7 +183,15 @@ const DOW = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturd
 const recurLabel = (t) => !t.recur_rule ? "" : t.recur_rule==="daily" ? "Repeats daily" : t.recur_rule==="weekly" ? `Repeats ${DOW[t.recur_day??0]}s` : `Repeats monthly on the ${t.recur_day||1}`;
 const STATUS = {not_started:"Not started", working:"Working", waiting:"Waiting", ready_for_review:"Ready for review", done:"Done", skipped:"Skipped"};
 const CLOSED = (st) => st==="done" || st==="skipped";
+const DELEGATED = (t) => !!t.assignee_id && !!t.created_by && t.assignee_id !== t.created_by;
 const CHANGELOG = [
+  {v:"4.4", d:"September 23, 2026", items:[
+    "Task Depot now works as someone's own to-do list as well as a place to receive work. Anything they wrote for themselves is marked \"their own\"; anything handed to them says who it came from.",
+    "Your attention list only covers work that was delegated. Their own overdue tasks are counted separately in a quiet line underneath, which you can expand when you want to look.",
+    "The Home counts, the morning digest and the Queue pin all follow the same rule, so their personal list never inflates your numbers.",
+    "All tasks has an origin filter: everything, delegated only, or their own only.",
+    "If they flag their own task for help, you still hear immediately — that's them asking, not you watching."
+  ]},
   {v:"4.3", d:"September 23, 2026", items:[
     "Arrows at the top of an open task step to the previous and next one in whatever list you opened it from — your attention list, All tasks, search results, whichever.",
     "A counter shows where you are, like \"3 of 12\", so you can work straight down a queue without closing and reopening.",
@@ -516,7 +524,7 @@ function Shell({me,setMe}){
   const openTask = tasks.find(t=>t.id===open);
   const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,opener,showToast,isMgr,isOwner,invitees};
 
-  const attnCount = isMgr ? live.filter(t=>attention(t,today)).length : 0;
+  const attnCount = isMgr ? live.filter(t=>attention(t,today) && (DELEGATED(t) || t.assignee_id===me.id)).length : 0;
   const freshDone = isMgr ? live.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id
       && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0)).length : 0;
   const nav = isMgr
@@ -579,7 +587,7 @@ function Row({t,people,today,setOpen,showWho=true,why,extra=0}){
         {t.parent_id ? ` · ↳ ${(allTasks.find(p=>p.id===t.parent_id)||{}).title||"subtask"}` : ""}
         {t.recur_rule ? ` · ${recurLabel(t).toLowerCase()}` : ""}
         {extra>0 ? ` · ${extra+1} open, oldest due ${fmtDate(t.due_date)}` : ""}
-        {showWho && t.created_by===t.assignee_id && (people.find(p=>p.id===t.created_by)||{}).role!=="manager" ? " · self-assigned" : ""}
+        {showWho ? (DELEGATED(t) ? ` · from ${nameOf(people,t.created_by)}` : t.assignee_id ? " · their own" : "") : ""}
       </div>
     </div>
     {a && <div className={"why "+a.tone}>{a.why}</div>}
@@ -590,8 +598,12 @@ function Row({t,people,today,setOpen,showWho=true,why,extra=0}){
 function ManagerHome(ctx){
   const {tasks,today,people} = ctx;
   const [filter,setFilter] = useState(null);
-  const flagged = tasks.filter(t=>t.assignee_id!==ctx.me.id).map(t=>({t,a:attention(t,today)})).filter(x=>x.a).sort((x,y)=>x.a.rank-y.a.rank || (x.t.due_date||"9").localeCompare(y.t.due_date||"9"));
-  const openT = tasks.filter(t=>!CLOSED(t.status) && t.assignee_id!==ctx.me.id);
+  const [showTheirs,setShowTheirs] = useState(false);
+  const allFlagged = tasks.filter(t=>t.assignee_id!==ctx.me.id).map(t=>({t,a:attention(t,today)})).filter(x=>x.a)
+    .sort((x,y)=>x.a.rank-y.a.rank || (x.t.due_date||"9").localeCompare(y.t.due_date||"9"));
+  const flagged = allFlagged.filter(x=>DELEGATED(x.t));
+  const theirOwn = allFlagged.filter(x=>!DELEGATED(x.t));
+  const openT = tasks.filter(t=>!CLOSED(t.status) && t.assignee_id!==ctx.me.id && DELEGATED(t));
   const week = new Date(); week.setDate(week.getDate()+7); const weekISO = week.toISOString().slice(0,10);
   const buckets = {
     track: openT.filter(t=>!attention(t,today) && t.status!=="waiting" && (t.assignee_id||t.assignee_email) && t.due_date),
@@ -613,6 +625,13 @@ function ManagerHome(ctx){
     </div>
     {sorting.length>0 && <><div className="h"><h2>Needs sorting</h2><span className="sub">{sorting.length} without an owner or a date</span></div>
       <div className="card">{sorting.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.opener(sorting)} why={{why:!owned(t)&&!t.due_date?"No owner, no date":!owned(t)?"No owner":"No due date",tone:"warn"}}/>)}</div></>}
+    {theirOwn.length>0 && <div className="note" style={{marginTop:10,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+      <span style={{flex:1}}>{theirOwn.length} task{theirOwn.length===1?"":"s"} your team set for themselves {theirOwn.length===1?"is":"are"} overdue or stuck. Their list, not yours — but here if you want it.</span>
+      <button className="btn sm" onClick={()=>setShowTheirs(!showTheirs)}>{showTheirs?"Hide":"Show"}</button>
+    </div>}
+    {showTheirs && theirOwn.length>0 && <div className="card" style={{marginTop:8}}>
+      {theirOwn.map(({t})=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.opener(theirOwn.map(x=>x.t))} why={attention(t,today)}/>)}
+    </div>}
     <div className="counts">
       {[["track","On track"],["waiting","Waiting"],["week","Due this week"],["overdue","Overdue"]].map(([k,l])=>
         <button key={k} className={filter===k?"on":""} onClick={()=>setFilter(filter===k?null:k)}><b>{buckets[k].length}</b><span>{l}</span></button>)}
@@ -678,7 +697,7 @@ function People(ctx){
 // ---------- all tasks ----------
 function AllTasks(ctx){
   const {tasks,people,today,isMgr} = ctx;
-  const [q,setQ] = useState(""); const [st,setSt] = useState("open"); const [who,setWho]=useState("");
+  const [q,setQ] = useState(""); const [st,setSt] = useState("open"); const [who,setWho]=useState(""); const [origin,setOrigin]=useState("all");
   const match = (t) => {
     if(st==="open") return !CLOSED(t.status);
     if(st==="blocked") return !CLOSED(t.status) && (t.status==="waiting" || t.need_help);
@@ -688,6 +707,7 @@ function AllTasks(ctx){
     return true;
   };
   const list = tasks.filter(match)
+    .filter(t=>origin==="all" ? true : origin==="delegated" ? DELEGATED(t) : !DELEGATED(t))
     .filter(t=>!who||t.assignee_id===who)
     .filter(t=>!q||(t.title+" "+t.context+" "+t.details).toLowerCase().includes(q.toLowerCase()));
   return <>
@@ -702,6 +722,10 @@ function AllTasks(ctx){
         <option value="skipped">Skipped</option>
         <option value="all">Everything</option></select>
       {isMgr && <select value={who} onChange={e=>setWho(e.target.value)}><option value="">Everyone</option>{people.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select>}
+      {isMgr && <select value={origin} onChange={e=>setOrigin(e.target.value)}>
+        <option value="all">However it started</option>
+        <option value="delegated">Delegated to them</option>
+        <option value="own">Their own tasks</option></select>}
     </div>
     <div className="card">{list.length?list.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.opener(list)} showWho={isMgr}/>):<div className="empty">No tasks match.</div>}</div>
   </>;
@@ -1008,6 +1032,7 @@ function TaskModal(ctx){
     {edit && <EditForm t={t} people={people} isMgr={isMgr} me={me} onCancel={()=>setEdit(false)} onSave={async p=>{ if(await update(t.id,p)){ setEdit(false); showToast("Saved"); } }}/>}
 
     <div className="panel"><h3>The task</h3><dl className="kv">
+      <dt>Origin</dt><dd>{DELEGATED(t) ? `Delegated by ${nameOf(people,t.created_by)}` : t.assignee_id ? "Their own task" : "Not assigned yet"}</dd>
       <dt>Assigned to</dt><dd>{t.assignee_id ? nameOf(people,t.assignee_id)
         : t.assignee_email ? `${(INVITEES.find(i=>i.email===String(t.assignee_email).toLowerCase())||{}).full_name || t.assignee_email} — waiting for them to sign up (${t.assignee_email})` : "Unassigned"}{t.assignee_id && t.created_by!==t.assignee_id ? ` · assigned by ${nameOf(people,t.created_by)}` : t.assignee_id ? " · self-assigned" : ""}</dd>
       <dt>Due</dt><dd>{fmtDate(t.due_date)}{t.expected_completion && t.expected_completion!==t.due_date ? ` (expected ${fmtDate(t.expected_completion)})` : ""}</dd>

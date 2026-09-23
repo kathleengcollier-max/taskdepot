@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="2.9">
+<meta name="app-version" content="3.3">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CjxyZWN0IHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgcng9IjEyIiBmaWxsPSIjMWYzYTdhIi8+CjxyZWN0IHg9IjEyIiB5PSIxNCIgd2lkdGg9IjQwIiBoZWlnaHQ9IjMwIiByeD0iNiIgZmlsbD0iI2ZmZmZmZiIvPgo8cmVjdCB4PSIxNiIgeT0iMTkiIHdpZHRoPSIxNCIgaGVpZ2h0PSIxMCIgcng9IjIiIGZpbGw9IiMxZjNhN2EiLz4KPHJlY3QgeD0iMzQiIHk9IjE5IiB3aWR0aD0iMTQiIGhlaWdodD0iMTAiIHJ4PSIyIiBmaWxsPSIjMWYzYTdhIi8+CjxyZWN0IHg9IjE2IiB5PSIzMyIgd2lkdGg9IjMyIiBoZWlnaHQ9IjQiIHJ4PSIyIiBmaWxsPSIjYzYyODI4Ii8+CjxyZWN0IHg9IjE0IiB5PSI0NCIgd2lkdGg9IjYiIGhlaWdodD0iNSIgcng9IjIiIGZpbGw9IiMxZjNhN2EiLz4KPHJlY3QgeD0iNDQiIHk9IjQ0IiB3aWR0aD0iNiIgaGVpZ2h0PSI1IiByeD0iMiIgZmlsbD0iIzFmM2E3YSIvPgo8Y2lyY2xlIGN4PSIyMSIgY3k9IjUwIiByPSI1IiBmaWxsPSIjMTYxODFkIi8+PGNpcmNsZSBjeD0iMjEiIGN5PSI1MCIgcj0iMiIgZmlsbD0iI2ZmZmZmZiIvPgo8Y2lyY2xlIGN4PSI0MyIgY3k9IjUwIiByPSI1IiBmaWxsPSIjMTYxODFkIi8+PGNpcmNsZSBjeD0iNDMiIGN5PSI1MCIgcj0iMiIgZmlsbD0iI2ZmZmZmZiIvPgo8L3N2Zz4=">
@@ -133,6 +133,28 @@ const recurLabel = (t) => !t.recur_rule ? "" : t.recur_rule==="daily" ? "Repeats
 const STATUS = {not_started:"Not started", working:"Working", waiting:"Waiting", ready_for_review:"Ready for review", done:"Done", skipped:"Skipped"};
 const CLOSED = (st) => st==="done" || st==="skipped";
 const CHANGELOG = [
+  {v:"3.3", d:"September 22, 2026", items:[
+    "New Owner level above manager. Only an owner can change roles, set who reports to whom, or manage who's allowed to sign up — so a manager can't promote themselves or demote you.",
+    "Managers are now scoped to their own people. Each person has a \"reports to\", and a manager sees, assigns and reports on their own reports only.",
+    "Private manager notes are now visible to the person who wrote them, the owner, and that person's own manager — nobody else.",
+    "Help alerts go to the right manager instead of every manager, and the morning digest only covers your own people.",
+    "The owner still sees everything."
+  ]},
+  {v:"3.2", d:"September 22, 2026", items:[
+    "Fixed: on a task you both created and own, the buttons appeared twice — two Edits, two \"Hand a piece to someone\", two Trashes. There's one row now.",
+    "When you finish something that was handed up to you, the person who asked now gets an email. Work you assign downward still stays quiet — it collects in Finished."
+  ]},
+  {v:"3.1", d:"September 22, 2026", items:[
+    "Need help now asks what you need before it sends. Type a line, hit send, and your manager's alert quotes it — so they can often answer without a round trip.",
+    "You can still send it blank if you just need them to look.",
+    "Asking for help sends one email, not two: the note rides along with the alert rather than firing its own comment notification."
+  ]},
+  {v:"3.0", d:"September 22, 2026", items:[
+    "Comments now email the other side of the task — if someone asks you a question on a task, you hear about it instead of finding it days later.",
+    "Capped at one comment email per task per person per day, so a back-and-forth doesn't fill anyone's inbox.",
+    "Private manager notes email nobody, and status changes and completions stay quiet, same as before.",
+    "The Close button on a task is navy now instead of grey — easier to find at the bottom of a long task."
+  ]},
   {v:"2.9", d:"September 22, 2026", items:[
     "Task Depot has a favicon — a little bus, because a depot is where things get loaded up and sent out.",
     "What's new is now a manager-only tab. Release notes are a conversation between you and me, not something the warehouse needs.",
@@ -338,7 +360,8 @@ function NewPassword({onDone}){
 
 // ---------- shell: loads data, routes by role ----------
 function Shell({me,setMe}){
-  const isMgr = me.role === "manager";
+  const isMgr = me.role === "manager" || me.role === "owner";
+  const isOwner = me.role === "owner";
   const [view,setView] = useState(isMgr?"home":"myday");
   const [people,setPeople] = useState([]);
   const [tasks,setTasks] = useState([]);
@@ -374,7 +397,7 @@ function Shell({me,setMe}){
 
   const live = tasks.filter(t=>!t.deleted_at); ALL_TASKS = live;
   const openTask = tasks.find(t=>t.id===open);
-  const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,showToast,isMgr,invitees};
+  const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,showToast,isMgr,isOwner,invitees};
 
   const attnCount = isMgr ? live.filter(t=>attention(t,today)).length : 0;
   const freshDone = isMgr ? live.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id
@@ -394,7 +417,7 @@ function Shell({me,setMe}){
       {view==="home" && <ManagerHome {...ctx}/>}
       {view==="people" && <People {...ctx}/>}
       {view==="all" && <AllTasks {...ctx}/>}
-      {view==="team" && <Team {...ctx} setMe={setMe}/>}
+      {view==="team" && isMgr && <Team {...ctx} setMe={setMe}/>}
       {view==="trash" && <Trash {...ctx} trashed={tasks.filter(t=>t.deleted_at)}/>}
       {view==="myday" && <MyDay {...ctx}/>}
       {view==="finished" && isMgr && <Finished {...ctx} setMe={setMe}/>}
@@ -667,6 +690,14 @@ function TaskModal(ctx){
     if(error){ showToast(error.message); return; } loadSteps();
   };
   const [replying,setReplying] = useState(false);
+  const [asking,setAsking] = useState(false);
+  const [askNote,setAskNote] = useState("");
+  const doAsk = async () => {
+    const {error} = await sb.rpc("request_help",{p_task:t.id, p_note:askNote});
+    if(error){ showToast(error.message); return; }
+    setAsking(false); setAskNote("");
+    await ctx.load(); showToast("Sent — your manager has been emailed");
+  };
   const [replyNote,setReplyNote] = useState("");
   const doReply = async () => {
     const {data,error} = await sb.rpc("resolve_help",{p_task:t.id, p_note:replyNote});
@@ -763,15 +794,22 @@ function TaskModal(ctx){
     {parent && <div className="note" style={{marginBottom:10}}>Part of <a href="#" onClick={e=>{e.preventDefault();setOpen(parent.id);}}>{parent.title}</a></div>}
 
     {!isMgr && !upd && t.assignee_id===me.id && t.definition_of_done && !CLOSED(t.status) && <div className="note" style={{marginBottom:6}}><b>Done means:</b> {t.definition_of_done}</div>}
+    {asking && <div className="form card" style={{padding:14,marginBottom:12}}>
+      <div><b>What do you need?</b>
+        <div style={{fontSize:13,color:"var(--muted)"}}>This goes straight to your manager by email, along with the task. Leave it blank if you just need them to take a look.</div></div>
+      <label>Your message<textarea autoFocus value={askNote} onChange={e=>setAskNote(e.target.value)} placeholder="Suan has the file locked and I can't pull the numbers — can you get me access, or should I push this to Thursday?"/></label>
+      <div className="actions"><button className="btn" onClick={()=>{setAsking(false);setAskNote("");}}>Cancel</button>
+        <button className="btn r" onClick={doAsk}>Send to your manager</button></div>
+    </div>}
     {skipping && <div className="form card" style={{padding:14,marginBottom:12}}>
       <label>Why are you skipping this one?<input autoFocus value={skipWhy} onChange={e=>setSkipWhy(e.target.value)} placeholder="Holiday, branch closed, not applicable this month…"/></label>
       <div className="actions"><button className="btn" onClick={()=>setSkipping(false)}>Cancel</button><button className="btn p" onClick={doSkip}>Skip this one</button></div>
     </div>}
-    {!isMgr && !upd && !skipping && t.assignee_id===me.id && <div className="big">
+    {!isMgr && !upd && !skipping && !asking && t.assignee_id===me.id && <div className="big">
       <button className="done" onClick={()=>quick({status:"done",need_help:false,need_manager:false},"Marked done")}>Done</button>
       <button className="upd" onClick={()=>setUpd({status:t.status==="not_started"?"working":t.status,waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Update</button>
       <button className="blk" onClick={()=>setUpd({status:"waiting",waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Blocked</button>
-      <button className="help" onClick={()=>quick({need_help:true,need_manager:true},"Flagged — your manager will see it")}>Need help</button>
+      <button className="help" onClick={()=>setAsking(true)}>Need help</button>
     </div>}
     {upd && <div className="form card" style={{padding:14,marginBottom:12}}>
       <div className="two">
@@ -788,12 +826,12 @@ function TaskModal(ctx){
         }}>Save update</button></div>
     </div>}
 
-    {!isMgr && iCreated && !edit && <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
-      {!CLOSED(t.status) && t.assignee_id!==me.id && <button className="btn" onClick={()=>quick({status:"done"},"Marked done")}>Mark done</button>}
-      <button className="btn" onClick={()=>setEdit(true)}>Edit</button>
+    {!isMgr && (iCreated || t.assignee_id===me.id) && !edit && !skipping && !asking && <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
+      {iCreated && !CLOSED(t.status) && t.assignee_id!==me.id && <button className="btn" onClick={()=>quick({status:"done"},"Marked done")}>Mark done</button>}
+      {iCreated && <button className="btn" onClick={()=>setEdit(true)}>Edit</button>}
       <button className="btn" onClick={addSub}>Hand a piece to someone</button>
-      <button className="btn" onClick={()=>setCopying(true)}>Copy to others</button>
-      <button className="btn" style={{color:"var(--red)"}} onClick={()=>trash(t)}>Trash</button>
+      {t.recur_rule && !CLOSED(t.status) && <button className="btn" onClick={()=>setSkipping(true)}>Skip this one</button>}
+      {iCreated && <button className="btn" style={{color:"var(--red)"}} onClick={()=>trash(t)}>Trash</button>}
     </div>}
     {replying && <div className="form card" style={{padding:14,marginBottom:12}}>
       <div><b>Reply to {nameOf(people,t.assignee_id)}</b>
@@ -810,10 +848,6 @@ function TaskModal(ctx){
         <span style={{fontSize:13,color:"var(--muted)"}}>Leave blank to keep {fmtDate(t.due_date)}.</span></label>
       <div className="actions"><button className="btn" onClick={()=>{setCopying(false);setCopyTo([]);}}>Cancel</button>
         <button className="btn p" disabled={!copyTo.length} onClick={doCopy}>Copy to {copyTo.length||""} {copyTo.length===1?"person":"people"}</button></div>
-    </div>}
-    {!isMgr && t.assignee_id===me.id && !edit && !skipping && <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
-      <button className="btn" onClick={addSub}>Hand a piece to someone</button>
-      {t.recur_rule && !CLOSED(t.status) && <button className="btn" onClick={()=>setSkipping(true)}>Skip this one</button>}
     </div>}
     {isMgr && !edit && <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
       {t.status==="ready_for_review" && <button className="btn p" onClick={()=>quick({status:"done",need_manager:false},"Approved and closed")}>Approve — mark done</button>}
@@ -869,7 +903,7 @@ function TaskModal(ctx){
       <div className="form" style={{marginTop:10}}>
         <textarea value={body} onChange={e=>setBody(e.target.value)} placeholder={priv?"Private note only you can see":"Add a comment"}/>
         <div className="actions" style={{justifyContent:"space-between"}}>
-          {isMgr ? <label style={{display:"flex",gap:6,alignItems:"center",fontSize:14}}><input type="checkbox" checked={priv} onChange={e=>setPriv(e.target.checked)} style={{width:"auto"}}/>Private manager note</label> : <span/>}
+          {isMgr ? <label style={{display:"flex",gap:6,alignItems:"center",fontSize:14}}><input type="checkbox" checked={priv} onChange={e=>setPriv(e.target.checked)} style={{width:"auto"}}/>Private manager note <span style={{color:"var(--muted)",fontSize:12}}>(emails nobody)</span></label> : <span/>}
           <button className="btn p" onClick={addComment} disabled={!body.trim()}>Post</button>
         </div>
       </div>
@@ -883,7 +917,7 @@ function TaskModal(ctx){
     </div>}
     {tab==="history" && <div>{hist.map(h=><div key={h.id} className="hist">{fmtWhen(h.created_at)} — {histText(h)}</div>)}</div>}
     <div style={{marginTop:20,paddingTop:14,borderTop:"1px solid var(--line)"}}>
-      <button className="btn" style={{width:"100%"}} onClick={onClose}>Close</button>
+      <button className="btn p" style={{width:"100%"}} onClick={onClose}>Close</button>
     </div>
   </div></div>;
 }
@@ -1000,23 +1034,33 @@ function Access({showToast}){
   </>;
 }
 
-function Team({people,me,load,showToast,setMe,invitees}){
+function Team({people,me,load,showToast,setMe,invitees,isOwner}){
   const set = async (p,patch) => {
     const {error} = await sb.from("profiles").update(patch).eq("id",p.id);
     if(error){ showToast(error.message); return; } await load(); if(p.id===me.id) setMe({...me,...patch}); showToast("Saved");
   };
   return <>
     <div className="h"><h2>Team</h2><span className="sub">People create their own account; you set the role here</span></div>
-    <div className="note" style={{marginBottom:10}}>Send new people to this site and have them tap "Create an account." They start as Employee. Deactivate anyone who leaves — their tasks stay so you can reassign them. Only approved email addresses can sign up; see Access below.</div>
-    <div className="card">{people.map(p=><div className="person" key={p.id} style={{cursor:"default"}}>
-      <div><b>{p.full_name}</b>{p.id===me.id?" (you)":""}<div style={{fontSize:13,color:"var(--muted)"}}>{p.email}</div></div>
-      <div style={{display:"flex",gap:8,alignItems:"center"}}>
-        <select value={p.role} disabled={p.id===me.id} onChange={e=>set(p,{role:e.target.value})} style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}><option value="employee">Employee</option><option value="manager">Manager</option></select>
-        <button className="btn sm" disabled={p.id===me.id} onClick={()=>set(p,{active:!p.active})}>{p.active?"Deactivate":"Reactivate"}</button>
+    <div className="note" style={{marginBottom:10}}>{isOwner
+      ? 'Send new people to this site and have them tap "Create an account." They start as Employee reporting to nobody — set their role and who they report to here. A manager only sees the people who report to them. Deactivate anyone who leaves; their tasks stay so you can reassign them.'
+      : "You can see the people who report to you. Roles and reporting lines are set by the owner."}</div>
+    <div className="card">{people.map(p=><div className="person" key={p.id} style={{cursor:"default",flexWrap:"wrap",gap:8}}>
+      <div style={{minWidth:180}}><b>{p.full_name}</b>{p.id===me.id?" (you)":""}
+        <div style={{fontSize:13,color:"var(--muted)"}}>{p.email}</div>
+        {!isOwner && <div style={{fontSize:13,color:"var(--muted)"}}>{p.role==="owner"?"Owner":p.role==="manager"?"Manager":"Employee"}{p.manager_id?` · reports to ${nameOf(people,p.manager_id)}`:""}</div>}
       </div>
+      {isOwner && <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <select value={p.role} disabled={p.id===me.id} onChange={e=>set(p,{role:e.target.value})} style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}>
+          <option value="employee">Employee</option><option value="manager">Manager</option><option value="owner">Owner</option></select>
+        <select value={p.manager_id||""} disabled={p.id===me.id} onChange={e=>set(p,{manager_id:e.target.value||null})} style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}>
+          <option value="">Reports to nobody</option>
+          {people.filter(x=>x.active && x.id!==p.id && (x.role==="manager"||x.role==="owner")).map(x=><option key={x.id} value={x.id}>Reports to {x.full_name}</option>)}
+        </select>
+        <button className="btn sm" disabled={p.id===me.id} onClick={()=>set(p,{active:!p.active})}>{p.active?"Deactivate":"Reactivate"}</button>
+      </div>}
     </div>)}</div>
     <Invites invitees={invitees} load={load} showToast={showToast}/>
-    <Access showToast={showToast}/>
+    {isOwner && <Access showToast={showToast}/>}
   </>;
 }
 

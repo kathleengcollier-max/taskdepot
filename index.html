@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="3.8">
+<meta name="app-version" content="4.1">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -177,12 +177,30 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 const APP_NAME = "Task Depot";
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 let ALL_TASKS = [];
+let INVITEES = [];
 
 const DOW = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const recurLabel = (t) => !t.recur_rule ? "" : t.recur_rule==="daily" ? "Repeats daily" : t.recur_rule==="weekly" ? `Repeats ${DOW[t.recur_day??0]}s` : `Repeats monthly on the ${t.recur_day||1}`;
 const STATUS = {not_started:"Not started", working:"Working", waiting:"Waiting", ready_for_review:"Ready for review", done:"Done", skipped:"Skipped"};
 const CLOSED = (st) => st==="done" || st==="skipped";
 const CHANGELOG = [
+  {v:"4.1", d:"September 23, 2026", items:[
+    "Fixed: a task assigned to somebody who hasn't signed up yet showed as having no owner, and sat in Needs sorting as though nobody was on it. It now shows their name and only appears there if it's genuinely missing a date.",
+    "Fixed: those people were missing from the dropdown when editing a task, so reassigning to them was impossible. They're listed under \"Invited — not signed up yet,\" same as when you first assign.",
+    "Their name is used wherever it's known, instead of the raw email address."
+  ]},
+  {v:"4.0", d:"September 22, 2026", items:[
+    "Email intake. Forward a work email to the Task Depot address and it becomes a task — the AI reads it, works out who it's for and when it's due, and keeps the original message as the details.",
+    "Start the subject with a name — \"Ilah: get the Goodman quote\" — to force who it goes to. That beats the AI's reading every time.",
+    "Anything it can't place lands unassigned in Needs sorting rather than guessing.",
+    "Only people with an account can send in; anything else is dropped silently, because an open address is a spam magnet.",
+    "Settings shows the last dozen emails that came in and what happened to each, so a missing task can always be explained."
+  ]},
+  {v:"3.9", d:"September 22, 2026", items:[
+    "People and Team are one tab. Each person shows their open and flagged counts, their role and who they report to, with 1:1 and — for an owner — the role and reporting controls in the same row.",
+    "Invitations and the signup allow-list moved to the bottom of that tab, so everything about people is in one place.",
+    "What's new lost its tab. Tap the version badge next to the name to read it, and Back returns you where you were."
+  ]},
   {v:"3.8", d:"September 22, 2026", items:[
     "Task Depot installs on a phone. Open it in the browser and add it to your home screen — it gets the bus icon and opens full screen, no address bar.",
     "Built for a phone first: the menu scrolls as a row of chips, buttons and checkboxes are big enough to hit with a thumb, and forms stack into one column.",
@@ -473,7 +491,7 @@ function Shell({me,setMe}){
     }
   };
 
-  const live = tasks.filter(t=>!t.deleted_at); ALL_TASKS = live;
+  const live = tasks.filter(t=>!t.deleted_at); ALL_TASKS = live; INVITEES = invitees;
   const openTask = tasks.find(t=>t.id===open);
   const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,showToast,isMgr,isOwner,invitees};
 
@@ -481,21 +499,20 @@ function Shell({me,setMe}){
   const freshDone = isMgr ? live.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id
       && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0)).length : 0;
   const nav = isMgr
-    ? [["home","Home",attnCount],["people","People"],["finished","Finished",freshDone],["all","All tasks"],["repeating","Repeating"],["search","Search"],["reports","Reports"],["team","Team"],["trash","Trash"],["settings","Settings"],["new","What's new"]]
+    ? [["home","Home",attnCount],["people","People"],["finished","Finished",freshDone],["all","All tasks"],["repeating","Repeating"],["search","Search"],["reports","Reports"],["trash","Trash"],["settings","Settings"]]
     : [["myday","My day"],["all","All my tasks"],["search","Search"],["settings","Settings"]];
 
   return <>
     <header className="top"><div className="bar">
-      <div className="brand"><i/>{APP_NAME}<button onClick={()=>isMgr&&setView("new")} title={isMgr?"What's new":APP_NAME} style={{background:"rgba(255,255,255,.16)",border:0,color:"#dbe3f5",font:"inherit",fontSize:11,fontWeight:600,padding:"2px 7px",borderRadius:10,marginLeft:2,cursor:"pointer",letterSpacing:".2px"}}>v{APP_VERSION}</button></div>
+      <div className="brand"><i/>{APP_NAME}<button onClick={()=>setView("new")} title="What's new" style={{background:"rgba(255,255,255,.16)",border:0,color:"#dbe3f5",font:"inherit",fontSize:11,fontWeight:600,padding:"2px 7px",borderRadius:10,marginLeft:2,cursor:"pointer",letterSpacing:".2px"}}>v{APP_VERSION}</button></div>
       <nav className="nav">{nav.map(([k,l,n])=><button key={k} className={view===k?"on":""} onClick={()=>setView(k)}>{l}{n?<span className="pin">{n}</span>:null}</button>)}</nav>
       <div className="who"><span>{me.full_name}</span><button onClick={()=>sb.auth.signOut()}>Sign out</button></div>
     </div></header>
     <main>
       <div style={{display:"flex",justifyContent:"flex-end",marginBottom:-8}}><button className="btn p" onClick={()=>setAssign({parent:null})}>{isMgr?"+ Assign":"+ Add task"}</button></div>
       {view==="home" && <ManagerHome {...ctx}/>}
-      {view==="people" && <People {...ctx}/>}
+      {view==="people" && isMgr && <People {...ctx} setMe={setMe}/>}
       {view==="all" && <AllTasks {...ctx}/>}
-      {view==="team" && isMgr && <Team {...ctx} setMe={setMe}/>}
       {view==="trash" && <Trash {...ctx} trashed={tasks.filter(t=>t.deleted_at)}/>}
       {view==="myday" && <MyDay {...ctx}/>}
       {view==="repeating" && <Repeating {...ctx}/>}
@@ -503,7 +520,7 @@ function Shell({me,setMe}){
       {view==="finished" && isMgr && <Finished {...ctx} setMe={setMe}/>}
       {view==="reports" && isMgr && <Reports {...ctx}/>}
       {view==="settings" && <Settings me={me} setMe={setMe} showToast={showToast} isMgr={isMgr}/>}
-      {view==="new" && isMgr && <WhatsNew/>}
+      {view==="new" && <WhatsNew onBack={()=>setView(isMgr?"home":"myday")}/>}
     </main>
     {openTask && <TaskModal {...ctx} task={openTask} onClose={()=>setOpen(null)} addSub={()=>setAssign({parent:openTask})}/>}
     {assign && <AssignModal {...ctx} parent={assign.parent} onClose={()=>setAssign(null)}/>}
@@ -525,8 +542,9 @@ function groupSeries(list){
 // ---------- task row ----------
 function Row({t,people,today,setOpen,showWho=true,why,extra=0}){
   const allTasks = ALL_TASKS;
+  const invited = t.assignee_email ? (INVITEES.find(i=>i.email===String(t.assignee_email).toLowerCase())||null) : null;
   const whoLabel = t.assignee_id ? nameOf(people,t.assignee_id)
-    : t.assignee_email ? `${t.assignee_email} (not signed up yet)` : "Unassigned";
+    : t.assignee_email ? `${(invited&&invited.full_name)||t.assignee_email} (not signed up yet)` : "Unassigned";
   const a = why === undefined ? attention(t,today) : why;
   return <div className="row" onClick={()=>setOpen(t.id)}>
     <div>
@@ -555,14 +573,15 @@ function ManagerHome(ctx){
   const openT = tasks.filter(t=>!CLOSED(t.status) && t.assignee_id!==ctx.me.id);
   const week = new Date(); week.setDate(week.getDate()+7); const weekISO = week.toISOString().slice(0,10);
   const buckets = {
-    track: openT.filter(t=>!attention(t,today) && t.status!=="waiting" && t.assignee_id && t.due_date),
+    track: openT.filter(t=>!attention(t,today) && t.status!=="waiting" && (t.assignee_id||t.assignee_email) && t.due_date),
     waiting: openT.filter(t=>t.status==="waiting"),
     week: openT.filter(t=>t.due_date && t.due_date>=today && t.due_date<=weekISO),
     overdue: openT.filter(t=>t.due_date && t.due_date<today),
   };
   const shown = filter ? buckets[filter] : null;
   const mineToDo = tasks.filter(t=>!CLOSED(t.status) && t.assignee_id===ctx.me.id);
-  const sorting = tasks.filter(t=>!CLOSED(t.status) && (!t.assignee_id || !t.due_date));
+  const owned = (t) => t.assignee_id || t.assignee_email;
+  const sorting = tasks.filter(t=>!CLOSED(t.status) && (!owned(t) || !t.due_date));
   return <>
     {mineToDo.length>0 && <><div className="h"><h2>Assigned to you</h2><span className="sub">{mineToDo.length} — things your team handed up</span></div>
       <div className="card">{mineToDo.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} showWho={false} why={attention(t,today)||(t.created_by!==ctx.me.id?{why:`${nameOf(people,t.created_by)} is waiting on you`,tone:"warn"}:null)}/>)}</div></>}
@@ -572,7 +591,7 @@ function ManagerHome(ctx){
         : <div className="empty">Everything you've delegated is on track. The other {openT.length} open tasks are fine without you.</div>}
     </div>
     {sorting.length>0 && <><div className="h"><h2>Needs sorting</h2><span className="sub">{sorting.length} without an owner or a date</span></div>
-      <div className="card">{sorting.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} why={{why:!t.assignee_id&&!t.due_date?"No owner, no date":!t.assignee_id?"No owner":"No due date",tone:"warn"}}/>)}</div></>}
+      <div className="card">{sorting.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} why={{why:!owned(t)&&!t.due_date?"No owner, no date":!owned(t)?"No owner":"No due date",tone:"warn"}}/>)}</div></>}
     <div className="counts">
       {[["track","On track"],["waiting","Waiting"],["week","Due this week"],["overdue","Overdue"]].map(([k,l])=>
         <button key={k} className={filter===k?"on":""} onClick={()=>setFilter(filter===k?null:k)}><b>{buckets[k].length}</b><span>{l}</span></button>)}
@@ -585,38 +604,53 @@ function ManagerHome(ctx){
 
 // ---------- people (manager) ----------
 function People(ctx){
-  const {tasks,people,today,me} = ctx;
+  const {tasks,people,today,me,isOwner,isMgr,load,showToast,setMe,invitees} = ctx;
   const [pick,setPick] = useState(null);
-  const staff = people.filter(p=>p.active && p.id!==me.id);
-  if(pick){
-    return <Agenda personId={pick} people={people} onBack={()=>setPick(null)} showToast={ctx.showToast} setOpen={ctx.setOpen}/>;
-  }
-  if(false){
-    const p = people.find(x=>x.id===pick); const mine = tasks.filter(t=>t.assignee_id===pick);
-    const groups = [
-      ["Needs you", mine.filter(t=>!CLOSED(t.status) && (t.need_manager||t.status==="ready_for_review"||t.need_help))],
-      ["Overdue", mine.filter(t=>!CLOSED(t.status) && t.due_date && t.due_date<today)],
-      ["Waiting on others", mine.filter(t=>t.status==="waiting")],
-      ["Still open", mine.filter(t=>!CLOSED(t.status) && !(t.due_date&&t.due_date<today) && t.status!=="waiting" && !(t.need_manager||t.status==="ready_for_review"||t.need_help))],
-      ["Completed in the last 14 days", mine.filter(t=>CLOSED(t.status) && t.completed_at && hoursSince(t.completed_at)<24*14)],
-    ];
-    return <>
-      <div className="h"><h2>{p.full_name}</h2><button className="btn sm" onClick={()=>setPick(null)}>All people</button></div>
-      <div className="note">A ready-made 1:1 agenda. Open any task to add a private note before you meet.</div>
-      {groups.map(([l,list])=><React.Fragment key={l}><div className="section-title">{l} ({list.length})</div>
-        <div className="card">{list.length?list.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} showWho={false}/>):<div className="empty">None</div>}</div></React.Fragment>)}
-    </>;
-  }
+  const set = async (p,patch) => {
+    const {error} = await sb.from("profiles").update(patch).eq("id",p.id);
+    if(error){ showToast(error.message); return; }
+    await load(); if(p.id===me.id) setMe({...me,...patch}); showToast("Saved");
+  };
+  if(pick) return <Agenda personId={pick} people={people} onBack={()=>setPick(null)} showToast={showToast} setOpen={ctx.setOpen}/>;
+
+  const roster = people.filter(p=>p.id!==me.id);
+  const roleLabel = (r) => r==="owner" ? "Owner" : r==="manager" ? "Manager" : "Employee";
   return <>
-    <div className="h"><h2>People</h2><span className="sub">Tap a name to build their 1:1 agenda</span></div>
-    <div className="card">{staff.length ? staff.map(p=>{
+    <div className="h"><h2>People</h2><span className="sub">{roster.length} {roster.length===1?"person":"people"}</span></div>
+    <div className="note" style={{marginBottom:10}}>{isOwner
+      ? "Everyone with an account. Set each person's role and who they report to — a manager only sees their own reports. Deactivate anyone who leaves; their tasks stay so you can reassign them."
+      : "The people who report to you. Roles and reporting lines are set by the owner."}</div>
+    <div className="card">{roster.length ? roster.map(p=>{
       const mine = tasks.filter(t=>t.assignee_id===p.id && !CLOSED(t.status));
       const flag = mine.filter(t=>attention(t,today)).length;
-      return <div className="person" key={p.id} onClick={()=>setPick(p.id)}>
-        <div><b>{p.full_name}</b><div style={{fontSize:13,color:"var(--muted)"}}>{p.email}</div></div>
-        <div className="stats"><span><b>{mine.length}</b> open</span><span><b style={{color:flag?"var(--red)":"inherit"}}>{flag}</b> flagged</span></div>
+      return <div className="person" key={p.id} style={{cursor:"default",flexWrap:"wrap",gap:10}}>
+        <div style={{flex:"1 1 200px"}}>
+          <b>{p.full_name}</b>{!p.active && <span className="pill" style={{marginLeft:6}}>inactive</span>}
+          <div style={{fontSize:13,color:"var(--muted)"}}>{p.email}</div>
+          <div style={{fontSize:13,color:"var(--muted)"}}>
+            {roleLabel(p.role)}{p.manager_id?` · reports to ${nameOf(people,p.manager_id)}`:" · reports to nobody"}
+          </div>
+          <div className="stats" style={{marginTop:4}}>
+            <span><b>{mine.length}</b> open</span>
+            <span><b style={{color:flag?"var(--red)":"inherit"}}>{flag}</b> needing attention</span>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+          {isMgr && p.active && <button className="btn sm p" onClick={()=>setPick(p.id)}>1:1 agenda</button>}
+          {isOwner && <>
+            <select value={p.role} onChange={e=>set(p,{role:e.target.value})} style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}>
+              <option value="employee">Employee</option><option value="manager">Manager</option><option value="owner">Owner</option></select>
+            <select value={p.manager_id||""} onChange={e=>set(p,{manager_id:e.target.value||null})} style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}>
+              <option value="">Reports to nobody</option>
+              {people.filter(x=>x.active && x.id!==p.id && (x.role==="manager"||x.role==="owner")).map(x=><option key={x.id} value={x.id}>Reports to {x.full_name}</option>)}
+            </select>
+            <button className="btn sm" onClick={()=>set(p,{active:!p.active})}>{p.active?"Deactivate":"Reactivate"}</button>
+          </>}
+        </div>
       </div>;
-    }) : <div className="empty">No one on your team yet. Once people create accounts, they show up here.</div>}</div>
+    }) : <div className="empty">Nobody else yet. Add someone below and you can assign them work before they even sign up.</div>}</div>
+    {isMgr && <Invites invitees={invitees} load={load} showToast={showToast}/>}
+    {isOwner && <Access showToast={showToast}/>}
   </>;
 }
 
@@ -945,7 +979,8 @@ function TaskModal(ctx){
     {edit && <EditForm t={t} people={people} isMgr={isMgr} me={me} onCancel={()=>setEdit(false)} onSave={async p=>{ if(await update(t.id,p)){ setEdit(false); showToast("Saved"); } }}/>}
 
     <div className="panel"><h3>The task</h3><dl className="kv">
-      <dt>Assigned to</dt><dd>{t.assignee_id ? nameOf(people,t.assignee_id) : t.assignee_email ? `${t.assignee_email} — waiting for them to sign up` : "Unassigned"}{t.assignee_id && t.created_by!==t.assignee_id ? ` · assigned by ${nameOf(people,t.created_by)}` : t.assignee_id ? " · self-assigned" : ""}</dd>
+      <dt>Assigned to</dt><dd>{t.assignee_id ? nameOf(people,t.assignee_id)
+        : t.assignee_email ? `${(INVITEES.find(i=>i.email===String(t.assignee_email).toLowerCase())||{}).full_name || t.assignee_email} — waiting for them to sign up (${t.assignee_email})` : "Unassigned"}{t.assignee_id && t.created_by!==t.assignee_id ? ` · assigned by ${nameOf(people,t.created_by)}` : t.assignee_id ? " · self-assigned" : ""}</dd>
       <dt>Due</dt><dd>{fmtDate(t.due_date)}{t.expected_completion && t.expected_completion!==t.due_date ? ` (expected ${fmtDate(t.expected_completion)})` : ""}</dd>
       {t.status==="waiting" && <><dt>Waiting on</dt><dd>{t.waiting_on||"—"}</dd></>}
       {t.next_action && <><dt>Next action</dt><dd>{t.next_action}</dd></>}
@@ -1016,11 +1051,13 @@ function Recur({f,setF}){
 }
 
 function EditForm({t,people,onCancel,onSave,isMgr,me}){
-  const [f,setF] = useState({title:t.title,assignee_id:t.assignee_id||"",due_date:t.due_date||"",priority:t.priority,context:t.context,details:t.details,definition_of_done:t.definition_of_done,standing_notes:t.standing_notes||"",recur_rule:t.recur_rule||"",recur_day:t.recur_day??"",recur_cap:t.recur_cap??3});
+  const pending = isMgr ? INVITEES : [];
+  const [f,setF] = useState({title:t.title,assignee_id:t.assignee_id||(t.assignee_email?"email:"+t.assignee_email:""),due_date:t.due_date||"",priority:t.priority,context:t.context,details:t.details,definition_of_done:t.definition_of_done,standing_notes:t.standing_notes||"",recur_rule:t.recur_rule||"",recur_day:t.recur_day??"",recur_cap:t.recur_cap??3});
   return <div className="form card" style={{padding:14,marginBottom:12}}>
     <label>Task<input value={f.title} onChange={e=>setF({...f,title:e.target.value})}/></label>
     <div className="three">
-      <label>Assign to<select value={f.assignee_id} onChange={e=>setF({...f,assignee_id:e.target.value})}><option value="">Unassigned</option>{people.filter(p=>p.active && (isMgr||p.id===me.id||p.role==="manager")).map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select></label>
+      <label>Assign to<select value={f.assignee_id} onChange={e=>setF({...f,assignee_id:e.target.value})}><option value="">Unassigned</option>{people.filter(p=>p.active && (isMgr||p.id===me.id||p.role==="manager")).map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}
+      {pending.length>0 && <optgroup label="Invited — not signed up yet">{pending.map(i=><option key={i.email} value={"email:"+i.email}>{i.full_name||i.email}</option>)}</optgroup>}</select></label>
       <label>Due<input type="date" value={f.due_date} onChange={e=>setF({...f,due_date:e.target.value})}/></label>
       <label>Priority<select value={f.priority} onChange={e=>setF({...f,priority:e.target.value})}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></label>
     </div>
@@ -1029,7 +1066,10 @@ function EditForm({t,people,onCancel,onSave,isMgr,me}){
     <label>Definition of done<input value={f.definition_of_done} onChange={e=>setF({...f,definition_of_done:e.target.value})}/></label>
     <label>Standing notes{t.recur_rule?" (carried to every occurrence)":""}<textarea value={f.standing_notes} onChange={e=>setF({...f,standing_notes:e.target.value})}/></label>
     <Recur f={f} setF={setF}/>
-    <div className="actions"><button className="btn" onClick={onCancel}>Cancel</button><button className="btn p" onClick={()=>onSave({...f,assignee_id:f.assignee_id||null,due_date:f.due_date||null,recur_rule:f.recur_rule||null,recur_day:f.recur_rule&&f.recur_rule!=="daily"?(parseInt(f.recur_day)||null):null,recur_cap:parseInt(f.recur_cap)||3})}>Save</button></div>
+    <div className="actions"><button className="btn" onClick={onCancel}>Cancel</button><button className="btn p" onClick={()=>onSave({...f,
+      assignee_id:String(f.assignee_id).startsWith("email:")?null:(f.assignee_id||null),
+      assignee_email:String(f.assignee_id).startsWith("email:")?f.assignee_id.slice(6):null,
+      due_date:f.due_date||null,recur_rule:f.recur_rule||null,recur_day:f.recur_rule&&f.recur_rule!=="daily"?(parseInt(f.recur_day)||null):null,recur_cap:parseInt(f.recur_cap)||3})}>Save</button></div>
   </div>;
 }
 
@@ -1112,36 +1152,6 @@ function Access({showToast}){
         <button className="btn" onClick={addMail}>Approve address</button>
       </div>
     </div>
-  </>;
-}
-
-function Team({people,me,load,showToast,setMe,invitees,isOwner}){
-  const set = async (p,patch) => {
-    const {error} = await sb.from("profiles").update(patch).eq("id",p.id);
-    if(error){ showToast(error.message); return; } await load(); if(p.id===me.id) setMe({...me,...patch}); showToast("Saved");
-  };
-  return <>
-    <div className="h"><h2>Team</h2><span className="sub">People create their own account; you set the role here</span></div>
-    <div className="note" style={{marginBottom:10}}>{isOwner
-      ? 'Send new people to this site and have them tap "Create an account." They start as Employee reporting to nobody — set their role and who they report to here. A manager only sees the people who report to them. Deactivate anyone who leaves; their tasks stay so you can reassign them.'
-      : "You can see the people who report to you. Roles and reporting lines are set by the owner."}</div>
-    <div className="card">{people.map(p=><div className="person" key={p.id} style={{cursor:"default",flexWrap:"wrap",gap:8}}>
-      <div style={{minWidth:180}}><b>{p.full_name}</b>{p.id===me.id?" (you)":""}
-        <div style={{fontSize:13,color:"var(--muted)"}}>{p.email}</div>
-        {!isOwner && <div style={{fontSize:13,color:"var(--muted)"}}>{p.role==="owner"?"Owner":p.role==="manager"?"Manager":"Employee"}{p.manager_id?` · reports to ${nameOf(people,p.manager_id)}`:""}</div>}
-      </div>
-      {isOwner && <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-        <select value={p.role} disabled={p.id===me.id} onChange={e=>set(p,{role:e.target.value})} style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}>
-          <option value="employee">Employee</option><option value="manager">Manager</option><option value="owner">Owner</option></select>
-        <select value={p.manager_id||""} disabled={p.id===me.id} onChange={e=>set(p,{manager_id:e.target.value||null})} style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}>
-          <option value="">Reports to nobody</option>
-          {people.filter(x=>x.active && x.id!==p.id && (x.role==="manager"||x.role==="owner")).map(x=><option key={x.id} value={x.id}>Reports to {x.full_name}</option>)}
-        </select>
-        <button className="btn sm" disabled={p.id===me.id} onClick={()=>set(p,{active:!p.active})}>{p.active?"Deactivate":"Reactivate"}</button>
-      </div>}
-    </div>)}</div>
-    <Invites invitees={invitees} load={load} showToast={showToast}/>
-    {isOwner && <Access showToast={showToast}/>}
   </>;
 }
 
@@ -1439,6 +1449,33 @@ function Reports({tasks,people,today,setOpen}){
   </>;
 }
 
+function IntakeLog({showToast}){
+  const [rows,setRows] = useState(null);
+  useEffect(()=>{ sb.from("inbound_emails").select("*").order("received_at",{ascending:false}).limit(12)
+    .then(({data,error})=>{ if(error){ showToast(error.message); return; } setRows(data||[]); }); },[showToast]);
+  const tone = {created:"var(--ok)", unknown_sender:"var(--warn)", unreadable:"var(--warn)", error:"var(--red)"};
+  const label = {created:"Became a task", unknown_sender:"Sender has no account — dropped",
+                 unreadable:"Couldn't read it", error:"Something went wrong"};
+  return <>
+    <div className="section-title">Email intake</div>
+    <div className="note" style={{marginBottom:10}}>Forward a work email to the Task Depot address and it becomes a task. Put a name first in the subject — "Ilah: get the Goodman quote" — to say who it's for. Anything it can't place lands in Needs sorting.</div>
+    <div className="card">
+      {rows===null ? <div className="empty">Loading…</div>
+      : rows.length ? rows.map(r=><div className="row" key={r.id} style={{cursor:"default"}}>
+          <div>
+            <div className="t">{r.subject||"(no subject)"}</div>
+            <div className="m">
+              <span style={{color:tone[r.outcome]||"inherit",fontWeight:600}}>{label[r.outcome]||r.outcome}</span>
+              {" · "}{r.from_email||"unknown sender"} · {fmtWhen(r.received_at)}
+              {r.detail ? <div style={{marginTop:2}}>{r.detail}</div> : null}
+            </div>
+          </div>
+        </div>)
+      : <div className="empty">Nothing has come in yet. Once the address is live, forwarded emails show up here.</div>}
+    </div>
+  </>;
+}
+
 function Settings({me,setMe,showToast,isMgr}){
   const set = async (patch) => {
     const {error} = await sb.from("profiles").update(patch).eq("id",me.id);
@@ -1462,13 +1499,18 @@ function Settings({me,setMe,showToast,isMgr}){
         title="Weekday morning digest"
         sub="What needs your decision, what's ready for review, what's overdue, and which recurring tasks have stalled. No email on a quiet day."/>}
     </div>
+    {isMgr && <IntakeLog showToast={showToast}/>}
     <div className="note" style={{marginTop:10}}>Emails go out on weekday mornings. Turning this off doesn't change anything in the app — you'll still see everything when you open it.</div>
   </>;
 }
 
-function WhatsNew(){
+function WhatsNew({onBack}){
   return <>
-    <div className="h"><h2>What's new</h2><span className="sub">Version {APP_VERSION}</span></div>
+    <div className="h"><h2>What's new</h2>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <span className="sub">You're on v{APP_VERSION}</span>
+        <button className="btn sm" onClick={onBack}>Back</button>
+      </div></div>
     {CHANGELOG.map(c=><div className="card" key={c.v} style={{padding:14,marginBottom:10}}>
       <b>v{c.v}</b> <span style={{color:"var(--muted)",fontSize:13}}>· {c.d}</span>
       <ul style={{margin:"8px 0 0",paddingLeft:20}}>{c.items.map((i,k)=><li key={k}>{i}</li>)}</ul>

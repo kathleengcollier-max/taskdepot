@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="5.4">
+<meta name="app-version" content="5.5">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -91,6 +91,19 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 .panel{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
 .panel.tint{background:#f2f5fb;border-color:#dde4f2}
+.week{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.day{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px;min-height:90px}
+.day.today{border-color:var(--navy);box-shadow:0 0 0 1px var(--navy) inset}
+.day.weekend{background:#f2f4f7}
+.day h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:flex;justify-content:space-between;gap:6px}
+.day h4 b{color:var(--ink);font-size:13px;text-transform:none;letter-spacing:0}
+.chiptask{display:block;width:100%;text-align:left;border:0;border-left:3px solid var(--navy);background:#f6f7f9;border-radius:6px;padding:6px 8px;margin-bottom:6px;cursor:pointer;font:inherit;font-size:13px;line-height:1.35}
+.chiptask:hover{background:#eef2fa}
+.chiptask .who{display:block;font-size:11px;font-weight:700;margin-bottom:2px}
+.who-key{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px;font-size:13px}
+.who-key span{display:inline-flex;align-items:center;gap:5px;color:var(--muted)}
+.who-key i{width:10px;height:10px;border-radius:3px;display:inline-block}
+@media (max-width:640px){.week{grid-template-columns:1fr}.day{min-height:0}}
 .filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .filters input{flex:2 1 180px;min-width:140px}
 .filters select{flex:1 1 140px;min-width:120px}
@@ -197,6 +210,12 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"5.5", d:"September 23, 2026", items:[
+    "New Week ahead view: the next seven or fourteen days as columns, each listing what's due that day, with a colour per person so you can see at a glance who's carrying Thursday.",
+    "Anything overdue sits in a red band at the top rather than disappearing into the past, and tasks with no date get their own column at the end.",
+    "Each day shows a count, and a person's name is tinted the same everywhere in the view. Tap any task to open it.",
+    "Employees see the same thing for their own week."
+  ]},
   {v:"5.4", d:"September 23, 2026", items:[
     "Managers get My 1:1 too — it was only on the employee menu, so anyone who manages people couldn't see their own agenda with their own manager.",
     "People now lists only the people who actually report to you, instead of everyone with an account. The owner still sees everybody.",
@@ -584,8 +603,8 @@ function Shell({me,setMe}){
   const freshDone = isMgr ? live.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id
       && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0)).length : 0;
   const nav = isMgr
-    ? [["home","Home",attnCount],["all","All tasks"],["repeating","Repeating"],["finished","Finished",freshDone],["reports","Reports"],["trash","Trash"],["people","People"],["one","My 1:1"],["settings","Settings"],["search","Search"]]
-    : [["myday","My day"],["all","All my tasks"],["one","My 1:1"],["settings","Settings"],["search","Search"]];
+    ? [["home","Home",attnCount],["week","Week ahead"],["all","All tasks"],["repeating","Repeating"],["finished","Finished",freshDone],["reports","Reports"],["trash","Trash"],["people","People"],["one","My 1:1"],["settings","Settings"],["search","Search"]]
+    : [["myday","My day"],["week","Week ahead"],["all","All my tasks"],["one","My 1:1"],["settings","Settings"],["search","Search"]];
 
   return <>
     <header className="top"><div className="bar">
@@ -601,6 +620,7 @@ function Shell({me,setMe}){
       {view==="trash" && <Trash {...ctx} trashed={tasks.filter(t=>t.deleted_at)}/>}
       {view==="myday" && <MyDay {...ctx}/>}
       {view==="one" && <Agenda personId={me.id} people={people} onBack={()=>setView(isMgr?"home":"myday")} showToast={showToast} setOpen={setOpen} openTaskId={open}/>}
+      {view==="week" && <WeekAhead {...ctx}/>}
       {view==="repeating" && <Repeating {...ctx}/>}
       {view==="search" && <Search {...ctx}/>}
       {view==="finished" && isMgr && <Finished {...ctx} setMe={setMe}/>}
@@ -1365,6 +1385,85 @@ function Trash({trashed,people,today,update,showToast,setOpen,load}){
       <div style={{display:"flex",gap:6}}><button className="btn sm" onClick={()=>update(t.id,{deleted_at:null}).then(ok=>ok&&showToast("Restored"))}>Restore</button>
         <button className="btn sm" style={{color:"var(--red)"}} onClick={()=>purge(t)}>Delete permanently</button></div>
     </div>) : <div className="empty">Trash is empty.</div>}</div>
+  </>;
+}
+
+function WeekAhead({tasks,people,today,setOpen,opener,me,isMgr}){
+  const [span,setSpan] = useState(7);
+  const [who,setWho] = useState("");
+  // a stable colour per person, so the same name is the same colour everywhere here
+  const PALETTE = ["#1f3a7a","#c62828","#2e7d32","#5b3fa0","#b26a00","#1f6f63","#8a1c5c","#37474f"];
+  const owners = [...new Set(tasks.filter(t=>!CLOSED(t.status)).map(t=>t.assignee_id||t.assignee_email||"none"))];
+  const colourOf = (t) => PALETTE[Math.max(0, owners.indexOf(t.assignee_id||t.assignee_email||"none")) % PALETTE.length];
+  const nameFor = (t) => t.assignee_id ? nameOf(people,t.assignee_id)
+    : t.assignee_email ? ((INVITEES.find(i=>i.email===String(t.assignee_email).toLowerCase())||{}).full_name || t.assignee_email)
+    : "Unassigned";
+
+  const mine = tasks.filter(t=>!CLOSED(t.status))
+    .filter(t=>!who ? true : String(who).startsWith("email:")
+      ? String(t.assignee_email||"").toLowerCase()===who.slice(6) : t.assignee_id===who);
+
+  const days = [];
+  for(let i=0;i<span;i++){
+    const d = new Date(today+"T00:00:00"); d.setDate(d.getDate()+i);
+    const iso = d.toISOString().slice(0,10);
+    days.push({iso, d, list: mine.filter(t=>t.due_date===iso)});
+  }
+  const overdue = mine.filter(t=>t.due_date && t.due_date < today)
+    .sort((a,b)=>(a.due_date||"").localeCompare(b.due_date||""));
+  const undated = mine.filter(t=>!t.due_date);
+  const later = mine.filter(t=>t.due_date && t.due_date > days[days.length-1].iso);
+
+  const Task = ({t,list}) => <button className="chiptask" style={{borderLeftColor:colourOf(t)}}
+      onClick={()=>setOpen(t.id, list.map(x=>x.id))}>
+      <span className="who" style={{color:colourOf(t)}}>{nameFor(t).split(" ")[0]}</span>
+      {t.title}
+      {t.need_help||t.need_manager ? <span style={{color:"var(--red)",fontWeight:700}}> · needs you</span> : null}
+    </button>;
+
+  return <>
+    <div className="h"><h2>Week ahead</h2>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {isMgr && <select value={who} onChange={e=>setWho(e.target.value)} style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}>
+          <option value="">Everyone</option>
+          {people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}
+          {(INVITEES||[]).length>0 && <optgroup label="Not signed up yet">
+            {INVITEES.map(i=><option key={i.email} value={"email:"+i.email}>{i.full_name||i.email}</option>)}</optgroup>}
+        </select>}
+        <button className={"btn sm"+(span===7?" p":"")} onClick={()=>setSpan(7)}>7 days</button>
+        <button className={"btn sm"+(span===14?" p":"")} onClick={()=>setSpan(14)}>14 days</button>
+      </div></div>
+
+    {isMgr && owners.length>1 && <div className="who-key">
+      {owners.map(o=>{ const sample = tasks.find(t=>(t.assignee_id||t.assignee_email||"none")===o); if(!sample) return null;
+        return <span key={o}><i style={{background:colourOf(sample)}}/>{nameFor(sample)}</span>; })}
+    </div>}
+
+    {overdue.length>0 && <div className="panel" style={{borderColor:"#f0c7c7",background:"var(--red-soft)"}}>
+      <h3 style={{color:"var(--red)"}}>Overdue — {overdue.length}</h3>
+      {overdue.map(t=><Task key={t.id} t={t} list={overdue}/>)}
+    </div>}
+
+    <div className="week">
+      {days.map(({iso,d,list})=>{
+        const weekend = d.getDay()===0 || d.getDay()===6;
+        return <div key={iso} className={"day"+(iso===today?" today":"")+(weekend?" weekend":"")}>
+          <h4><b>{d.toLocaleDateString(undefined,{weekday:"short"})} {d.getDate()}</b>
+            <span>{iso===today?"today":list.length?`${list.length}`:""}</span></h4>
+          {list.length ? list.map(t=><Task key={t.id} t={t} list={list}/>)
+            : <div style={{fontSize:13,color:"var(--muted)"}}>—</div>}
+        </div>;
+      })}
+      {undated.length>0 && <div className="day" style={{borderStyle:"dashed"}}>
+        <h4><b>No date</b><span>{undated.length}</span></h4>
+        {undated.map(t=><Task key={t.id} t={t} list={undated}/>)}
+      </div>}
+    </div>
+
+    {later.length>0 && <div style={{marginTop:12,fontSize:14,color:"var(--muted)"}}>
+      {later.length} more due after {fmtDate(days[days.length-1].iso)}.</div>}
+    {!overdue.length && !undated.length && days.every(d=>!d.list.length) &&
+      <div className="card" style={{marginTop:12}}><div className="empty">Nothing due in this window.</div></div>}
   </>;
 }
 

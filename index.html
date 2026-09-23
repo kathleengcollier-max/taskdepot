@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="4.1">
+<meta name="app-version" content="4.3">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -184,6 +184,17 @@ const recurLabel = (t) => !t.recur_rule ? "" : t.recur_rule==="daily" ? "Repeats
 const STATUS = {not_started:"Not started", working:"Working", waiting:"Waiting", ready_for_review:"Ready for review", done:"Done", skipped:"Skipped"};
 const CLOSED = (st) => st==="done" || st==="skipped";
 const CHANGELOG = [
+  {v:"4.3", d:"September 23, 2026", items:[
+    "Arrows at the top of an open task step to the previous and next one in whatever list you opened it from — your attention list, All tasks, search results, whichever.",
+    "A counter shows where you are, like \"3 of 12\", so you can work straight down a queue without closing and reopening.",
+    "The arrows grey out at either end rather than wrapping around."
+  ]},
+  {v:"4.2", d:"September 23, 2026", items:[
+    "Menu reordered: Home, All tasks, Repeating, Finished, Reports, Trash, People, Settings, Search — daily work first, admin at the end.",
+    "Forwarded emails with no date now land due the next working day rather than with no date at all, so they can't sit unnoticed. Friday afternoon gives you Monday, not Saturday.",
+    "A date in the subject line — \"by 10/3\", \"by Friday\", \"due Oct 3\" — sets the due date and is stripped out of the title.",
+    "Put a teammate on the To or Cc line alongside the Task Depot address and the task goes to them. A name at the start of the subject still beats everything."
+  ]},
   {v:"4.1", d:"September 23, 2026", items:[
     "Fixed: a task assigned to somebody who hasn't signed up yet showed as having no owner, and sat in Needs sorting as though nobody was on it. It now shows their name and only appears there if it's genuinely missing a date.",
     "Fixed: those people were missing from the dropdown when editing a task, so reassigning to them was impossible. They're listed under \"Invited — not signed up yet,\" same as when you first assign.",
@@ -461,7 +472,17 @@ function Shell({me,setMe}){
   const [view,setView] = useState(isMgr?"home":"myday");
   const [people,setPeople] = useState([]);
   const [tasks,setTasks] = useState([]);
-  const [open,setOpen] = useState(null);       // task id in detail modal
+  const [open,setOpenId] = useState(null);     // task id in the drawer
+  const [openList,setOpenList] = useState([]); // the ids it was opened from, for the arrows
+  const setOpen = useCallback((id, list) => {
+    setOpenId(id);
+    if(Array.isArray(list)) setOpenList(list.filter(Boolean));
+  },[]);
+  // a helper each list uses so the arrows know the running order
+  const opener = useCallback((rows) => {
+    const ids = (rows||[]).map(r=>r && (r.id || r.task_id)).filter(Boolean);
+    return (id) => setOpen(id, ids);
+  },[setOpen]);
   const [assign,setAssign] = useState(null); // {parent} when open
   const [toast,setToast] = useState(null);
   const today = todayISO();
@@ -493,14 +514,14 @@ function Shell({me,setMe}){
 
   const live = tasks.filter(t=>!t.deleted_at); ALL_TASKS = live; INVITEES = invitees;
   const openTask = tasks.find(t=>t.id===open);
-  const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,showToast,isMgr,isOwner,invitees};
+  const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,opener,showToast,isMgr,isOwner,invitees};
 
   const attnCount = isMgr ? live.filter(t=>attention(t,today)).length : 0;
   const freshDone = isMgr ? live.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id
       && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0)).length : 0;
   const nav = isMgr
-    ? [["home","Home",attnCount],["people","People"],["finished","Finished",freshDone],["all","All tasks"],["repeating","Repeating"],["search","Search"],["reports","Reports"],["trash","Trash"],["settings","Settings"]]
-    : [["myday","My day"],["all","All my tasks"],["search","Search"],["settings","Settings"]];
+    ? [["home","Home",attnCount],["all","All tasks"],["repeating","Repeating"],["finished","Finished",freshDone],["reports","Reports"],["trash","Trash"],["people","People"],["settings","Settings"],["search","Search"]]
+    : [["myday","My day"],["all","All my tasks"],["settings","Settings"],["search","Search"]];
 
   return <>
     <header className="top"><div className="bar">
@@ -522,7 +543,7 @@ function Shell({me,setMe}){
       {view==="settings" && <Settings me={me} setMe={setMe} showToast={showToast} isMgr={isMgr}/>}
       {view==="new" && <WhatsNew onBack={()=>setView(isMgr?"home":"myday")}/>}
     </main>
-    {openTask && <TaskModal {...ctx} task={openTask} onClose={()=>setOpen(null)} addSub={()=>setAssign({parent:openTask})}/>}
+    {openTask && <TaskModal {...ctx} task={openTask} queueIds={openList} onClose={()=>setOpenId(null)} addSub={()=>setAssign({parent:openTask})}/>}
     {assign && <AssignModal {...ctx} parent={assign.parent} onClose={()=>setAssign(null)}/>}
     {toast && <div className="toast">{toast.text}{toast.undo && <button onClick={()=>{toast.undo();setToast(null);}}>Undo</button>}</div>}
   </>;
@@ -584,20 +605,20 @@ function ManagerHome(ctx){
   const sorting = tasks.filter(t=>!CLOSED(t.status) && (!owned(t) || !t.due_date));
   return <>
     {mineToDo.length>0 && <><div className="h"><h2>Assigned to you</h2><span className="sub">{mineToDo.length} — things your team handed up</span></div>
-      <div className="card">{mineToDo.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} showWho={false} why={attention(t,today)||(t.created_by!==ctx.me.id?{why:`${nameOf(people,t.created_by)} is waiting on you`,tone:"warn"}:null)}/>)}</div></>}
+      <div className="card">{mineToDo.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.opener(mineToDo)} showWho={false} why={attention(t,today)||(t.created_by!==ctx.me.id?{why:`${nameOf(people,t.created_by)} is waiting on you`,tone:"warn"}:null)}/>)}</div></>}
     <div className="h"><h2>Needs your attention</h2><span className="sub">{flagged.length ? `${flagged.length} item${flagged.length>1?"s":""}` : "Nothing — enjoy it"}</span></div>
     <div className="card attn">
-      {flagged.length ? groupSeries(flagged.map(x=>x.t)).map(({t,extra})=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} why={attention(t,today)} extra={extra}/>)
+      {flagged.length ? groupSeries(flagged.map(x=>x.t)).map(({t,extra})=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.opener(flagged.map(x=>x.t))} why={attention(t,today)} extra={extra}/>)
         : <div className="empty">Everything you've delegated is on track. The other {openT.length} open tasks are fine without you.</div>}
     </div>
     {sorting.length>0 && <><div className="h"><h2>Needs sorting</h2><span className="sub">{sorting.length} without an owner or a date</span></div>
-      <div className="card">{sorting.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} why={{why:!owned(t)&&!t.due_date?"No owner, no date":!owned(t)?"No owner":"No due date",tone:"warn"}}/>)}</div></>}
+      <div className="card">{sorting.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.opener(sorting)} why={{why:!owned(t)&&!t.due_date?"No owner, no date":!owned(t)?"No owner":"No due date",tone:"warn"}}/>)}</div></>}
     <div className="counts">
       {[["track","On track"],["waiting","Waiting"],["week","Due this week"],["overdue","Overdue"]].map(([k,l])=>
         <button key={k} className={filter===k?"on":""} onClick={()=>setFilter(filter===k?null:k)}><b>{buckets[k].length}</b><span>{l}</span></button>)}
     </div>
     {shown && <div className="card" style={{marginTop:10}}>
-      {shown.length ? groupSeries(shown).map(({t,extra})=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} extra={extra}/>) : <div className="empty">Nothing here.</div>}
+      {shown.length ? groupSeries(shown).map(({t,extra})=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.opener(shown)} extra={extra}/>) : <div className="empty">Nothing here.</div>}
     </div>}
   </>;
 }
@@ -682,7 +703,7 @@ function AllTasks(ctx){
         <option value="all">Everything</option></select>
       {isMgr && <select value={who} onChange={e=>setWho(e.target.value)}><option value="">Everyone</option>{people.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select>}
     </div>
-    <div className="card">{list.length?list.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} showWho={isMgr}/>):<div className="empty">No tasks match.</div>}</div>
+    <div className="card">{list.length?list.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.opener(list)} showWho={isMgr}/>):<div className="empty">No tasks match.</div>}</div>
   </>;
 }
 
@@ -704,7 +725,7 @@ function MyDay(ctx){
     {groups.map(([l,list])=> list.length ? <React.Fragment key={l}>
       <div className="section-title">{l} ({list.length})</div>
       {l==="Waiting on your manager" && <div style={{fontSize:13,color:"var(--muted)",margin:"-2px 0 6px"}}>You've asked for help on these. They'll move back once you get a reply — nothing to do in the meantime.</div>}
-      <div className="card">{groupSeries(list).map(({t,extra})=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} showWho={false} why={null} extra={extra}/>)}</div></React.Fragment> : null)}
+      <div className="card">{groupSeries(list).map(({t,extra})=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.opener(list)} showWho={false} why={null} extra={extra}/>)}</div></React.Fragment> : null)}
   </>;
 }
 
@@ -779,7 +800,10 @@ function AssignModal(ctx){
 
 // ---------- task detail modal ----------
 function TaskModal(ctx){
-  const {task:t,people,me,isMgr,update,trash,onClose,showToast,addSub,tasks,setOpen,today} = ctx;
+  const {task:t,people,me,isMgr,update,trash,onClose,showToast,addSub,tasks,setOpen,today,queueIds} = ctx;
+  const queue = (queueIds||[]).filter(id=>tasks.some(x=>x.id===id));
+  const at = queue.indexOf(t.id);
+  const go = (delta) => { const n = queue[at+delta]; if(n) setOpen(n, queue); };
   const iCreated = t.created_by===me.id;
   const children = tasks.filter(c=>c.parent_id===t.id);
   const parent = t.parent_id ? tasks.find(p=>p.id===t.parent_id) : null;
@@ -898,6 +922,11 @@ function TaskModal(ctx){
   };
 
   return <div className="modalbg" onClick={onClose}><div className="modal detail" onClick={e=>e.stopPropagation()}>
+    {queue.length>1 && at>=0 && <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+      <button className="btn sm" disabled={at<=0} onClick={()=>go(-1)} aria-label="Previous task">←</button>
+      <span style={{fontSize:13,color:"var(--muted)"}}>{at+1} of {queue.length}</span>
+      <button className="btn sm" disabled={at>=queue.length-1} onClick={()=>go(1)} aria-label="Next task">→</button>
+    </div>}
     <h2>{t.title}</h2>
     <div style={{marginBottom:10}}>
       <span className={"pill "+t.status}>{STATUS[t.status]}</span>{" "}
@@ -1250,7 +1279,7 @@ function Search({setOpen,showToast}){
       </label>
     </div>
     {rows && <div className="card">
-      {rows.length ? rows.map((r,i)=><div className="row" key={i} onClick={()=>setOpen(r.task_id)}>
+      {rows.length ? rows.map((r,i)=><div className="row" key={i} onClick={()=>setOpen(r.task_id, rows.map(x=>x.task_id))}>
         <div>
           <div className="t">{r.title}</div>
           <div className="m">
@@ -1357,7 +1386,7 @@ function Finished({tasks,people,today,setOpen,me,setMe,showToast}){
         <option value="month">Last 30 days</option><option value="all">Everything</option></select>
     </div>
     <div className="card">
-      {list.length ? list.map(t=><div className="row" key={t.id} onClick={()=>setOpen(t.id)}>
+      {list.length ? list.map(t=><div className="row" key={t.id} onClick={()=>setOpen(t.id, list.map(x=>x.id))}>
         <div>
           <div className="t">
             {finishedAt(t)>seen && <span style={{color:"var(--red)",fontWeight:700,marginRight:6}}>•</span>}

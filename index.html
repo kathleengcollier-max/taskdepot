@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="2.3">
+<meta name="app-version" content="2.7">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -131,6 +131,24 @@ const recurLabel = (t) => !t.recur_rule ? "" : t.recur_rule==="daily" ? "Repeats
 const STATUS = {not_started:"Not started", working:"Working", waiting:"Waiting", ready_for_review:"Ready for review", done:"Done", skipped:"Skipped"};
 const CLOSED = (st) => st==="done" || st==="skipped";
 const CHANGELOG = [
+  {v:"2.7", d:"September 22, 2026", items:[
+    "A task you've flagged for help now moves into its own \"Waiting on your manager\" section on My Day, instead of sitting in your due list looking like something you should be getting on with.",
+    "It moves back to where it belongs the moment your manager replies and clears the flag.",
+    "The Blocked filter on All tasks already covered this; My Day now matches."
+  ]},
+  {v:"2.6", d:"September 22, 2026", items:[
+    "Clearing someone's help flag now opens a reply box. Whatever you write is posted as a comment on the task and emailed to them, so asking for help gets an actual answer back instead of silence.",
+    "You can clear without writing anything — they just get a short note saying you looked at it.",
+    "Private manager notes are unchanged: still visible only to managers, never to the person the task belongs to."
+  ]},
+  {v:"2.5", d:"September 22, 2026", items:[
+    "All tasks now filters by Open, Blocked, Needs you, Done, Skipped, or Everything.",
+    "Blocked means waiting on someone else or flagged for help — the things that aren't moving on their own.",
+    "Someone asking for help now emails every manager straight away instead of waiting for the morning digest."
+  ]},
+  {v:"2.4", d:"September 22, 2026", items:[
+    "Fixed: opening a task and tapping + Subtask put the new-subtask form behind the task window, so you could see it but not reach Save. It now sits on top, where it belongs."
+  ]},
   {v:"2.3", d:"September 22, 2026", items:[
     "One welcome email when someone joins, listing everything already waiting for them with due dates — instead of a separate email per task.",
     "Load someone up over a week and they hear nothing until they sign up. Then they get one tidy message, and normal emails start from that point."
@@ -371,8 +389,8 @@ function Shell({me,setMe}){
       {view==="settings" && <Settings me={me} setMe={setMe} showToast={showToast} isMgr={isMgr}/>}
       {view==="new" && <WhatsNew/>}
     </main>
-    {assign && <AssignModal {...ctx} parent={assign.parent} onClose={()=>setAssign(null)}/>}
     {openTask && <TaskModal {...ctx} task={openTask} onClose={()=>setOpen(null)} addSub={()=>setAssign({parent:openTask})}/>}
+    {assign && <AssignModal {...ctx} parent={assign.parent} onClose={()=>setAssign(null)}/>}
     {toast && <div className="toast">{toast.text}{toast.undo && <button onClick={()=>{toast.undo();setToast(null);}}>Undo</button>}</div>}
   </>;
 }
@@ -487,14 +505,28 @@ function People(ctx){
 function AllTasks(ctx){
   const {tasks,people,today,isMgr} = ctx;
   const [q,setQ] = useState(""); const [st,setSt] = useState("open"); const [who,setWho]=useState("");
-  const list = tasks.filter(t=>(st==="open"?!CLOSED(t.status):st==="done"?CLOSED(t.status):true))
+  const match = (t) => {
+    if(st==="open") return !CLOSED(t.status);
+    if(st==="blocked") return !CLOSED(t.status) && (t.status==="waiting" || t.need_help);
+    if(st==="needsyou") return !CLOSED(t.status) && (t.need_manager || t.need_help || t.status==="ready_for_review");
+    if(st==="done") return t.status==="done";
+    if(st==="skipped") return t.status==="skipped";
+    return true;
+  };
+  const list = tasks.filter(match)
     .filter(t=>!who||t.assignee_id===who)
     .filter(t=>!q||(t.title+" "+t.context+" "+t.details).toLowerCase().includes(q.toLowerCase()));
   return <>
     <div className="h"><h2>{isMgr?"All tasks":"All my tasks"}</h2><span className="sub">{list.length} shown</span></div>
     <div className="form three" style={{marginBottom:10}}>
       <input placeholder="Search" value={q} onChange={e=>setQ(e.target.value)}/>
-      <select value={st} onChange={e=>setSt(e.target.value)}><option value="open">Open</option><option value="done">Done or skipped</option><option value="all">All</option></select>
+      <select value={st} onChange={e=>setSt(e.target.value)}>
+        <option value="open">Open</option>
+        <option value="blocked">Blocked — waiting or needs help</option>
+        <option value="needsyou">Needs you</option>
+        <option value="done">Done</option>
+        <option value="skipped">Skipped</option>
+        <option value="all">Everything</option></select>
       {isMgr && <select value={who} onChange={e=>setWho(e.target.value)}><option value="">Everyone</option>{people.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select>}
     </div>
     <div className="card">{list.length?list.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} showWho={isMgr}/>):<div className="empty">No tasks match.</div>}</div>
@@ -506,15 +538,19 @@ function MyDay(ctx){
   const {tasks,today,people,update,me} = ctx;
   const mine = tasks.filter(t=>!CLOSED(t.status) && t.assignee_id===me.id);
   const handedUp = tasks.filter(t=>!CLOSED(t.status) && t.created_by===me.id && t.assignee_id!==me.id);
-  const dueToday = mine.filter(t=>t.due_date && t.due_date<=today);
-  const waiting = mine.filter(t=>t.status==="waiting");
-  const review = mine.filter(t=>t.status==="ready_for_review");
-  const upcoming = mine.filter(t=>!dueToday.includes(t) && t.status!=="waiting" && t.status!=="ready_for_review");
-  const groups = [["Due today or overdue",dueToday],["Waiting on someone",waiting],["Waiting for your manager's review",review],["Upcoming",upcoming],["Handed to your manager",handedUp]];
+  const flagged = mine.filter(t=>t.need_help || t.need_manager);
+  const rest = mine.filter(t=>!flagged.includes(t));
+  const dueToday = rest.filter(t=>t.due_date && t.due_date<=today);
+  const waiting = rest.filter(t=>t.status==="waiting");
+  const review = rest.filter(t=>t.status==="ready_for_review");
+  const upcoming = rest.filter(t=>!dueToday.includes(t) && t.status!=="waiting" && t.status!=="ready_for_review");
+  const groups = [["Waiting on your manager",flagged],["Due today or overdue",dueToday],["Waiting on someone else",waiting],["Waiting for your manager's review",review],["Upcoming",upcoming],["Handed to your manager",handedUp]];
   return <>
     <div className="h"><h2>My day</h2><span className="sub">{fmtDate(today)} · {mine.length} open</span></div>
     {mine.length===0 && handedUp.length===0 && <div className="card"><div className="empty">Nothing on your plate right now. Tap + Add task to give yourself one.</div></div>}
-    {groups.map(([l,list])=> list.length ? <React.Fragment key={l}><div className="section-title">{l} ({list.length})</div>
+    {groups.map(([l,list])=> list.length ? <React.Fragment key={l}>
+      <div className="section-title">{l} ({list.length})</div>
+      {l==="Waiting on your manager" && <div style={{fontSize:13,color:"var(--muted)",margin:"-2px 0 6px"}}>You've asked for help on these. They'll move back once you get a reply — nothing to do in the meantime.</div>}
       <div className="card">{groupSeries(list).map(({t,extra})=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.setOpen} showWho={false} why={null} extra={extra}/>)}</div></React.Fragment> : null)}
   </>;
 }
@@ -553,7 +589,7 @@ function AssignModal(ctx){
       : `Assigned to ${nameOf(people,row.assignee_id)}`);
     onClose();
   };
-  return <div className="modalbg" onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}>
+  return <div className="modalbg" style={{zIndex:50}} onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}>
     <button className="x" onClick={onClose} aria-label="Close">×</button>
     <h2>{parent ? "Add a subtask" : isMgr ? "Assign a task" : "Add a task"}</h2>
     {parent && <div className="note" style={{marginBottom:12}}>Under: <b>{parent.title}</b>{!isMgr && " — assign it to yourself or to your manager."}</div>}
@@ -597,6 +633,15 @@ function TaskModal(ctx){
   const root = t.series_id ? tasks.find(x=>x.id===t.series_id) : null;
   const [skipping,setSkipping] = useState(false);
   const [copying,setCopying] = useState(false);
+  const [replying,setReplying] = useState(false);
+  const [replyNote,setReplyNote] = useState("");
+  const doReply = async () => {
+    const {data,error} = await sb.rpc("resolve_help",{p_task:t.id, p_note:replyNote});
+    if(error){ showToast(error.message); return; }
+    setReplying(false); setReplyNote("");
+    await ctx.load();
+    showToast(data && data.emailed ? "Sent — flag cleared" : "Flag cleared");
+  };
   const [copyTo,setCopyTo] = useState([]);
   const [copyDue,setCopyDue] = useState("");
   const doCopy = async () => {
@@ -718,6 +763,13 @@ function TaskModal(ctx){
       <button className="btn" onClick={()=>setCopying(true)}>Copy to others</button>
       <button className="btn" style={{color:"var(--red)"}} onClick={()=>trash(t)}>Trash</button>
     </div>}
+    {replying && <div className="form card" style={{padding:14,marginBottom:12}}>
+      <div><b>Reply to {nameOf(people,t.assignee_id)}</b>
+        <div style={{fontSize:13,color:"var(--muted)"}}>What you write is added to the task's comments and emailed to them. Leave it blank and they just get a note that you've looked at it.</div></div>
+      <label>Your reply<textarea autoFocus value={replyNote} onChange={e=>setReplyNote(e.target.value)} placeholder="Call Suan directly, she has the unlock code. Push it to Thursday if you need to."/></label>
+      <div className="actions"><button className="btn" onClick={()=>{setReplying(false);setReplyNote("");}}>Cancel</button>
+        <button className="btn p" onClick={doReply}>Send &amp; clear flag</button></div>
+    </div>}
     {copying && <div className="form card" style={{padding:14,marginBottom:12}}>
       <div><b>Give this task to other people</b><div style={{fontSize:13,color:"var(--muted)"}}>Each person gets their own copy with its own progress. Comments and attachments stay with this one.</div></div>
       <div>{people.filter(p=>p.active && p.id!==t.assignee_id).map(p=><button key={p.id} type="button" className="chip" style={copyTo.includes(p.id)?{background:"var(--navy)",color:"#fff",borderColor:"var(--navy)"}:{}}
@@ -734,7 +786,7 @@ function TaskModal(ctx){
     {isMgr && !edit && <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
       {t.status==="ready_for_review" && <button className="btn p" onClick={()=>quick({status:"done",need_manager:false},"Approved and closed")}>Approve — mark done</button>}
       {t.status==="ready_for_review" && <button className="btn" onClick={()=>quick({status:"working"},"Sent back")}>Send back</button>}
-      {(t.need_manager||t.need_help) && <button className="btn" onClick={()=>quick({need_manager:false,need_help:false},"Flag cleared")}>Clear flag</button>}
+      {(t.need_manager||t.need_help) && <button className="btn r" onClick={()=>setReplying(true)}>Reply &amp; clear flag</button>}
       {!CLOSED(t.status) && <button className="btn" onClick={()=>quick({status:"done"},"Marked done")}>Mark done</button>}
       {CLOSED(t.status) && <button className="btn" onClick={()=>quick({status:"working",skip_reason:null},"Reopened")}>Reopen</button>}
       {t.recur_rule && !CLOSED(t.status) && <button className="btn" onClick={()=>setSkipping(true)}>Skip this one</button>}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="4.7">
+<meta name="app-version" content="4.8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -196,6 +196,10 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"4.8", d:"September 23, 2026", items:[
+    "All tasks: the person filter now lists people you've invited who haven't signed up yet, under \"Not signed up yet\", so you can pull up everything waiting for Jeff or Bianca before they ever log in.",
+    "Their tasks were always in the list — there was just no way to filter down to one of them."
+  ]},
   {v:"4.7", d:"September 23, 2026", items:[
     "All tasks: the search box and the three filters now sit on one row instead of stacking, so the list starts higher up the screen. On a phone they wrap to two rows rather than four."
   ]},
@@ -737,7 +741,10 @@ function AllTasks(ctx){
   };
   const list = tasks.filter(match)
     .filter(t=>origin==="all" ? true : origin==="delegated" ? DELEGATED(t) : !DELEGATED(t))
-    .filter(t=>!who||t.assignee_id===who)
+    .filter(t=>!who ? true
+      : String(who).startsWith("email:")
+        ? String(t.assignee_email||"").toLowerCase() === who.slice(6)
+        : t.assignee_id===who)
     .filter(t=>!q||(t.title+" "+t.context+" "+t.details).toLowerCase().includes(q.toLowerCase()));
   return <>
     <div className="h"><h2>{isMgr?"All tasks":"All my tasks"}</h2><span className="sub">{list.length} shown</span></div>
@@ -750,7 +757,12 @@ function AllTasks(ctx){
         <option value="done">Done</option>
         <option value="skipped">Skipped</option>
         <option value="all">Everything</option></select>
-      {isMgr && <select value={who} onChange={e=>setWho(e.target.value)}><option value="">Everyone</option>{people.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select>}
+      {isMgr && <select value={who} onChange={e=>setWho(e.target.value)}>
+        <option value="">Everyone</option>
+        {people.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}
+        {(INVITEES||[]).length>0 && <optgroup label="Not signed up yet">
+          {INVITEES.map(i=><option key={i.email} value={"email:"+i.email}>{i.full_name||i.email}</option>)}</optgroup>}
+      </select>}
       {isMgr && <select value={origin} onChange={e=>setOrigin(e.target.value)}>
         <option value="all">However it started</option>
         <option value="delegated">Delegated to them</option>
@@ -1414,7 +1426,10 @@ function Finished({tasks,people,today,setOpen,me,setMe,showToast}){
     return new Date(0);
   };
   const list = tasks.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id)
-    .filter(t=>!who || t.assignee_id===who)
+    .filter(t=>!who ? true
+      : String(who).startsWith("email:")
+        ? String(t.assignee_email||"").toLowerCase() === who.slice(6)
+        : t.assignee_id===who)
     .filter(t=>finishedAt(t) >= cutoff())
     .sort((a,b)=>finishedAt(b)-finishedAt(a));
   const fresh = list.filter(t=>finishedAt(t) > seen);
@@ -1434,7 +1449,12 @@ function Finished({tasks,people,today,setOpen,me,setMe,showToast}){
       {fresh.length>0 && <button className="btn sm p" onClick={markSeen}>Mark {fresh.length} as seen</button>}</div>
     <div className="note" style={{marginBottom:10}}>Everything your team has closed out. Nothing emails you when a task is finished — it just collects here until you look.</div>
     <div className="form two" style={{marginBottom:10}}>
-      <select value={who} onChange={e=>setWho(e.target.value)}><option value="">Everyone</option>{people.filter(p=>p.id!==me.id).map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select>
+      <select value={who} onChange={e=>setWho(e.target.value)}>
+        <option value="">Everyone</option>
+        {people.filter(p=>p.id!==me.id).map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}
+        {(INVITEES||[]).length>0 && <optgroup label="Not signed up yet">
+          {INVITEES.map(i=><option key={i.email} value={"email:"+i.email}>{i.full_name||i.email}</option>)}</optgroup>}
+      </select>
       <select value={range} onChange={e=>setRange(e.target.value)}>
         <option value="today">Finished today</option><option value="week">Last 7 days</option>
         <option value="month">Last 30 days</option><option value="all">Everything</option></select>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="4.5">
+<meta name="app-version" content="4.7">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -65,8 +65,8 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .pill.not_started{background:#eef0f4} .pill.working{background:#e6edfb;color:var(--navy)} .pill.waiting{background:var(--warn-soft);color:var(--warn)}
 .pill.ready_for_review{background:#efe8fb;color:#5b3fa0} .pill.done{background:var(--ok-soft);color:var(--ok)} .pill.skipped{background:#eef0f4;color:var(--muted)}
 .pill.high{background:var(--red-soft);color:var(--red)}
-.pill.origin{background:#e6edfb;color:var(--navy);font-weight:600}
-.pill.origin.own{background:#eef0f4;color:var(--muted)}
+.pill.origin{background:#efe9fb;color:#5b3fa0;border:1px solid #d9cdf2;font-weight:600}
+.pill.origin.own{background:#e0f2ee;color:#1f6f63;border-color:#bfe3db}
 .empty{padding:26px 14px;color:var(--muted);text-align:center}
 .btn{border:1px solid var(--line);background:var(--white);border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:500}
 .btn.p{background:var(--navy);border-color:var(--navy);color:#fff}
@@ -91,6 +91,11 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 .panel{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
 .panel.tint{background:#f2f5fb;border-color:#dde4f2}
+.filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.filters input{flex:2 1 180px;min-width:140px}
+.filters select{flex:1 1 140px;min-width:120px}
+.filters input,.filters select{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#fff}
+@media (max-width:640px){.filters input{flex:1 1 100%}.filters select{flex:1 1 calc(50% - 4px)}}
 .panel h3{font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:var(--muted);font-weight:700;margin:0 0 10px}
 .kv{display:grid;grid-template-columns:118px 1fr;gap:7px 12px;font-size:14px;margin:0}
 .kv dt{color:var(--muted)} .kv dd{margin:0}
@@ -191,6 +196,13 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"4.7", d:"September 23, 2026", items:[
+    "All tasks: the search box and the three filters now sit on one row instead of stacking, so the list starts higher up the screen. On a phone they wrap to two rows rather than four."
+  ]},
+  {v:"4.6", d:"September 23, 2026", items:[
+    "The origin chips have their own colours so they don't blend into the status next to them: teal for a task somebody set themselves, purple for work handed over.",
+    "Both carry a thin outline, so at a glance you can tell an origin chip from a status chip even before reading it."
+  ]},
   {v:"4.5", d:"September 23, 2026", items:[
     "Fixed: tasks assigned to someone who hasn't signed up yet were dropped from the Home attention list and the counts, because the delegated test only recognised people with accounts.",
     "Where a task came from is now a coloured chip instead of grey text — navy \"From Kathleen\" for work handed to someone, grey \"Their own\" for a task they set themselves.",
@@ -729,7 +741,7 @@ function AllTasks(ctx){
     .filter(t=>!q||(t.title+" "+t.context+" "+t.details).toLowerCase().includes(q.toLowerCase()));
   return <>
     <div className="h"><h2>{isMgr?"All tasks":"All my tasks"}</h2><span className="sub">{list.length} shown</span></div>
-    <div className="form three" style={{marginBottom:10}}>
+    <div className="filters" style={{marginBottom:10}}>
       <input placeholder="Search" value={q} onChange={e=>setQ(e.target.value)}/>
       <select value={st} onChange={e=>setSt(e.target.value)}>
         <option value="open">Open</option>

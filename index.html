@@ -3,9 +3,15 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="3.4">
+<meta name="app-version" content="3.8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Task Depot">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CjxyZWN0IHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgcng9IjEyIiBmaWxsPSIjMWYzYTdhIi8+CjxyZWN0IHg9IjEyIiB5PSIxNCIgd2lkdGg9IjQwIiBoZWlnaHQ9IjMwIiByeD0iNiIgZmlsbD0iI2ZmZmZmZiIvPgo8cmVjdCB4PSIxNiIgeT0iMTkiIHdpZHRoPSIxNCIgaGVpZ2h0PSIxMCIgcng9IjIiIGZpbGw9IiMxZjNhN2EiLz4KPHJlY3QgeD0iMzQiIHk9IjE5IiB3aWR0aD0iMTQiIGhlaWdodD0iMTAiIHJ4PSIyIiBmaWxsPSIjMWYzYTdhIi8+CjxyZWN0IHg9IjE2IiB5PSIzMyIgd2lkdGg9IjMyIiBoZWlnaHQ9IjQiIHJ4PSIyIiBmaWxsPSIjYzYyODI4Ii8+CjxyZWN0IHg9IjE0IiB5PSI0NCIgd2lkdGg9IjYiIGhlaWdodD0iNSIgcng9IjIiIGZpbGw9IiMxZjNhN2EiLz4KPHJlY3QgeD0iNDQiIHk9IjQ0IiB3aWR0aD0iNiIgaGVpZ2h0PSI1IiByeD0iMiIgZmlsbD0iIzFmM2E3YSIvPgo8Y2lyY2xlIGN4PSIyMSIgY3k9IjUwIiByPSI1IiBmaWxsPSIjMTYxODFkIi8+PGNpcmNsZSBjeD0iMjEiIGN5PSI1MCIgcj0iMiIgZmlsbD0iI2ZmZmZmZiIvPgo8Y2lyY2xlIGN4PSI0MyIgY3k9IjUwIiByPSI1IiBmaWxsPSIjMTYxODFkIi8+PGNpcmNsZSBjeD0iNDMiIGN5PSI1MCIgcj0iMiIgZmlsbD0iI2ZmZmZmZiIvPgo8L3N2Zz4=">
 <link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CjxyZWN0IHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgcng9IjEyIiBmaWxsPSIjMWYzYTdhIi8+CjxyZWN0IHg9IjEyIiB5PSIxNCIgd2lkdGg9IjQwIiBoZWlnaHQ9IjMwIiByeD0iNiIgZmlsbD0iI2ZmZmZmZiIvPgo8cmVjdCB4PSIxNiIgeT0iMTkiIHdpZHRoPSIxNCIgaGVpZ2h0PSIxMCIgcng9IjIiIGZpbGw9IiMxZjNhN2EiLz4KPHJlY3QgeD0iMzQiIHk9IjE5IiB3aWR0aD0iMTQiIGhlaWdodD0iMTAiIHJ4PSIyIiBmaWxsPSIjMWYzYTdhIi8+CjxyZWN0IHg9IjE2IiB5PSIzMyIgd2lkdGg9IjMyIiBoZWlnaHQ9IjQiIHJ4PSIyIiBmaWxsPSIjYzYyODI4Ii8+CjxyZWN0IHg9IjE0IiB5PSI0NCIgd2lkdGg9IjYiIGhlaWdodD0iNSIgcng9IjIiIGZpbGw9IiMxZjNhN2EiLz4KPHJlY3QgeD0iNDQiIHk9IjQ0IiB3aWR0aD0iNiIgaGVpZ2h0PSI1IiByeD0iMiIgZmlsbD0iIzFmM2E3YSIvPgo8Y2lyY2xlIGN4PSIyMSIgY3k9IjUwIiByPSI1IiBmaWxsPSIjMTYxODFkIi8+PGNpcmNsZSBjeD0iMjEiIGN5PSI1MCIgcj0iMiIgZmlsbD0iI2ZmZmZmZiIvPgo8Y2lyY2xlIGN4PSI0MyIgY3k9IjUwIiByPSI1IiBmaWxsPSIjMTYxODFkIi8+PGNpcmNsZSBjeD0iNDMiIGN5PSI1MCIgcj0iMiIgZmlsbD0iI2ZmZmZmZiIvPgo8L3N2Zz4=">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -115,14 +121,50 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .section-title{font-size:13px;color:var(--muted);font-weight:600;margin:16px 0 6px}
 .att a{display:block;padding:6px 0;font-size:14px}
 @media (max-width:640px){
+  body{font-size:16px}
+  .top .bar{flex-wrap:wrap;padding:8px 12px;gap:6px}
+  .brand{font-size:16px}
+  .nav{width:100%;order:3;margin-left:0;gap:6px;padding-bottom:2px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .nav::-webkit-scrollbar{display:none}
+  .nav button{background:rgba(255,255,255,.1);padding:8px 12px;border-radius:16px;font-size:14px;min-height:38px}
+  .nav button.on{background:#fff;color:var(--navy)}
+  .who{margin-left:auto}
+  main{padding:14px 12px 90px}
+  .h{flex-wrap:wrap;gap:6px;margin:18px 0 8px}
+  .h h2{font-size:19px}
+  .btn{min-height:44px;padding:11px 16px}
+  .btn.sm{min-height:36px}
+  .actions{gap:8px}
+  .actions .btn{flex:1 1 auto}
+  .row{padding:14px}
+  .counts{flex-wrap:wrap}
+  .counts button{flex:1 0 45%;border-left:0;border-top:1px solid var(--line)}
+  .form input,.form select,.form textarea{font-size:16px;min-height:46px}
+  input[type=checkbox]{min-width:22px;min-height:22px}
+  .person{flex-wrap:wrap}
   .two,.three{grid-template-columns:1fr}
   .detail dl{grid-template-columns:1fr}
   .who span{display:none}
   .row{grid-template-columns:1fr}
   .row .why{text-align:left}
   .counts b{font-size:18px}
+  .panel{padding:12px}
+  .tabs{overflow-x:auto;white-space:nowrap}
+  .tabs button{font-size:14px;padding:10px 12px}
+  .modal h2{font-size:18px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@media print{
+  .top,.nav,.btn,.h .sub,.note{display:none!important}
+  body{background:#fff}
+  main{padding:0;max-width:100%}
+  .panel{break-inside:avoid;border:1px solid #999}
+  .agenda-print{display:block!important}
+}
+.agenda-print{display:none}
+.ag h4{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:16px 0 6px}
+.ag ul{margin:0;padding-left:18px} .ag li{margin-bottom:5px;font-size:14px}
+.ag .meta{color:var(--muted);font-size:13px}
 </style>
 </head>
 <body>
@@ -141,6 +183,28 @@ const recurLabel = (t) => !t.recur_rule ? "" : t.recur_rule==="daily" ? "Repeats
 const STATUS = {not_started:"Not started", working:"Working", waiting:"Waiting", ready_for_review:"Ready for review", done:"Done", skipped:"Skipped"};
 const CLOSED = (st) => st==="done" || st==="skipped";
 const CHANGELOG = [
+  {v:"3.8", d:"September 22, 2026", items:[
+    "Task Depot installs on a phone. Open it in the browser and add it to your home screen — it gets the bus icon and opens full screen, no address bar.",
+    "Built for a phone first: the menu scrolls as a row of chips, buttons and checkboxes are big enough to hit with a thumb, and forms stack into one column.",
+    "Key actions sit at the bottom of the drawer where your thumb already is, and the drawer respects the notch and home bar.",
+    "Reports and the person table scroll sideways on a narrow screen instead of squashing."
+  ]},
+  {v:"3.7", d:"September 22, 2026", items:[
+    "Recurring tasks are never held back now. October's appears whether or not September got done — falling behind is exactly when an obligation shouldn't quietly vanish.",
+    "The cap is a warning instead of a gate: past it, the series is marked as behind and flagged, but occurrences keep arriving.",
+    "New \"Catch up\" button on the Repeating tab: skips every open occurrence except the newest, with a reason recorded, so a backlog clears in one tap."
+  ]},
+  {v:"3.6", d:"September 22, 2026", items:[
+    "A task now needs an owner and a due date before it'll save. Without a date it can never be overdue and never triggers a reminder, which is how things quietly rot.",
+    "New Repeating tab: every recurring task in one place, with the next three dates — including occurrences that haven't been created yet — plus how many are open, the cap, and whether it's stalled or paused.",
+    "Fixed: the AI capture box refused owners. It checked for the manager role and the Owner level was added after it was written."
+  ]},
+  {v:"3.5", d:"September 22, 2026", items:[
+    "Search, in its own tab. One box searches task titles, details, context, comments, steps and your own private notes at once, and tells you which of those it matched.",
+    "Closed tasks are excluded by default — tick the box to search everything you've ever finished.",
+    "New 1:1 agenda: open People, pick someone, and it builds the meeting for you — finished since last time, overdue, waiting on you, waiting on others, still open, what they've asked of you, and your private notes.",
+    "Print it, or hit Copy to paste it into an email. Choose 7, 14 or 30 days to cover."
+  ]},
   {v:"3.4", d:"September 22, 2026", items:[
     "Task and assign windows are drawers now — they slide in from the right, like the other apps, and close with the button at the bottom or by tapping the shaded area.",
     "Cleaner structure inside a task: real sections with headers, tinted panels and a two-column grid for the facts, instead of one long strip.",
@@ -417,8 +481,8 @@ function Shell({me,setMe}){
   const freshDone = isMgr ? live.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id
       && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0)).length : 0;
   const nav = isMgr
-    ? [["home","Home",attnCount],["people","People"],["finished","Finished",freshDone],["all","All tasks"],["reports","Reports"],["team","Team"],["trash","Trash"],["settings","Settings"],["new","What's new"]]
-    : [["myday","My day"],["all","All my tasks"],["settings","Settings"]];
+    ? [["home","Home",attnCount],["people","People"],["finished","Finished",freshDone],["all","All tasks"],["repeating","Repeating"],["search","Search"],["reports","Reports"],["team","Team"],["trash","Trash"],["settings","Settings"],["new","What's new"]]
+    : [["myday","My day"],["all","All my tasks"],["search","Search"],["settings","Settings"]];
 
   return <>
     <header className="top"><div className="bar">
@@ -434,6 +498,8 @@ function Shell({me,setMe}){
       {view==="team" && isMgr && <Team {...ctx} setMe={setMe}/>}
       {view==="trash" && <Trash {...ctx} trashed={tasks.filter(t=>t.deleted_at)}/>}
       {view==="myday" && <MyDay {...ctx}/>}
+      {view==="repeating" && <Repeating {...ctx}/>}
+      {view==="search" && <Search {...ctx}/>}
       {view==="finished" && isMgr && <Finished {...ctx} setMe={setMe}/>}
       {view==="reports" && isMgr && <Reports {...ctx}/>}
       {view==="settings" && <Settings me={me} setMe={setMe} showToast={showToast} isMgr={isMgr}/>}
@@ -523,6 +589,9 @@ function People(ctx){
   const [pick,setPick] = useState(null);
   const staff = people.filter(p=>p.active && p.id!==me.id);
   if(pick){
+    return <Agenda personId={pick} people={people} onBack={()=>setPick(null)} showToast={ctx.showToast} setOpen={ctx.setOpen}/>;
+  }
+  if(false){
     const p = people.find(x=>x.id===pick); const mine = tasks.filter(t=>t.assignee_id===pick);
     const groups = [
       ["Needs you", mine.filter(t=>!CLOSED(t.status) && (t.need_manager||t.status==="ready_for_review"||t.need_help))],
@@ -539,7 +608,7 @@ function People(ctx){
     </>;
   }
   return <>
-    <div className="h"><h2>People</h2><span className="sub">Tap a name for their 1:1 view</span></div>
+    <div className="h"><h2>People</h2><span className="sub">Tap a name to build their 1:1 agenda</span></div>
     <div className="card">{staff.length ? staff.map(p=>{
       const mine = tasks.filter(t=>t.assignee_id===p.id && !CLOSED(t.status));
       const flag = mine.filter(t=>attention(t,today)).length;
@@ -624,6 +693,8 @@ function AssignModal(ctx){
   };
   const save = async () => {
     if(!f.title.trim()) { setErr("A task needs a title."); return; }
+    if(!several.length && !f.assignee_id) { setErr("Give this to someone — a task with no owner gets forgotten."); return; }
+    if(!f.due_date) { setErr("Set a due date. Without one it can never be overdue, so nobody is ever reminded."); return; }
     setBusy(true);
     const byEmail = String(f.assignee_id||"").startsWith("email:") ? f.assignee_id.slice(6) : null;
     const row = {...f, created_by:me.id, assignee_id:byEmail?null:(f.assignee_id||null), assignee_email:byEmail, due_date:f.due_date||null, parent_id:parent?parent.id:null,
@@ -1094,6 +1165,149 @@ function Trash({trashed,people,today,update,showToast,setOpen,load}){
   </>;
 }
 
+function Repeating({showToast,setOpen,tasks,isMgr,update}){
+  const [rows,setRows] = useState(null);
+  const load = useCallback(()=>{ sb.rpc("recurring_overview").then(({data,error})=>{
+    if(error){ showToast(error.message); return; } setRows(data||[]); }); },[showToast]);
+  useEffect(()=>{load();},[load]);
+  const ruleText = (r) => r.rule==="daily" ? "Every day"
+    : r.rule==="weekly" ? `Every ${DOW[r.recur_day??0]}`
+    : `Monthly on the ${r.recur_day||1}`;
+  const catchUp = async (r) => {
+    if(!window.confirm(`Skip the ${r.open_count-1} older open one${r.open_count-1===1?"":"s"} of "${r.title}" and keep only the newest? They'll be recorded as skipped, not done.`)) return;
+    const {data,error} = await sb.rpc("catch_up_series",{p_series:r.series_id});
+    if(error){ showToast(error.message); return; }
+    load(); showToast(`Skipped ${data} — you're caught up`);
+  };
+  const togglePause = async (r) => {
+    const ok = await update(r.series_id,{recur_paused:!r.paused});
+    if(ok){ load(); showToast(r.paused?"Resumed":"Paused — no new ones will be created"); }
+  };
+  if(rows===null) return <div className="empty">Loading…</div>;
+  return <>
+    <div className="h"><h2>Repeating</h2><span className="sub">{rows.length} recurring task{rows.length===1?"":"s"}</span></div>
+    <div className="note" style={{marginBottom:10}}>Weekly and monthly tasks appear five days before each due date, whether or not the last one got finished — they stack up rather than disappearing. Daily ones roll forward instead of piling up. Dates below that haven't happened yet are scheduled, not created.</div>
+    {rows.length ? rows.map(r=><div className="panel" key={r.series_id}>
+      <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap",alignItems:"flex-start"}}>
+        <div style={{flex:1,minWidth:200}}>
+          <div style={{fontWeight:600,fontSize:15}}>{r.title}</div>
+          <div style={{fontSize:13,color:"var(--muted)",marginTop:2}}>
+            {ruleText(r)} · {r.assignee||"Unassigned"}
+            {r.paused ? " · paused" : ""}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:6}}>
+          {isMgr && r.open_count>1 && <button className="btn sm" onClick={()=>catchUp(r)}>Catch up</button>}
+          {isMgr && <button className="btn sm" onClick={()=>togglePause(r)}>{r.paused?"Resume":"Pause"}</button>}
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginTop:12}}>
+        <div><div style={{fontSize:11,textTransform:"uppercase",letterSpacing:".6px",color:"var(--muted)",fontWeight:700}}>Open now</div>
+          <div style={{fontSize:18,fontWeight:600,color:r.stalled?"var(--red)":"inherit"}}>{r.open_count}{r.open_count>=r.cap?` — behind`:""}</div>
+          {r.oldest_open && <div style={{fontSize:13,color:"var(--muted)"}}>oldest due {fmtDate(r.oldest_open)}</div>}</div>
+        <div><div style={{fontSize:11,textTransform:"uppercase",letterSpacing:".6px",color:"var(--muted)",fontWeight:700}}>Coming up</div>
+          <div style={{fontSize:14}}>{r.paused ? <span style={{color:"var(--muted)"}}>paused — none scheduled</span>
+            : (r.next_dates||[]).map(d=>fmtDate(d)).join(" · ") || "—"}</div></div>
+      </div>
+      {r.stalled && <div className="note" style={{marginTop:10,background:"var(--red-soft)",color:"var(--red)"}}>
+        {r.open_count} open, which is at or past your warning level of {r.cap}. New ones still arrive on schedule — use Catch up to skip the old ones and keep only the newest.</div>}
+    </div>) : <div className="card"><div className="empty">No repeating tasks yet. Set one up by choosing how often it repeats when you assign it.</div></div>}
+  </>;
+}
+
+function Search({setOpen,showToast}){
+  const [q,setQ] = useState(""); const [closed,setClosed] = useState(false);
+  const [rows,setRows] = useState(null); const [busy,setBusy] = useState(false);
+  const run = async () => {
+    if(q.trim().length<2){ showToast("Type at least two characters"); return; }
+    setBusy(true);
+    const {data,error} = await sb.rpc("search_all",{q, include_closed:closed});
+    setBusy(false);
+    if(error){ showToast(error.message); return; }
+    setRows(data||[]);
+  };
+  const tone = {task:"var(--navy)","comment":"#5b3fa0","private note":"var(--warn)",step:"var(--ok)"};
+  return <>
+    <div className="h"><h2>Search</h2><span className="sub">{rows?`${rows.length} result${rows.length===1?"":"s"}`:"Titles, details, comments, steps and your private notes"}</span></div>
+    <div className="form" style={{marginBottom:10}}>
+      <div style={{display:"flex",gap:8}}>
+        <input autoFocus value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&run()} placeholder="Goodman, freight quote, Suan…" style={{flex:1}}/>
+        <button className="btn p" onClick={run} disabled={busy}>{busy?"…":"Search"}</button>
+      </div>
+      <label style={{display:"flex",gap:8,alignItems:"center",fontSize:14,color:"var(--muted)"}}>
+        <input type="checkbox" checked={closed} onChange={e=>setClosed(e.target.checked)} style={{width:"auto"}}/>
+        Include finished and skipped tasks
+      </label>
+    </div>
+    {rows && <div className="card">
+      {rows.length ? rows.map((r,i)=><div className="row" key={i} onClick={()=>setOpen(r.task_id)}>
+        <div>
+          <div className="t">{r.title}</div>
+          <div className="m">
+            <span className="pill" style={{color:tone[r.hit_kind]||"inherit"}}>matched in {r.hit_kind}</span>{" "}
+            {r.assignee||"Unassigned"} · {r.due_date?`due ${fmtDate(r.due_date)}`:"no due date"}
+            {r.snippet ? <div style={{marginTop:3}}>{r.snippet}</div> : null}
+          </div>
+        </div>
+      </div>) : <div className="empty">Nothing matched. Try a shorter word, or tick the box to include finished tasks.</div>}
+    </div>}
+  </>;
+}
+
+function Agenda({personId,people,onBack,showToast,setOpen}){
+  const [days,setDays] = useState(14);
+  const [a,setA] = useState(null);
+  useEffect(()=>{ let live=true;
+    sb.rpc("one_on_one",{p_person:personId, since_days:days}).then(({data,error})=>{
+      if(!live) return;
+      if(error){ showToast(error.message); return; }
+      setA(data);
+    });
+    return ()=>{live=false;};
+  },[personId,days,showToast]);
+  const asText = () => {
+    if(!a) return "";
+    const L=[]; L.push(`1:1 — ${a.person} — ${new Date().toLocaleDateString()}`);
+    const sec=(t,arr,fmtFn)=>{ if(!arr||!arr.length) return; L.push(""); L.push(t.toUpperCase()); arr.forEach(x=>L.push("  - "+fmtFn(x))); };
+    sec(`Finished in the last ${a.since_days} days`,a.completed,x=>x.title);
+    sec("Overdue",a.overdue,x=>`${x.title} (due ${fmtDate(x.due)})`);
+    sec("Waiting on you",a.waiting_on_you,x=>`${x.title}${x.note?` — "${x.note}"`:""}`);
+    sec("Waiting on others",a.waiting_on_others,x=>`${x.title}${x.who?` — ${x.who}`:""}`);
+    sec("Still open",a.open,x=>`${x.title}${x.due?` (due ${fmtDate(x.due)})`:""}${x.next?` — next: ${x.next}`:""}`);
+    sec("They've asked you for",a.they_asked_you,x=>x.title);
+    sec("Your private notes",a.notes,x=>`${x.title}: ${x.body}`);
+    return L.join("\n");
+  };
+  const copy = async () => {
+    try{ await navigator.clipboard.writeText(asText()); showToast("Copied — paste it anywhere"); }
+    catch(e){ showToast("Couldn't copy on this device"); }
+  };
+  const Sec = ({title,items,render}) => !items||!items.length ? null :
+    <div className="panel"><h3>{title} ({items.length})</h3>
+      <div className="ag"><ul>{items.map((x,i)=><li key={i}>{render(x)}</li>)}</ul></div></div>;
+  if(!a) return <div className="empty">Building the agenda…</div>;
+  if(a.error) return <div className="note">That person doesn't report to you.</div>;
+  return <>
+    <div className="h"><h2>1:1 — {a.person}</h2>
+      <div style={{display:"flex",gap:6}}>
+        <select value={days} onChange={e=>setDays(parseInt(e.target.value))} style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}>
+          <option value={7}>Last 7 days</option><option value={14}>Last 14 days</option><option value={30}>Last 30 days</option></select>
+        <button className="btn sm" onClick={copy}>Copy</button>
+        <button className="btn sm" onClick={()=>window.print()}>Print</button>
+        <button className="btn sm" onClick={onBack}>Back</button>
+      </div></div>
+    <Sec title={`Finished in the last ${a.since_days} days`} items={a.completed} render={x=>x.title}/>
+    <Sec title="Overdue" items={a.overdue} render={x=><><b>{x.title}</b> <span className="meta">due {fmtDate(x.due)}</span></>}/>
+    <Sec title="Waiting on you" items={a.waiting_on_you} render={x=><><b>{x.title}</b>{x.note?<div className="meta">"{x.note}"</div>:null}</>}/>
+    <Sec title="Waiting on others" items={a.waiting_on_others} render={x=><>{x.title} {x.who?<span className="meta">— {x.who}</span>:null}</>}/>
+    <Sec title="Still open" items={a.open} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:"no date"}{x.next?` · next: ${x.next}`:""}</span></>}/>
+    <Sec title="They've asked you for" items={a.they_asked_you} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:""}</span></>}/>
+    <Sec title="Your private notes" items={a.notes} render={x=><><b>{x.title}</b><div className="meta">{x.body}</div></>}/>
+    {!a.completed.length && !a.overdue.length && !a.open.length && !a.waiting_on_you.length &&
+      <div className="card"><div className="empty">Nothing to talk about yet — no tasks in this window.</div></div>}
+  </>;
+}
+
 function Finished({tasks,people,today,setOpen,me,setMe,showToast}){
   const [who,setWho] = useState("");
   const [range,setRange] = useState("month");
@@ -1262,6 +1476,9 @@ function WhatsNew(){
   </>;
 }
 
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(()=>{}));
+}
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 </body>

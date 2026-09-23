@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="2.0">
+<meta name="app-version" content="2.3">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -131,6 +131,20 @@ const recurLabel = (t) => !t.recur_rule ? "" : t.recur_rule==="daily" ? "Repeats
 const STATUS = {not_started:"Not started", working:"Working", waiting:"Waiting", ready_for_review:"Ready for review", done:"Done", skipped:"Skipped"};
 const CLOSED = (st) => st==="done" || st==="skipped";
 const CHANGELOG = [
+  {v:"2.3", d:"September 22, 2026", items:[
+    "One welcome email when someone joins, listing everything already waiting for them with due dates — instead of a separate email per task.",
+    "Load someone up over a week and they hear nothing until they sign up. Then they get one tidy message, and normal emails start from that point."
+  ]},
+  {v:"2.2", d:"September 22, 2026", items:[
+    "Assign work to someone before they've signed up. Add them by email on the Team screen, and they appear in the assign list straight away, marked \"not signed up yet.\"",
+    "The moment they create their account, everything waiting for them lands in their My Day — so nobody's first login is an empty screen.",
+    "Inviting someone also approves their email address for signup, so you don't have to do that separately.",
+    "The Team screen shows who's been invited but hasn't joined, and how many tasks are stacked up waiting for each of them.",
+    "Their assignment emails go out when they join, not into the void beforehand."
+  ]},
+  {v:"2.1", d:"September 22, 2026", items:[
+    "The version number now shows next to the name in the top bar, so you can tell at a glance whether what you're looking at is the build you just pushed. Tap it to jump to What's new."
+  ]},
   {v:"2.0", d:"September 22, 2026", items:[
     "New Finished tab, managers only — everything your team has completed or skipped, newest first, so you can check on something you handed off weeks ago without hunting for it.",
     "A quiet counter on the tab shows how many have been finished since you last looked. No email per completion; it just waits for you.",
@@ -267,7 +281,7 @@ function Auth(){
     } finally{ setBusy(false); }
   };
   return <main><div className="auth">
-    <div className="brand" style={{color:"var(--navy)",marginBottom:14}}><i/>{APP_NAME}</div>
+    <div className="brand" style={{color:"var(--navy)",marginBottom:14}}><i/>{APP_NAME}<span style={{background:"#eef2fa",color:"var(--muted)",fontSize:11,fontWeight:600,padding:"2px 7px",borderRadius:10,marginLeft:4}}>v{APP_VERSION}</span></div>
     <h1>{mode==="in"?"Sign in":mode==="up"?"Create your account":"Reset your password"}</h1>
     <p>{mode==="in"?"Where work gets handed off, not dropped.":mode==="up"?"Use your work email. Your manager sets your role after you join.":"Enter the email you signed up with."}</p>
     <div className="form">
@@ -302,12 +316,14 @@ function Shell({me,setMe}){
   const [toast,setToast] = useState(null);
   const today = todayISO();
 
+  const [invitees,setInvitees] = useState([]);
   const load = useCallback(async ()=>{
-    const [{data:p},{data:t}] = await Promise.all([
+    const [{data:p},{data:t},inv] = await Promise.all([
       sb.from("profiles").select("*").order("full_name"),
-      sb.from("tasks").select("*").order("due_date",{ascending:true,nullsFirst:false})
+      sb.from("tasks").select("*").order("due_date",{ascending:true,nullsFirst:false}),
+      sb.rpc("waiting_on_signup")
     ]);
-    setPeople(p||[]); setTasks(t||[]);
+    setPeople(p||[]); setTasks(t||[]); setInvitees(inv.data||[]);
   },[]);
   useEffect(()=>{ load(); const id=setInterval(load,60000); return ()=>clearInterval(id); },[load]);
 
@@ -327,7 +343,7 @@ function Shell({me,setMe}){
 
   const live = tasks.filter(t=>!t.deleted_at); ALL_TASKS = live;
   const openTask = tasks.find(t=>t.id===open);
-  const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,showToast,isMgr};
+  const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,showToast,isMgr,invitees};
 
   const attnCount = isMgr ? live.filter(t=>attention(t,today)).length : 0;
   const freshDone = isMgr ? live.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id
@@ -338,7 +354,7 @@ function Shell({me,setMe}){
 
   return <>
     <header className="top"><div className="bar">
-      <div className="brand"><i/>{APP_NAME}</div>
+      <div className="brand"><i/>{APP_NAME}<button onClick={()=>setView("new")} title="What's new" style={{background:"rgba(255,255,255,.16)",border:0,color:"#dbe3f5",font:"inherit",fontSize:11,fontWeight:600,padding:"2px 7px",borderRadius:10,marginLeft:2,cursor:"pointer",letterSpacing:".2px"}}>v{APP_VERSION}</button></div>
       <nav className="nav">{nav.map(([k,l,n])=><button key={k} className={view===k?"on":""} onClick={()=>setView(k)}>{l}{n?<span className="pin">{n}</span>:null}</button>)}</nav>
       <div className="who"><span>{me.full_name}</span><button onClick={()=>sb.auth.signOut()}>Sign out</button></div>
     </div></header>
@@ -375,10 +391,12 @@ function groupSeries(list){
 // ---------- task row ----------
 function Row({t,people,today,setOpen,showWho=true,why,extra=0}){
   const allTasks = ALL_TASKS;
+  const whoLabel = t.assignee_id ? nameOf(people,t.assignee_id)
+    : t.assignee_email ? `${t.assignee_email} (not signed up yet)` : "Unassigned";
   const a = why === undefined ? attention(t,today) : why;
   return <div className="row" onClick={()=>setOpen(t.id)}>
     <div>
-      <div className="t">{showWho && <b style={{color:"var(--navy)"}}>{nameOf(people,t.assignee_id)}</b>}{showWho?" — ":""}{t.title}</div>
+      <div className="t">{showWho && <b style={{color:"var(--navy)"}}>{whoLabel}</b>}{showWho?" — ":""}{t.title}</div>
       <div className="m">
         <span className={"pill "+t.status}>{STATUS[t.status]}</span>{" "}
         {t.priority==="high" && <span className="pill high">High</span>}{" "}
@@ -508,6 +526,7 @@ function AssignModal(ctx){
   const [several,setSeveral] = useState([]);   // extra people to give a copy to
   const [f,setF] = useState(blank); const [ai,setAi] = useState(""); const [busy,setBusy]=useState(false); const [err,setErr]=useState("");
   const staff = isMgr ? people.filter(p=>p.active) : people.filter(p=>p.active && (p.id===me.id || (parent && p.role==="manager")));
+  const pending = isMgr ? (ctx.invitees||[]) : [];
   const capture = async () => {
     if(!ai.trim()) return; setBusy(true); setErr("");
     try{
@@ -520,7 +539,8 @@ function AssignModal(ctx){
   const save = async () => {
     if(!f.title.trim()) { setErr("A task needs a title."); return; }
     setBusy(true);
-    const row = {...f, created_by:me.id, assignee_id:f.assignee_id||null, due_date:f.due_date||null, parent_id:parent?parent.id:null,
+    const byEmail = String(f.assignee_id||"").startsWith("email:") ? f.assignee_id.slice(6) : null;
+    const row = {...f, created_by:me.id, assignee_id:byEmail?null:(f.assignee_id||null), assignee_email:byEmail, due_date:f.due_date||null, parent_id:parent?parent.id:null,
                  recur_rule:f.recur_rule||null, recur_day:(!f.recur_rule||f.recur_rule==="daily")?null:(parseInt(f.recur_day)||null), recur_cap:parseInt(f.recur_cap)||3};
     const targets = several.length ? several : [row.assignee_id];
     const rows = targets.map(id=>({...row, assignee_id:id||null}));
@@ -528,7 +548,9 @@ function AssignModal(ctx){
     setBusy(false);
     if(error){ setErr(error.message); return; }
     await load();
-    showToast(rows.length>1 ? `Assigned to ${rows.length} people` : `Assigned to ${nameOf(people,row.assignee_id)}`);
+    showToast(rows.length>1 ? `Assigned to ${rows.length} people`
+      : byEmail ? `Saved for ${byEmail} — it'll be waiting when they sign up`
+      : `Assigned to ${nameOf(people,row.assignee_id)}`);
     onClose();
   };
   return <div className="modalbg" onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}>
@@ -543,7 +565,8 @@ function AssignModal(ctx){
     <div className="form" style={{marginTop:14}}>
       <label>Task<input autoFocus value={f.title} onChange={e=>setF({...f,title:e.target.value})} placeholder="Get updated freight quote from Goodman"/></label>
       <div className="three">
-        <label>Assign to<select value={several.length?"":f.assignee_id} disabled={several.length>0} onChange={e=>setF({...f,assignee_id:e.target.value})}><option value="">{several.length?`${several.length} people selected below`:"Unassigned"}</option>{staff.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select></label>
+        <label>Assign to<select value={several.length?"":f.assignee_id} disabled={several.length>0} onChange={e=>setF({...f,assignee_id:e.target.value})}><option value="">{several.length?`${several.length} people selected below`:"Unassigned"}</option>{staff.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}
+          {pending.length>0 && <optgroup label="Invited — not signed up yet">{pending.map(p=><option key={p.email} value={"email:"+p.email}>{p.full_name||p.email}</option>)}</optgroup>}</select></label>
         <label>Due<input type="date" value={f.due_date} onChange={e=>setF({...f,due_date:e.target.value})}/></label>
         <label>Priority<select value={f.priority} onChange={e=>setF({...f,priority:e.target.value})}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></label>
       </div>
@@ -723,7 +746,7 @@ function TaskModal(ctx){
     {edit && <EditForm t={t} people={people} isMgr={isMgr} me={me} onCancel={()=>setEdit(false)} onSave={async p=>{ if(await update(t.id,p)){ setEdit(false); showToast("Saved"); } }}/>}
 
     <dl>
-      <dt>Assigned to</dt><dd>{nameOf(people,t.assignee_id)}{t.created_by!==t.assignee_id ? ` · assigned by ${nameOf(people,t.created_by)}` : " · self-assigned"}</dd>
+      <dt>Assigned to</dt><dd>{t.assignee_id ? nameOf(people,t.assignee_id) : t.assignee_email ? `${t.assignee_email} — waiting for them to sign up` : "Unassigned"}{t.assignee_id && t.created_by!==t.assignee_id ? ` · assigned by ${nameOf(people,t.created_by)}` : t.assignee_id ? " · self-assigned" : ""}</dd>
       <dt>Due</dt><dd>{fmtDate(t.due_date)}{t.expected_completion && t.expected_completion!==t.due_date ? ` (expected ${fmtDate(t.expected_completion)})` : ""}</dd>
       {t.status==="waiting" && <><dt>Waiting on</dt><dd>{t.waiting_on||"—"}</dd></>}
       {t.next_action && <><dt>Next action</dt><dd>{t.next_action}</dd></>}
@@ -795,6 +818,35 @@ function EditForm({t,people,onCancel,onSave,isMgr,me}){
 }
 
 // ---------- team (manager) ----------
+function Invites({invitees,load,showToast}){
+  const [email,setEmail] = useState(""); const [name,setName] = useState("");
+  const add = async () => {
+    const {error} = await sb.rpc("add_invitee",{p_email:email, p_name:name});
+    if(error){ showToast(error.message); return; }
+    setEmail(""); setName(""); await load(); showToast("Added — you can assign them work now");
+  };
+  const remove = async (e) => {
+    const {error} = await sb.from("invitees").delete().eq("email",e);
+    if(error){ showToast(error.message); return; } await load(); showToast("Removed");
+  };
+  return <>
+    <div className="section-title">Not signed up yet</div>
+    <div className="note" style={{marginBottom:10}}>Add someone by email and start assigning them work straight away. They hear nothing until they sign up — then they get one welcome email listing everything waiting, and normal emails begin from there.</div>
+    <div className="card" style={{padding:14}}>
+      {invitees.length ? invitees.map(p=><div key={p.email} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderTop:"1px solid var(--line)"}}>
+        <div style={{flex:1}}><b>{p.full_name||p.email}</b>
+          <div style={{fontSize:13,color:"var(--muted)"}}>{p.email} · {p.open_tasks} task{p.open_tasks===1?"":"s"} waiting</div></div>
+        <button className="btn sm" onClick={()=>remove(p.email)}>Remove</button>
+      </div>) : <div style={{color:"var(--muted)",fontSize:14}}>Nobody waiting. Add someone below to assign them work before they join.</div>}
+      <div className="form three" style={{marginTop:12}}>
+        <input value={name} onChange={e=>setName(e.target.value)} placeholder="Name"/>
+        <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="their.email@johnstoneoc.com"/>
+        <button className="btn p" onClick={add} disabled={!email.trim()}>Add person</button>
+      </div>
+    </div>
+  </>;
+}
+
 function Access({showToast}){
   const [doms,setDoms] = useState([]); const [mails,setMails] = useState([]);
   const [d,setD] = useState(""); const [m,setM] = useState(""); const [note,setNote] = useState("");
@@ -847,7 +899,7 @@ function Access({showToast}){
   </>;
 }
 
-function Team({people,me,load,showToast,setMe}){
+function Team({people,me,load,showToast,setMe,invitees}){
   const set = async (p,patch) => {
     const {error} = await sb.from("profiles").update(patch).eq("id",p.id);
     if(error){ showToast(error.message); return; } await load(); if(p.id===me.id) setMe({...me,...patch}); showToast("Saved");
@@ -862,6 +914,7 @@ function Team({people,me,load,showToast,setMe}){
         <button className="btn sm" disabled={p.id===me.id} onClick={()=>set(p,{active:!p.active})}>{p.active?"Deactivate":"Reactivate"}</button>
       </div>
     </div>)}</div>
+    <Invites invitees={invitees} load={load} showToast={showToast}/>
     <Access showToast={showToast}/>
   </>;
 }

@@ -1,8 +1,5 @@
 {
   "rewrites": [
-    {
-      "source": "/r",
-      "destination": "https://ikauupqthnwxohhumzlv.supabase.co/functions/v1/respond"
-    }
+    { "source": "/r", "destination": "/r.html" }
   ]
 }

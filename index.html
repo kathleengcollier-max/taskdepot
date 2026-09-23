@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="5.2">
+<meta name="app-version" content="5.4">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -170,7 +170,8 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 }
 .agenda-print{display:none}
 .ag h4{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:16px 0 6px}
-.ag ul{margin:0;padding-left:18px} .ag li{margin-bottom:5px;font-size:14px}
+.ag ul{margin:0;padding-left:18px} .ag li{margin-bottom:5px;font-size:14px;border-radius:6px;padding:3px 6px;margin-left:-6px}
+.ag li[style*="pointer"]:hover{background:#eef2fa}
 .ag .meta{color:var(--muted);font-size:13px}
 </style>
 </head>
@@ -196,6 +197,17 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"5.4", d:"September 23, 2026", items:[
+    "Managers get My 1:1 too — it was only on the employee menu, so anyone who manages people couldn't see their own agenda with their own manager.",
+    "People now lists only the people who actually report to you, instead of everyone with an account. The owner still sees everybody.",
+    "The 1:1 agenda button only appears where it will work: on your own reports."
+  ]},
+  {v:"5.3", d:"September 23, 2026", items:[
+    "Every line on a 1:1 agenda opens the task, so you can change a date, leave a comment or answer a request while you're still in the meeting.",
+    "The arrows work inside the agenda too — open the first overdue item and step through the rest of that section without going back.",
+    "Closing the drawer returns you to the agenda, which refreshes so anything you changed is reflected straight away.",
+    "Fixed: asking for more time sent two emails — the date request and a separate needs-a-decision alert. Now just the one, which carries the reason."
+  ]},
   {v:"5.2", d:"September 23, 2026", items:[
     "Add the steps while you're writing the task, instead of saving it and going back in. Type a step, press Enter, keep going — they're saved with the task.",
     "Paste a list and it splits into one step per line, so a checklist out of an email or a document comes straight in.",
@@ -566,13 +578,13 @@ function Shell({me,setMe}){
 
   const live = tasks.filter(t=>!t.deleted_at); ALL_TASKS = live; INVITEES = invitees; ME = me;
   const openTask = tasks.find(t=>t.id===open);
-  const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,opener,showToast,isMgr,isOwner,invitees};
+  const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,opener,showToast,isMgr,isOwner,invitees,openTaskId:open};
 
   const attnCount = isMgr ? live.filter(t=>attention(t,today) && (DELEGATED(t) || t.assignee_id===me.id)).length : 0;
   const freshDone = isMgr ? live.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id
       && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0)).length : 0;
   const nav = isMgr
-    ? [["home","Home",attnCount],["all","All tasks"],["repeating","Repeating"],["finished","Finished",freshDone],["reports","Reports"],["trash","Trash"],["people","People"],["settings","Settings"],["search","Search"]]
+    ? [["home","Home",attnCount],["all","All tasks"],["repeating","Repeating"],["finished","Finished",freshDone],["reports","Reports"],["trash","Trash"],["people","People"],["one","My 1:1"],["settings","Settings"],["search","Search"]]
     : [["myday","My day"],["all","All my tasks"],["one","My 1:1"],["settings","Settings"],["search","Search"]];
 
   return <>
@@ -588,7 +600,7 @@ function Shell({me,setMe}){
       {view==="all" && <AllTasks {...ctx}/>}
       {view==="trash" && <Trash {...ctx} trashed={tasks.filter(t=>t.deleted_at)}/>}
       {view==="myday" && <MyDay {...ctx}/>}
-      {view==="one" && <Agenda personId={me.id} people={people} onBack={()=>setView(isMgr?"home":"myday")} showToast={showToast} setOpen={setOpen}/>}
+      {view==="one" && <Agenda personId={me.id} people={people} onBack={()=>setView(isMgr?"home":"myday")} showToast={showToast} setOpen={setOpen} openTaskId={open}/>}
       {view==="repeating" && <Repeating {...ctx}/>}
       {view==="search" && <Search {...ctx}/>}
       {view==="finished" && isMgr && <Finished {...ctx} setMe={setMe}/>}
@@ -701,15 +713,17 @@ function People(ctx){
     if(error){ showToast(error.message); return; }
     await load(); if(p.id===me.id) setMe({...me,...patch}); showToast("Saved");
   };
-  if(pick) return <Agenda personId={pick} people={people} onBack={()=>setPick(null)} showToast={showToast} setOpen={ctx.setOpen}/>;
+  if(pick) return <Agenda personId={pick} people={people} onBack={()=>setPick(null)} showToast={showToast} setOpen={ctx.setOpen} openTaskId={ctx.openTaskId}/>;
 
-  const roster = people.filter(p=>p.id!==me.id);
+  const roster = people.filter(p=>p.id!==me.id && (isOwner || p.manager_id===me.id));
   const roleLabel = (r) => r==="owner" ? "Owner" : r==="manager" ? "Manager" : "Employee";
   return <>
     <div className="h"><h2>People</h2><span className="sub">{roster.length} {roster.length===1?"person":"people"}</span></div>
     <div className="note" style={{marginBottom:10}}>{isOwner
       ? "Everyone with an account. Set each person's role and who they report to — a manager only sees their own reports. Deactivate anyone who leaves; their tasks stay so you can reassign them."
-      : "The people who report to you. Roles and reporting lines are set by the owner."}</div>
+      : roster.length
+        ? "The people who report to you. Roles and reporting lines are set by the owner."
+        : "Nobody reports to you yet. When the owner points someone at you, they'll show up here with their open work and a 1:1 agenda."}</div>
     <div className="card">{roster.length ? roster.map(p=>{
       const mine = tasks.filter(t=>t.assignee_id===p.id && !CLOSED(t.status));
       const flag = mine.filter(t=>attention(t,today)).length;
@@ -726,7 +740,7 @@ function People(ctx){
           </div>
         </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-          {isMgr && p.active && <button className="btn sm p" onClick={()=>setPick(p.id)}>1:1 agenda</button>}
+          {p.active && (isOwner || p.manager_id===me.id) && <button className="btn sm p" onClick={()=>setPick(p.id)}>1:1 agenda</button>}
           {isOwner && <>
             <select value={p.role} onChange={e=>set(p,{role:e.target.value})} style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}>
               <option value="employee">Employee</option><option value="manager">Manager</option><option value="owner">Owner</option></select>
@@ -1443,7 +1457,7 @@ function Search({setOpen,showToast}){
   </>;
 }
 
-function Agenda({personId,people,onBack,showToast,setOpen}){
+function Agenda({personId,people,onBack,showToast,setOpen,openTaskId}){
   const [days,setDays] = useState(14);
   const [a,setA] = useState(null);
   useEffect(()=>{ let live=true;
@@ -1453,7 +1467,7 @@ function Agenda({personId,people,onBack,showToast,setOpen}){
       setA(data);
     });
     return ()=>{live=false;};
-  },[personId,days,showToast]);
+  },[personId,days,showToast,openTaskId]);   // refresh when a task drawer closes
   const asText = () => {
     if(!a) return "";
     const L=[]; L.push(`1:1 — ${a.person} — ${new Date().toLocaleDateString()}`);
@@ -1471,9 +1485,13 @@ function Agenda({personId,people,onBack,showToast,setOpen}){
     try{ await navigator.clipboard.writeText(asText()); showToast("Copied — paste it anywhere"); }
     catch(e){ showToast("Couldn't copy on this device"); }
   };
+  const open = (id, list) => { if(!id) return; setOpen(id, (list||[]).map(x=>x.id).filter(Boolean)); };
   const Sec = ({title,items,render}) => !items||!items.length ? null :
     <div className="panel"><h3>{title} ({items.length})</h3>
-      <div className="ag"><ul>{items.map((x,i)=><li key={i}>{render(x)}</li>)}</ul></div></div>;
+      <div className="ag"><ul>{items.map((x,i)=>
+        <li key={i} onClick={()=>open(x.id, items)}
+            style={x.id?{cursor:"pointer"}:undefined}
+            title={x.id?"Open the task":undefined}>{render(x)}</li>)}</ul></div></div>;
   if(!a) return <div className="empty">Building the agenda…</div>;
   if(a.error) return <div className="note">That person doesn't report to you.</div>;
   return <>
@@ -1487,7 +1505,9 @@ function Agenda({personId,people,onBack,showToast,setOpen}){
       </div></div>
     <Sec title={`Finished in the last ${a.since_days} days`} items={a.completed} render={x=>x.title}/>
     <Sec title="Overdue" items={a.overdue} render={x=><><b>{x.title}</b> <span className="meta">due {fmtDate(x.due)}</span></>}/>
-    <Sec title="Waiting on you" items={a.waiting_on_you} render={x=><><b>{x.title}</b>{x.note?<div className="meta">"{x.note}"</div>:null}</>}/>
+    <Sec title="Waiting on you" items={a.waiting_on_you} render={x=><><b>{x.title}</b>
+      {x.asked?<div className="meta">asked to move it to {fmtDate(x.asked)}</div>:null}
+      {x.note?<div className="meta">"{x.note}"</div>:null}</>}/>
     <Sec title="Waiting on others" items={a.waiting_on_others} render={x=><>{x.title} {x.who?<span className="meta">— {x.who}</span>:null}</>}/>
     <Sec title="Still open" items={a.open} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:"no date"}{x.next?` · next: ${x.next}`:""}</span></>}/>
     <Sec title="They've asked you for" items={a.they_asked_you} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:""}</span></>}/>

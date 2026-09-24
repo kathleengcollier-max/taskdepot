@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="6.1">
+<meta name="app-version" content="6.2">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -214,6 +214,10 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"6.2", d:"September 23, 2026", items:[
+    "Done, Update, Blocked and Need help now appear on your own tasks whatever your role. They were hidden from managers and owners, so there was no way to say a task of your own was Working or Waiting without editing it.",
+    "The plain \"Mark done\" button steps aside when those four are showing, so there's one obvious way to finish something rather than two."
+  ]},
   {v:"6.1", d:"September 23, 2026", items:[
     "Standing notes now appear below the repeat settings rather than above them, so choosing a repeat no longer shoves the line you're reading down the page.",
     "Fixed drag and drop on attachments. The page was swallowing the file before the task could catch it — dropping now works anywhere on the drop zone, and dropping just outside it no longer opens the file in a new tab."
@@ -1185,7 +1189,7 @@ function TaskModal(ctx){
       <label>Why are you skipping this one?<input autoFocus value={skipWhy} onChange={e=>setSkipWhy(e.target.value)} placeholder="Holiday, branch closed, not applicable this month…"/></label>
       <div className="actions"><button className="btn" onClick={()=>setSkipping(false)}>Cancel</button><button className="btn p" onClick={doSkip}>Skip this one</button></div>
     </div>}
-    {!isMgr && !upd && !skipping && !asking && t.assignee_id===me.id && <div className="big">
+    {!upd && !skipping && !asking && t.assignee_id===me.id && !CLOSED(t.status) && <div className="big">
       <button className="done" onClick={()=>quick({status:"done",need_help:false,need_manager:false},"Marked done")}>Done</button>
       <button className="upd" onClick={()=>setUpd({status:t.status==="not_started"?"working":t.status,waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Update</button>
       <button className="blk" onClick={()=>setUpd({status:"waiting",waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Blocked</button>
@@ -1227,7 +1231,7 @@ function TaskModal(ctx){
       {isMgr && t.status==="ready_for_review" && <button className="btn p" onClick={()=>quick({status:"done",need_manager:false},"Approved and closed")}>Approve — mark done</button>}
       {isMgr && t.status==="ready_for_review" && <button className="btn" onClick={()=>quick({status:"working"},"Sent back")}>Send back</button>}
       {isMgr && (t.need_manager||t.need_help) && <button className="btn r" onClick={()=>setReplying(true)}>Reply &amp; clear flag</button>}
-      {!CLOSED(t.status) && <button className="btn" onClick={()=>quick({status:"done"},"Marked done")}>Mark done</button>}
+      {!CLOSED(t.status) && t.assignee_id!==me.id && <button className="btn" onClick={()=>quick({status:"done"},"Marked done")}>Mark done</button>}
       {(isMgr || iCreated) && CLOSED(t.status) && <button className="btn" onClick={()=>quick({status:"working",skip_reason:null},"Reopened")}>Reopen</button>}
       {t.recur_rule && !CLOSED(t.status) && (isMgr || t.assignee_id===me.id) && <button className="btn" onClick={()=>setSkipping(true)}>Skip this one</button>}
       {isMgr && root && <button className="btn" onClick={()=>update(root.id,{recur_paused:!root.recur_paused}).then(ok=>ok&&showToast(root.recur_paused?"Series resumed":"Series paused — no new ones will be created"))}>{root.recur_paused?"Resume series":"Pause series"}</button>}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="6.0">
+<meta name="app-version" content="6.1">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -214,6 +214,10 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"6.1", d:"September 23, 2026", items:[
+    "Standing notes now appear below the repeat settings rather than above them, so choosing a repeat no longer shoves the line you're reading down the page.",
+    "Fixed drag and drop on attachments. The page was swallowing the file before the task could catch it — dropping now works anywhere on the drop zone, and dropping just outside it no longer opens the file in a new tab."
+  ]},
   {v:"6.0", d:"September 23, 2026", items:[
     "The assign form now reads in the order you think in: task, who / when / how urgent, then the option to give the same thing to several people, then the detail.",
     "Saving a new task opens it, so you can add a comment or attach something without hunting for it in a list.",
@@ -962,14 +966,8 @@ function AssignModal(ctx){
           <button type="button" className="btn sm" onClick={addStep} disabled={!stepText.trim()}>Add</button>
         </div>
       </div>
-      {(f.recur_rule || f.standing_notes) && <label>Standing notes
-        <div style={{fontSize:13,color:"var(--muted)",fontWeight:400,marginBottom:4}}>
-          {f.recur_rule ? "Carried to every occurrence, and included in the email each time — where the file lives, who to copy, what caught people out last time."
-                        : "This task no longer repeats, so these notes won't carry anywhere. Clear them if they're no longer needed."}
-        </div>
-        <textarea value={f.standing_notes} onChange={e=>setF({...f,standing_notes:e.target.value})} placeholder="Pull it from GL Analytics, export as PDF, copy Robert." rows={2}/></label>}
       <Recur f={f} setF={setF}/>
-      {err && <div className="err">{err}</div>}
+        {err && <div className="err">{err}</div>}
       <div className="actions"><button className="btn" onClick={onClose}>Cancel</button><button className="btn p" disabled={busy} onClick={save}>{isMgr?"Assign":"Add"}</button></div>
     </div>
   </div></div>;
@@ -1081,13 +1079,33 @@ function TaskModal(ctx){
     if(error){ showToast(error.message); return; }
     setBody(""); refresh();
   };
-  const upload = async (file) => {
+  const [dragging,setDragging] = useState(false);
+  // The page itself will open a dropped file unless every layer cancels the default,
+  // which is what makes a drop landing just outside the zone navigate away.
+  useEffect(()=>{
+    const swallow = (e)=>e.preventDefault();
+    window.addEventListener("dragover", swallow);
+    window.addEventListener("drop", swallow);
+    return ()=>{ window.removeEventListener("dragover", swallow); window.removeEventListener("drop", swallow); };
+  },[]);
+  const uploadMany = async (list) => {
+    const files = Array.from(list||[]).slice(0,10);
+    if(!files.length) return;
+    let ok = 0; const tooBig = [];
+    for(const f of files){
+      if(f.size > 25*1024*1024){ tooBig.push(f.name); continue; }
+      await upload(f, true); ok++;
+    }
+    if(tooBig.length) showToast(`Too big (25 MB max): ${tooBig.join(", ")}`);
+    else if(ok) showToast(ok===1 ? "Attached" : `Attached ${ok} files`);
+  };
+  const upload = async (file, quiet) => {
     if(!file) return;
     const path = `${t.id}/${Date.now()}_${file.name}`;
     const {error} = await sb.storage.from("attachments").upload(path,file);
     if(error){ showToast("Upload failed: "+error.message); return; }
     await sb.from("task_attachments").insert({task_id:t.id,uploader_id:me.id,file_name:file.name,storage_path:path,size_bytes:file.size});
-    refresh(); showToast("Attached");
+    refresh(); if(!quiet) showToast("Attached");
   };
   const removeFile = async (f) => {
     const {error} = await sb.from("task_attachments").update({deleted_at:new Date().toISOString()}).eq("id",f.id);
@@ -1273,8 +1291,21 @@ function TaskModal(ctx){
       {files.map(f=><div key={f.id} style={{display:"flex",alignItems:"center",gap:8}}><a href="#" style={{flex:1}} onClick={e=>{e.preventDefault();openFile(f);}}>{f.file_name} <span style={{color:"var(--muted)",fontSize:12}}>· {nameOf(people,f.uploader_id)}</span></a>
         {(isMgr||f.uploader_id===me.id) && <button className="btn sm" onClick={()=>removeFile(f)}>Remove</button>}</div>)}
       {!files.length && <div className="empty">No attachments yet. Emails, quotes, photos, PDFs — up to 25 MB each.</div>}
-      <input type="file" ref={fileRef} style={{display:"none"}} onChange={e=>upload(e.target.files[0])}/>
-      <button className="btn" onClick={()=>fileRef.current.click()}>Attach a file</button>
+      <input type="file" multiple ref={fileRef} style={{display:"none"}}
+        onChange={e=>{ uploadMany(e.target.files); e.target.value=""; }}/>
+      <div className={"dropzone"+(dragging?" over":"")}
+        onClick={()=>fileRef.current.click()}
+        onDragEnter={e=>{e.preventDefault(); e.stopPropagation(); setDragging(true);}}
+        onDragOver={e=>{e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect="copy"; if(!dragging) setDragging(true);}}
+        onDragLeave={e=>{e.preventDefault(); e.stopPropagation(); if(!e.currentTarget.contains(e.relatedTarget)) setDragging(false);}}
+        onDrop={e=>{e.preventDefault(); e.stopPropagation(); setDragging(false);
+          const dt = e.dataTransfer;
+          const files = dt.files && dt.files.length ? dt.files
+            : Array.from(dt.items||[]).map(i=>i.kind==="file"?i.getAsFile():null).filter(Boolean);
+          uploadMany(files);}}>
+        <b style={{pointerEvents:"none"}}>{dragging ? "Drop to attach" : "Drag files here"}</b>
+        <div style={{pointerEvents:"none"}}>or click to choose. Emails, quotes, photos, PDFs — up to 25 MB each, ten at a time.</div>
+      </div>
     </div>}
     {tab==="history" && <div>{hist.map(h=><div key={h.id} className="hist">{fmtWhen(h.created_at)} — {histText(h)}</div>)}</div>}
     </div>
@@ -1288,6 +1319,12 @@ function Recur({f,setF}){
   return <div className="two">
     <label>Repeats<select value={f.recur_rule} onChange={e=>setF({...f,recur_rule:e.target.value,recur_day:e.target.value==="weekly"||e.target.value==="monthly"?"1":""})}>
       <option value="">Does not repeat</option><option value="daily">Every day</option><option value="weekly">Every week</option><option value="monthly">Every month</option></select></label>
+    {(f.recur_rule || f.standing_notes) && <label>Standing notes
+        <div style={{fontSize:13,color:"var(--muted)",fontWeight:400,marginBottom:4}}>
+          {f.recur_rule ? "Carried to every occurrence, and included in the email each time — where the file lives, who to copy, what caught people out last time."
+                        : "This task no longer repeats, so these notes won't carry anywhere. Clear them if they're no longer needed."}
+        </div>
+        <textarea value={f.standing_notes} onChange={e=>setF({...f,standing_notes:e.target.value})} placeholder="Pull it from GL Analytics, export as PDF, copy Robert." rows={2}/></label>}
     {f.recur_rule==="weekly" && <label>On<select value={f.recur_day} onChange={e=>setF({...f,recur_day:e.target.value})}>{DOW.map((d,i)=><option key={i} value={i}>{d}</option>)}</select></label>}
     {f.recur_rule==="monthly" && <label>On day<input type="number" min="1" max="31" value={f.recur_day} onChange={e=>setF({...f,recur_day:e.target.value})}/></label>}
     {f.recur_rule && <label>Stop and flag me after<select value={f.recur_cap??3} onChange={e=>setF({...f,recur_cap:e.target.value})}>{[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n} open at once</option>)}</select></label>}

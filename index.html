@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="5.7">
+<meta name="app-version" content="6.0">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -140,6 +140,10 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .chip{display:inline-block;border:1px solid var(--line);border-radius:14px;padding:3px 10px;font-size:13px;margin:0 6px 6px 0;background:#fff}
 .section-title{font-size:13px;color:var(--muted);font-weight:600;margin:16px 0 6px}
 .att a{display:block;padding:6px 0;font-size:14px}
+.dropzone{border:2px dashed var(--line);border-radius:10px;padding:20px 14px;text-align:center;cursor:pointer;color:var(--muted);font-size:13px;margin-top:10px;transition:border-color .12s,background .12s}
+.dropzone b{display:block;color:var(--ink);font-size:15px;margin-bottom:3px}
+.dropzone:hover{border-color:var(--navy)}
+.dropzone.over{border-color:var(--navy);background:#eef2fa}
 @media (max-width:640px){
   body{font-size:16px}
   .top .bar{flex-wrap:wrap;padding:8px 12px;gap:6px}
@@ -210,6 +214,21 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"6.0", d:"September 23, 2026", items:[
+    "The assign form now reads in the order you think in: task, who / when / how urgent, then the option to give the same thing to several people, then the detail.",
+    "Saving a new task opens it, so you can add a comment or attach something without hunting for it in a list.",
+    "Attachments can be dragged onto the task — drop a file anywhere on the drop zone, or several at once. Clicking still works.",
+    "Note on reporting lines: once somebody reports to a manager, that manager sees everything assigned to them, including work assigned by you."
+  ]},
+  {v:"5.9", d:"September 23, 2026", items:[
+    "Dropped the Context box from the assign and edit forms. In practice it was restating the title — \"Test new iPads at hub for JD Deliveries\" with context \"JD Deliveries hub setup and device rollout\" — so it was a field to fill rather than a thing to read.",
+    "Nothing is lost: tasks that already have context still show it, and it's still searchable. Forwarded emails no longer generate one.",
+    "If grouping several tasks under one piece of work turns out to be useful, that's worth building properly rather than as a free-text box."
+  ]},
+  {v:"5.8", d:"September 23, 2026", items:[
+    "Standing notes only appear once you've set a task to repeat, since that's the only place they do anything. They sit under the repeat settings with a line explaining what they're for.",
+    "If a task already has standing notes, the field stays visible even when the repeat is switched off, so nothing you wrote can vanish without you seeing it."
+  ]},
   {v:"5.7", d:"September 23, 2026", items:[
     "Steps now belong to whoever set the task. The person doing the work ticks them off and can add steps of their own, but can't delete or reword the ones they were given.",
     "The × only appears on steps you're allowed to remove — your own, or any step on a task you assigned."
@@ -887,6 +906,7 @@ function AssignModal(ctx){
     const targets = several.length ? several : [row.assignee_id];
     const rows = targets.map(id=>({...row, assignee_id:id||null}));
     const {data:made, error} = await sb.from("tasks").insert(rows).select("id");
+    const firstMade = made && made.length ? made[0].id : null;
     if(!error && steps.length && made && made.length){
       const stepRows = made.flatMap(t => steps.map((body,i)=>({task_id:t.id, body, position:i, created_by:me.id})));
       const {error:se} = await sb.from("task_steps").insert(stepRows);
@@ -899,6 +919,8 @@ function AssignModal(ctx){
       : byEmail ? `Saved for ${byEmail} — it'll be waiting when they sign up`
       : `Assigned to ${nameOf(people,row.assignee_id)}`);
     onClose();
+    // drop straight into the task so a comment or attachment can go on now
+    if(firstMade && rows.length===1 && ctx.setOpen) ctx.setOpen(firstMade, [firstMade]);
   };
   return <div className="modalbg" style={{zIndex:50}} onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}>
     <h2>{parent ? "Split off a linked task" : isMgr ? "Assign a task" : "Add a task"}</h2>
@@ -916,15 +938,14 @@ function AssignModal(ctx){
         <label>Due<input type="date" value={f.due_date} onChange={e=>setF({...f,due_date:e.target.value})}/></label>
         <label>Priority<select value={f.priority} onChange={e=>setF({...f,priority:e.target.value})}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></label>
       </div>
-      <label>Context<input value={f.context} onChange={e=>setF({...f,context:e.target.value})} placeholder="Anaheim equipment order"/></label>
-      <label>Details<textarea value={f.details} onChange={e=>setF({...f,details:e.target.value})}/></label>
-      <label>Definition of done<input value={f.definition_of_done} onChange={e=>setF({...f,definition_of_done:e.target.value})} placeholder="Quote attached + PO updated"/></label>
       {isMgr && staff.length>1 && <div>
         <div className="section-title" style={{marginTop:0}}>Or give the same task to several people</div>
         <div>{staff.map(p=><button key={p.id} type="button" className="chip" style={several.includes(p.id)?{background:"var(--navy)",color:"#fff",borderColor:"var(--navy)"}:{}}
           onClick={()=>setSeveral(several.includes(p.id)?several.filter(x=>x!==p.id):[...several,p.id])}>{p.full_name}</button>)}</div>
         {several.length>0 && <div style={{fontSize:13,color:"var(--muted)",marginTop:4}}>Each person gets their own copy with its own progress and due date. Tap a name again to remove them.</div>}
       </div>}
+      <label>Details<textarea value={f.details} onChange={e=>setF({...f,details:e.target.value})}/></label>
+      <label>Definition of done<input value={f.definition_of_done} onChange={e=>setF({...f,definition_of_done:e.target.value})} placeholder="Quote attached + PO updated"/></label>
       <div>
         <div className="section-title" style={{marginTop:0}}>Steps {steps.length?`(${steps.length})`:""}</div>
         <div style={{fontSize:13,color:"var(--muted)",marginBottom:6}}>A checklist inside the task — no separate cards, no separate owner. Paste a list and each line becomes a step.</div>
@@ -941,7 +962,12 @@ function AssignModal(ctx){
           <button type="button" className="btn sm" onClick={addStep} disabled={!stepText.trim()}>Add</button>
         </div>
       </div>
-      <label>Standing notes{f.recur_rule?" (carried to every occurrence)":""}<textarea value={f.standing_notes} onChange={e=>setF({...f,standing_notes:e.target.value})} placeholder="Where the file lives, who to call, what tripped people up last time"/></label>
+      {(f.recur_rule || f.standing_notes) && <label>Standing notes
+        <div style={{fontSize:13,color:"var(--muted)",fontWeight:400,marginBottom:4}}>
+          {f.recur_rule ? "Carried to every occurrence, and included in the email each time — where the file lives, who to copy, what caught people out last time."
+                        : "This task no longer repeats, so these notes won't carry anywhere. Clear them if they're no longer needed."}
+        </div>
+        <textarea value={f.standing_notes} onChange={e=>setF({...f,standing_notes:e.target.value})} placeholder="Pull it from GL Analytics, export as PDF, copy Robert." rows={2}/></label>}
       <Recur f={f} setF={setF}/>
       {err && <div className="err">{err}</div>}
       <div className="actions"><button className="btn" onClick={onClose}>Cancel</button><button className="btn p" disabled={busy} onClick={save}>{isMgr?"Assign":"Add"}</button></div>
@@ -1281,10 +1307,17 @@ function EditForm({t,people,onCancel,onSave,isMgr,me}){
       <label>Due<input type="date" value={f.due_date} onChange={e=>setF({...f,due_date:e.target.value})}/></label>
       <label>Priority<select value={f.priority} onChange={e=>setF({...f,priority:e.target.value})}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></label>
     </div>
-    <label>Context<input value={f.context} onChange={e=>setF({...f,context:e.target.value})}/></label>
+    {f.context ? <label>Context
+      <div style={{fontSize:13,color:"var(--muted)",fontWeight:400,marginBottom:4}}>No longer asked for on new tasks — clear it if it isn't telling you anything.</div>
+      <input value={f.context} onChange={e=>setF({...f,context:e.target.value})}/></label> : null}
     <label>Details<textarea value={f.details} onChange={e=>setF({...f,details:e.target.value})}/></label>
     <label>Definition of done<input value={f.definition_of_done} onChange={e=>setF({...f,definition_of_done:e.target.value})}/></label>
-    <label>Standing notes{t.recur_rule?" (carried to every occurrence)":""}<textarea value={f.standing_notes} onChange={e=>setF({...f,standing_notes:e.target.value})}/></label>
+    {(f.recur_rule || f.standing_notes) && <label>Standing notes
+      <div style={{fontSize:13,color:"var(--muted)",fontWeight:400,marginBottom:4}}>
+        {f.recur_rule ? "Carried to every occurrence, and included in the email each time."
+                      : "This task no longer repeats, so these notes won't carry anywhere."}
+      </div>
+      <textarea value={f.standing_notes} onChange={e=>setF({...f,standing_notes:e.target.value})}/></label>}
     <Recur f={f} setF={setF}/>
     <div className="actions"><button className="btn" onClick={onCancel}>Cancel</button><button className="btn p" onClick={()=>onSave({...f,
       assignee_id:String(f.assignee_id).startsWith("email:")?null:(f.assignee_id||null),

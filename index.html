@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="6.2">
+<meta name="app-version" content="6.3">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -214,6 +214,10 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"6.3", d:"September 25, 2026", items:[
+    "In a forwarded email chain, the message that is actually new this time is now bold, so it stands apart from the earlier ones repeated underneath it.",
+    "Comments render **bold** generally, so you can emphasise a line when you write one yourself."
+  ]},
   {v:"6.2", d:"September 23, 2026", items:[
     "Done, Update, Blocked and Need help now appear on your own tasks whatever your role. They were hidden from managers and owners, so there was no way to say a task of your own was Working or Waiting without editing it.",
     "The plain \"Mark done\" button steps aside when those four are showing, so there's one obvious way to finish something rather than two."
@@ -500,6 +504,19 @@ const daysBetween = (a,b) => Math.round((new Date(b) - new Date(a)) / 86400000);
 const fmtDate = (iso) => { if(!iso) return "—"; const d = new Date(iso+"T00:00:00"); return d.toLocaleDateString(undefined,{month:"short",day:"numeric"}); };
 const fmtWhen = (ts) => new Date(ts).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
 const hoursSince = (ts) => (Date.now() - new Date(ts)) / 3600000;
+// Comment bodies are plain text with **bold** allowed. Split on the marker rather
+// than injecting HTML, so nothing a person types can turn into markup.
+function richText(text){
+  return String(text ?? "").split("\n").map((line,li)=>
+    <React.Fragment key={li}>
+      {li>0 && <br/>}
+      {line.split(/(\*\*[^*]+\*\*)/g).map((part,i)=>
+        part.startsWith("**") && part.endsWith("**") && part.length>4
+          ? <b key={i}>{part.slice(2,-2)}</b>
+          : <React.Fragment key={i}>{part}</React.Fragment>)}
+    </React.Fragment>);
+}
+
 const nameOf = (people, id) => (people.find(p=>p.id===id)||{}).full_name || "Unassigned";
 
 // Why does this task need attention? Returns {why, tone} or null.
@@ -1282,7 +1299,7 @@ function TaskModal(ctx){
       <button className={tab==="history"?"on":""} onClick={()=>setTab("history")}>History</button>
     </div>
     {tab==="activity" && <div>
-      {comments.map(c=><div key={c.id} className={"cmt"+(c.is_private?" priv":"")}><div className="by">{nameOf(people,c.author_id)} · {fmtWhen(c.created_at)}{c.is_private?" · private manager note":""}</div>{c.body}</div>)}
+      {comments.map(c=><div key={c.id} className={"cmt"+(c.is_private?" priv":"")}><div className="by">{nameOf(people,c.author_id)} · {fmtWhen(c.created_at)}{c.is_private?" · private manager note":""}</div>{richText(c.body)}</div>)}
       <div className="form" style={{marginTop:10}}>
         <textarea value={body} onChange={e=>setBody(e.target.value)} placeholder={priv?"Private note only you can see":"Add a comment"}/>
         <div className="actions" style={{justifyContent:"space-between"}}>

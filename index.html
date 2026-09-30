@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="6.6">
+<meta name="app-version" content="6.7">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -220,6 +220,11 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"6.7", d:"September 30, 2026", items:[
+    "Tasks can now arrive from Kathleen's Brain Dump. They look and behave like any other task from her — same assignment email, same steps, same attachments — and carry a small \"from Brain Dump\" line on the task.",
+    "Return to Kathleen: on one of those tasks, a button hands it straight back to her with everything you did on it — finished steps, comments and files. Say why if it helps. The task closes here once it's back with her.",
+    "Finishing, reopening or reassigning one of these keeps her copy up to date on its own."
+  ]},
   {v:"6.6", d:"September 30, 2026", items:[
     "On a 1:1 agenda, what was finished since last time moved to the bottom — the live work you still have to talk through now sits at the top where the meeting starts.",
     "Finished items carry a Reopen button instead of the covered tick, since ticking off something already done means nothing. Reopening puts it back to Working with its due date intact, and notes in the history who reopened it."
@@ -1032,6 +1037,18 @@ function TaskModal(ctx){
   const root = t.series_id ? tasks.find(x=>x.id===t.series_id) : null;
   const [skipping,setSkipping] = useState(false);
   const [copying,setCopying] = useState(false);
+  const [returning,setReturning] = useState(false); const [returnWhy,setReturnWhy] = useState(""); const [returnBusy,setReturnBusy] = useState(false);
+  const fromBD = !!t.bd_task_id && t.bd_status==="linked";
+  const doReturn = async () => {
+    setReturnBusy(true);
+    const {data,error} = await sb.functions.invoke("bridge",{body:{action:"return",task_id:t.id,reason:returnWhy}});
+    setReturnBusy(false);
+    const err = error ? (error.message||"Couldn't reach Brain Dump") : (data && data.error);
+    if(err){ showToast(err); return; }
+    setReturning(false); setReturnWhy("");
+    onClose(); if(ctx.load) await ctx.load();
+    showToast("Back with Kathleen — it's in her Brain Dump inbox");
+  };
   const [steps,setSteps] = useState([]);
   const [newStep,setNewStep] = useState("");
   const loadSteps = useCallback(async ()=>{
@@ -1171,6 +1188,7 @@ function TaskModal(ctx){
       case "need_help_on": return `${who} asked for help`;
       case "need_help_off": return `${who} cleared the help flag`;
       case "trashed": return `${who} moved to Trash`;
+      case "returned": return `${who} returned it to Kathleen's Brain Dump${h.to_value?` — ${h.to_value}`:""}`;
       case "restored": return `${who} restored from Trash`;
       case "title": return `${who} renamed: "${h.from_value}" → "${h.to_value}"`;
       default: return `${who}: ${h.action}`;
@@ -1254,6 +1272,13 @@ function TaskModal(ctx){
       <div className="actions"><button className="btn" onClick={()=>{setReplying(false);setReplyNote("");}}>Cancel</button>
         <button className="btn p" onClick={doReply}>Send &amp; clear flag</button></div>
     </div>}
+    {returning && <div className="form card" style={{padding:14,marginBottom:12,borderColor:"#c7d7f5",background:"#f7f9ff"}}>
+      <div><b>Return this to Kathleen</b>
+        <div style={{fontSize:13,color:"var(--muted)"}}>It goes back to her Brain Dump inbox with your finished steps, comments and files. It closes here once it's with her.</div></div>
+      <label>Why it's coming back (optional)<textarea autoFocus value={returnWhy} onChange={e=>setReturnWhy(e.target.value)} placeholder="Needs her sign-off before I can go further / turned out to be hers / vendor wants the owner…"/></label>
+      <div className="actions"><button className="btn" disabled={returnBusy} onClick={()=>{setReturning(false);setReturnWhy("");}}>Cancel</button>
+        <button className="btn p" disabled={returnBusy} onClick={doReturn}>{returnBusy?"Sending back…":"Return to Kathleen"}</button></div>
+    </div>}
     {copying && <div className="form card" style={{padding:14,marginBottom:12}}>
       <div><b>Give this task to other people</b><div style={{fontSize:13,color:"var(--muted)"}}>Each person gets their own copy with its own progress. Comments and attachments stay with this one.</div></div>
       <div>{people.filter(p=>p.active && p.id!==t.assignee_id).map(p=><button key={p.id} type="button" className="chip" style={copyTo.includes(p.id)?{background:"var(--navy)",color:"#fff",borderColor:"var(--navy)"}:{}}
@@ -1263,7 +1288,7 @@ function TaskModal(ctx){
       <div className="actions"><button className="btn" onClick={()=>{setCopying(false);setCopyTo([]);}}>Cancel</button>
         <button className="btn p" disabled={!copyTo.length} onClick={doCopy}>Copy to {copyTo.length||""} {copyTo.length===1?"person":"people"}</button></div>
     </div>}
-    {!edit && !skipping && !asking && !replying && !copying && (isMgr || iCreated || t.assignee_id===me.id) &&
+    {!edit && !skipping && !asking && !replying && !copying && !returning && (isMgr || iCreated || t.assignee_id===me.id) &&
      <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
       {isMgr && t.status==="ready_for_review" && <button className="btn p" onClick={()=>quick({status:"done",need_manager:false},"Approved and closed")}>Approve — mark done</button>}
       {isMgr && t.status==="ready_for_review" && <button className="btn" onClick={()=>quick({status:"working"},"Sent back")}>Send back</button>}
@@ -1278,12 +1303,13 @@ function TaskModal(ctx){
       <button className="btn" onClick={addSub}>Split off a linked task</button>
       {isMgr && people.filter(p=>p.active && p.id!==t.assignee_id).length>0 &&
         <button className="btn" onClick={()=>setCopying(true)}>Copy to others</button>}
+      {fromBD && !CLOSED(t.status) && <button className="btn" style={{color:"#1f3a7a",borderColor:"#c7d7f5"}} onClick={()=>setReturning(true)}>Return to Kathleen</button>}
       {canReshape && <button className="btn" style={{color:"var(--red)"}} onClick={()=>trash(t)}>Trash</button>}
     </div>}
     {edit && <EditForm t={t} people={people} isMgr={isMgr} me={me} onCancel={()=>setEdit(false)} onSave={async p=>{ if(await update(t.id,p)){ setEdit(false); showToast("Saved"); } }}/>}
 
     <div className="panel"><h3>The task</h3><dl className="kv">
-      <dt>Origin</dt><dd>{DELEGATED(t) ? `Delegated by ${nameOf(people,t.created_by)}` : t.assignee_id ? "Their own task" : "Not assigned yet"}</dd>
+      <dt>Origin</dt><dd>{DELEGATED(t) ? `Delegated by ${nameOf(people,t.created_by)}` : t.assignee_id ? "Their own task" : "Not assigned yet"}{t.bd_task_id ? <span style={{marginLeft:8,fontSize:11,fontWeight:700,color:"#1f3a7a",background:"#e0ecff",padding:"1px 7px",borderRadius:7}}>{t.bd_status==="returned"?"returned to Brain Dump":"from Kathleen's Brain Dump"}</span> : null}</dd>
       <dt>Assigned to</dt><dd>{t.assignee_id ? nameOf(people,t.assignee_id)
         : t.assignee_email ? `${(INVITEES.find(i=>i.email===String(t.assignee_email).toLowerCase())||{}).full_name || t.assignee_email} — waiting for them to sign up (${t.assignee_email})` : "Unassigned"}{t.assignee_id && t.created_by!==t.assignee_id ? ` · assigned by ${nameOf(people,t.created_by)}` : t.assignee_id ? " · self-assigned" : ""}</dd>
       <dt>Due</dt><dd>{fmtDate(t.due_date)}{t.expected_completion && t.expected_completion!==t.due_date ? ` (expected ${fmtDate(t.expected_completion)})` : ""}</dd>

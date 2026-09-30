@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="6.4">
+<meta name="app-version" content="6.6">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -203,6 +203,12 @@ const APP_NAME = "Task Depot";
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 let ALL_TASKS = [];
 let ME = null;
+// set while a 1:1 agenda is on screen, so stepping through tasks counts as discussing them
+let COVERING_FOR = null;
+const coverIfInMeeting = (id) => {
+  if(!COVERING_FOR || !id) return;
+  sb.rpc("mark_discussed",{p_task:id, p_on:true}).then(()=>{});
+};
 let INVITEES = [];
 
 const DOW = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -214,6 +220,15 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"6.6", d:"September 30, 2026", items:[
+    "On a 1:1 agenda, what was finished since last time moved to the bottom — the live work you still have to talk through now sits at the top where the meeting starts.",
+    "Finished items carry a Reopen button instead of the covered tick, since ticking off something already done means nothing. Reopening puts it back to Working with its due date intact, and notes in the history who reopened it."
+  ]},
+  {v:"6.5", d:"September 30, 2026", items:[
+    "The way to clear the Finished count is now a proper bar across the top of the page — \"7 finished since you last looked\" with a Mark all as seen button — instead of a small button beside the heading that was easy to miss.",
+    "Fixed: arrowing from one task to the next inside a 1:1 only marked the first one covered. Every task you step through during a meeting now lands in Covered in this meeting.",
+    "Arrows used anywhere else — All tasks, search, your attention list — still leave the covered marks alone."
+  ]},
   {v:"6.4", d:"September 30, 2026", items:[
     "One 1:1s tab, and it runs both ways: the meeting with your own manager at the top, the meetings with your people underneath. Each row shows their open work, what's flagged for you, and anything overdue.",
     "People is now the owner's admin screen — roles, reporting lines, invitations, who may sign up. The 1:1 agendas moved to the 1:1s tab.",
@@ -1004,7 +1019,7 @@ function TaskModal(ctx){
   const {task:t,people,me,isMgr,update,trash,onClose,showToast,addSub,tasks,setOpen,today,queueIds} = ctx;
   const queue = (queueIds||[]).filter(id=>tasks.some(x=>x.id===id));
   const at = queue.indexOf(t.id);
-  const go = (delta) => { const n = queue[at+delta]; if(n) setOpen(n, queue); };
+  const go = (delta) => { const n = queue[at+delta]; if(n){ setOpen(n, queue); coverIfInMeeting(n); } };
   const iCreated = t.created_by===me.id;
   // you may reshape a task (dates, owner, title, trash) only if it's yours to reshape:
   // you created it, you're the owner, or it came up from someone who reports to you
@@ -1727,13 +1742,13 @@ function Agenda({personId,withWhom,people,onBack,showToast,setOpen,openTaskId}){
     if(!a) return "";
     const L=[]; L.push(`1:1 — ${a.person} — ${new Date().toLocaleDateString()}`);
     const sec=(t,arr,fmtFn)=>{ if(!arr||!arr.length) return; L.push(""); L.push(t.toUpperCase()); arr.forEach(x=>L.push("  - "+fmtFn(x))); };
-    sec(`Finished in the last ${a.since_days} days`,a.completed,x=>x.title);
     sec("Overdue",a.overdue,x=>`${x.title} (due ${fmtDate(x.due)})`);
     sec("Waiting on you",a.waiting_on_you,x=>`${x.title}${x.note?` — "${x.note}"`:""}`);
     sec("Waiting on others",a.waiting_on_others,x=>`${x.title}${x.who?` — ${x.who}`:""}`);
     sec("Still open",a.open,x=>`${x.title}${x.due?` (due ${fmtDate(x.due)})`:""}${x.next?` — next: ${x.next}`:""}`);
     sec("They've asked you for",a.they_asked_you,x=>x.title);
     sec("Your private notes",a.notes,x=>`${x.title}: ${x.body}`);
+    sec(`Finished in the last ${a.since_days} days`,a.completed,x=>x.title);
     return L.join("\n");
   };
   const copy = async () => {
@@ -1752,7 +1767,15 @@ function Agenda({personId,withWhom,people,onBack,showToast,setOpen,openTaskId}){
   const open = (id, list) => {
     if(!id) return;
     setOpen(id, (list||[]).map(x=>x.id).filter(Boolean));
-    sb.rpc("mark_discussed",{p_task:id, p_on:true}).then(()=>{});
+    coverIfInMeeting(id);
+  };
+  // while this agenda is on screen, arrowing between tasks also counts as covering them
+  useEffect(()=>{ COVERING_FOR = personId; return ()=>{ COVERING_FOR = null; }; },[personId]);
+  const reopen = async (id, title) => {
+    if(!id) return;
+    const {error} = await sb.from("tasks").update({status:"working", completed_at:null}).eq("id",id);
+    if(error){ showToast(error.message); return; }
+    reload(); showToast(`Reopened — "${String(title).slice(0,40)}" is back on the list`);
   };
   const clearAll = async () => {
     const {error} = await sb.rpc("clear_discussed",{p_person:personId});
@@ -1787,7 +1810,6 @@ function Agenda({personId,withWhom,people,onBack,showToast,setOpen,openTaskId}){
         {a.covered_count>0 && <button className="btn sm" onClick={clearAll}>Start a fresh meeting</button>}
         <button className="btn sm" onClick={onBack}>Back</button>
       </div></div>
-    <Sec title={`Finished in the last ${a.since_days} days`} items={a.completed} render={x=>x.title}/>
     <Sec title="Overdue" items={a.overdue} render={x=><><b>{x.title}</b> <span className="meta">due {fmtDate(x.due)}</span></>}/>
     <Sec title="Waiting on you" items={a.waiting_on_you} render={x=><><b>{x.title}</b>
       {x.asked?<div className="meta">asked to move it to {fmtDate(x.asked)}</div>:null}
@@ -1806,6 +1828,17 @@ function Agenda({personId,withWhom,people,onBack,showToast,setOpen,openTaskId}){
           <span style={{flex:1,textDecoration:"line-through"}}>{x.title}</span>
         </li>)}</ul></div>
       <div style={{fontSize:13,color:"var(--muted)",marginTop:6}}>These stay off the agenda for the rest of the day, however their dates or status change.</div>
+    </div>}
+    {a.completed && a.completed.length>0 && <div className="panel">
+      <h3>Finished in the last {a.since_days} days ({a.completed.length})</h3>
+      <div className="ag"><ul>{a.completed.map((x,i)=>
+        <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+          <span style={{flex:1,cursor:x.id?"pointer":undefined}}
+            onClick={()=>open(x.id, a.completed)} title={x.id?"Open the task":undefined}>{x.title}</span>
+          <button className="btn q" style={{padding:"0 6px",color:"var(--muted)",whiteSpace:"nowrap"}}
+            title="Put it back to Working" onClick={(e)=>{e.stopPropagation(); reopen(x.id, x.title);}}>↻ Reopen</button>
+        </li>)}</ul></div>
+      <div style={{fontSize:13,color:"var(--muted)",marginTop:6}}>Reopening keeps the due date and records who did it in the task's history.</div>
     </div>}
     {a.own_view && <div className="note">This is what your manager sees when they open your 1:1, minus any private notes they've written.</div>}
     {!a.completed.length && !live(a.overdue).length && !live(a.open).length && !live(a.waiting_on_you).length &&
@@ -1845,8 +1878,12 @@ function Finished({tasks,people,today,setOpen,me,setMe,showToast}){
     return days<=0 ? "today" : days===1 ? "yesterday" : `${time} (${days} days ago)`;
   };
   return <>
-    <div className="h"><h2>Finished</h2>
-      {fresh.length>0 && <button className="btn sm p" onClick={markSeen}>Mark {fresh.length} as seen</button>}</div>
+    <div className="h"><h2>Finished</h2></div>
+    {fresh.length>0 && <div className="note" style={{marginBottom:10,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",
+        background:"#e3f2e6",borderLeft:"3px solid var(--ok)"}}>
+      <span style={{flex:1}}><b>{fresh.length} finished since you last looked.</b> Clearing this is what takes the number off the Finished tab.</span>
+      <button className="btn p" onClick={markSeen}>Mark all as seen</button>
+    </div>}
     <div className="note" style={{marginBottom:10}}>Everything your team has closed out. Nothing emails you when a task is finished — it just collects here until you look.</div>
     <div className="form two" style={{marginBottom:10}}>
       <select value={who} onChange={e=>setWho(e.target.value)}>

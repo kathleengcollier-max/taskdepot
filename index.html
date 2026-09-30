@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="6.3">
+<meta name="app-version" content="6.4">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -214,6 +214,12 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"6.4", d:"September 30, 2026", items:[
+    "One 1:1s tab, and it runs both ways: the meeting with your own manager at the top, the meetings with your people underneath. Each row shows their open work, what's flagged for you, and anything overdue.",
+    "People is now the owner's admin screen — roles, reporting lines, invitations, who may sign up. The 1:1 agendas moved to the 1:1s tab.",
+    "Covered in the meeting: tick an item off and it drops out of the live agenda instead of bouncing to another section when you change its date. Opening a task from the agenda marks it covered on its own.",
+    "The covered items collect at the bottom of the agenda where you can untick any of them, and \"Start a fresh meeting\" clears the lot."
+  ]},
   {v:"6.3", d:"September 25, 2026", items:[
     "In a forwarded email chain, the message that is actually new this time is now bold, so it stands apart from the earlier ones repeated underneath it.",
     "Comments render **bold** generally, so you can emphasise a line when you write one yourself."
@@ -654,8 +660,8 @@ function Shell({me,setMe}){
   const freshDone = isMgr ? live.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id
       && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0)).length : 0;
   const nav = isMgr
-    ? [["home","Home",attnCount],["week","Week ahead"],["all","All tasks"],["repeating","Repeating"],["finished","Finished",freshDone],["reports","Reports"],["trash","Trash"],["people","People"],["one","My 1:1"],["settings","Settings"],["search","Search"]]
-    : [["myday","My day"],["week","Week ahead"],["all","All my tasks"],["one","My 1:1"],["settings","Settings"],["search","Search"]];
+    ? [["home","Home",attnCount],["week","Week ahead"],["all","All tasks"],["repeating","Repeating"],["finished","Finished",freshDone],["reports","Reports"],["trash","Trash"],["ones","1:1s"],["people","People"],["settings","Settings"],["search","Search"]]
+    : [["myday","My day"],["week","Week ahead"],["all","All my tasks"],["ones","1:1s"],["settings","Settings"],["search","Search"]];
 
   return <>
     <header className="top"><div className="bar">
@@ -666,11 +672,11 @@ function Shell({me,setMe}){
     <main>
       <div style={{display:"flex",justifyContent:"flex-end",marginBottom:-8}}><button className="btn p" onClick={()=>setAssign({parent:null})}>{isMgr?"+ Assign":"+ Add task"}</button></div>
       {view==="home" && <ManagerHome {...ctx}/>}
-      {view==="people" && isMgr && <People {...ctx} setMe={setMe}/>}
+      {view==="people" && isOwner && <People {...ctx} setMe={setMe}/>}
+      {view==="ones" && <OneOnOnes {...ctx}/>}
       {view==="all" && <AllTasks {...ctx}/>}
       {view==="trash" && <Trash {...ctx} trashed={tasks.filter(t=>t.deleted_at)}/>}
       {view==="myday" && <MyDay {...ctx}/>}
-      {view==="one" && <Agenda personId={me.id} people={people} onBack={()=>setView(isMgr?"home":"myday")} showToast={showToast} setOpen={setOpen} openTaskId={open}/>}
       {view==="week" && <WeekAhead {...ctx}/>}
       {view==="repeating" && <Repeating {...ctx}/>}
       {view==="search" && <Search {...ctx}/>}
@@ -811,7 +817,6 @@ function People(ctx){
           </div>
         </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-          {p.active && (isOwner || p.manager_id===me.id) && <button className="btn sm p" onClick={()=>setPick(p.id)}>1:1 agenda</button>}
           {isOwner && <>
             <select value={p.role} onChange={e=>set(p,{role:e.target.value})} style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}>
               <option value="employee">Employee</option><option value="manager">Manager</option><option value="owner">Owner</option></select>
@@ -1654,7 +1659,60 @@ function Search({setOpen,showToast}){
   </>;
 }
 
-function Agenda({personId,people,onBack,showToast,setOpen,openTaskId}){
+function OneOnOnes(ctx){
+  const {me,people,showToast,setOpen,openTaskId,isOwner} = ctx;
+  const [list,setList] = useState(null);
+  const [pick,setPick] = useState(null);
+  useEffect(()=>{ let live=true;
+    sb.rpc("my_one_on_ones").then(({data,error})=>{
+      if(!live) return;
+      if(error){ showToast(error.message); return; }
+      setList(data);
+    });
+    return ()=>{live=false;};
+  },[showToast,openTaskId,pick]);
+
+  if(pick) return <Agenda personId={pick.id} withWhom={pick.label} people={people}
+    onBack={()=>setPick(null)} showToast={showToast} setOpen={setOpen} openTaskId={openTaskId}/>;
+  if(!list) return <div className="empty">Loading…</div>;
+
+  const Row = ({p, label, sub}) => <div className="person" key={p.id}
+      onClick={()=>setPick({id:p.id, label})} style={{cursor:"pointer"}}>
+    <div>
+      <b>{p.name}</b>
+      <div style={{fontSize:13,color:"var(--muted)"}}>{sub}</div>
+      <div className="stats" style={{marginTop:4}}>
+        <span><b>{p.open}</b> open</span>
+        {p.overdue>0 && <span><b style={{color:"var(--red)"}}>{p.overdue}</b> overdue</span>}
+        {p.flagged>0 && <span><b style={{color:"var(--warn)"}}>{p.flagged}</b> waiting on you</span>}
+      </div>
+    </div>
+    <button className="btn sm p" onClick={(e)=>{e.stopPropagation(); setPick({id:p.id, label});}}>Open agenda</button>
+  </div>;
+
+  const team = list.team || [];
+  return <>
+    <div className="h"><h2>1:1s</h2><span className="sub">{team.length + (list.manager?1:0)} to prepare for</span></div>
+    <div className="note" style={{marginBottom:10}}>Each agenda is built from the work itself — finished since last time, overdue, waiting on someone, still open — so there is nothing to write up beforehand.</div>
+
+    {list.manager && <>
+      <div className="section-title">Your meeting with {list.manager.name}</div>
+      <div className="card"><Row p={list.manager} label={`with ${list.manager.name}`}
+        sub={`This is what ${String(list.manager.name).split(" ")[0]} sees when they open yours, minus their private notes.`}/></div>
+    </>}
+
+    <div className="section-title">{list.manager ? "Your meetings with your team" : "Your team"}</div>
+    <div className="card">{team.length
+      ? team.map(p=><Row key={p.id} p={p} label={`with ${p.name}`}
+          sub={p.role==="manager" ? "Manager — has their own reports" : "Reports to you"}/>)
+      : <div className="empty">{list.manager
+          ? "Nobody reports to you, so this is the only 1:1 you prepare for."
+          : "Nobody reports to you yet." + (isOwner ? " Set reporting lines on the People tab." : "")}</div>}
+    </div>
+  </>;
+}
+
+function Agenda({personId,withWhom,people,onBack,showToast,setOpen,openTaskId}){
   const [days,setDays] = useState(14);
   const [a,setA] = useState(null);
   useEffect(()=>{ let live=true;
@@ -1682,22 +1740,51 @@ function Agenda({personId,people,onBack,showToast,setOpen,openTaskId}){
     try{ await navigator.clipboard.writeText(asText()); showToast("Copied — paste it anywhere"); }
     catch(e){ showToast("Couldn't copy on this device"); }
   };
-  const open = (id, list) => { if(!id) return; setOpen(id, (list||[]).map(x=>x.id).filter(Boolean)); };
-  const Sec = ({title,items,render}) => !items||!items.length ? null :
-    <div className="panel"><h3>{title} ({items.length})</h3>
-      <div className="ag"><ul>{items.map((x,i)=>
-        <li key={i} onClick={()=>open(x.id, items)}
-            style={x.id?{cursor:"pointer"}:undefined}
-            title={x.id?"Open the task":undefined}>{render(x)}</li>)}</ul></div></div>;
+  const reload = () => sb.rpc("one_on_one",{p_person:personId, since_days:days})
+    .then(({data,error})=>{ if(error){ showToast(error.message); return; } setA(data); });
+  const cover = async (id, on) => {
+    if(!id) return;
+    const {error} = await sb.rpc("mark_discussed",{p_task:id, p_on:on});
+    if(error){ showToast(error.message); return; }
+    reload();
+  };
+  // opening a task from the agenda means you talked about it
+  const open = (id, list) => {
+    if(!id) return;
+    setOpen(id, (list||[]).map(x=>x.id).filter(Boolean));
+    sb.rpc("mark_discussed",{p_task:id, p_on:true}).then(()=>{});
+  };
+  const clearAll = async () => {
+    const {error} = await sb.rpc("clear_discussed",{p_person:personId});
+    if(error){ showToast(error.message); return; }
+    reload(); showToast("Fresh meeting — everything is back on the agenda");
+  };
+  // anything covered drops out of the live sections and collects at the bottom
+  const live = (items) => (items||[]).filter(x=>!x.discussed);
+  const coveredItems = () => [...(a?.overdue||[]), ...(a?.waiting_on_you||[]), ...(a?.waiting_on_others||[]),
+                              ...(a?.open||[]), ...(a?.they_asked_you||[])].filter(x=>x.discussed);
+  const Sec = ({title,items,render}) => {
+    const rows = live(items);
+    if(!rows.length) return null;
+    return <div className="panel"><h3>{title} ({rows.length})</h3>
+      <div className="ag"><ul>{rows.map((x,i)=>
+        <li key={i} style={x.id?{cursor:"pointer",display:"flex",gap:8,alignItems:"flex-start"}:undefined}>
+          {x.id && <button className="btn q" title="Covered — drop it off this agenda"
+            style={{padding:"0 4px",color:"var(--muted)",lineHeight:1.3}}
+            onClick={(e)=>{e.stopPropagation(); cover(x.id,true);}}>✓</button>}
+          <span style={{flex:1}} onClick={()=>open(x.id, rows)} title={x.id?"Open the task":undefined}>{render(x)}</span>
+        </li>)}</ul></div></div>;
+  };
   if(!a) return <div className="empty">Building the agenda…</div>;
   if(a.error) return <div className="note">That person doesn't report to you.</div>;
   return <>
-    <div className="h"><h2>{a.own_view ? "My 1:1" : `1:1 — ${a.person}`}</h2>
+    <div className="h"><h2>1:1 {withWhom || (a.own_view ? "— mine" : `— ${a.person}`)}</h2>
       <div style={{display:"flex",gap:6}}>
         <select value={days} onChange={e=>setDays(parseInt(e.target.value))} style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}>
           <option value={7}>Last 7 days</option><option value={14}>Last 14 days</option><option value={30}>Last 30 days</option></select>
         <button className="btn sm" onClick={copy}>Copy</button>
         <button className="btn sm" onClick={()=>window.print()}>Print</button>
+        {a.covered_count>0 && <button className="btn sm" onClick={clearAll}>Start a fresh meeting</button>}
         <button className="btn sm" onClick={onBack}>Back</button>
       </div></div>
     <Sec title={`Finished in the last ${a.since_days} days`} items={a.completed} render={x=>x.title}/>
@@ -1709,8 +1796,19 @@ function Agenda({personId,people,onBack,showToast,setOpen,openTaskId}){
     <Sec title="Still open" items={a.open} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:"no date"}{x.next?` · next: ${x.next}`:""}</span></>}/>
     <Sec title="They've asked you for" items={a.they_asked_you} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:""}</span></>}/>
     <Sec title="Your private notes" items={a.notes} render={x=><><b>{x.title}</b><div className="meta">{x.body}</div></>}/>
+    {coveredItems().length>0 && <div className="panel" style={{background:"var(--paper,#f6f7f9)"}}>
+      <h3>Covered in this meeting ({coveredItems().length})</h3>
+      <div className="ag"><ul>{coveredItems().map((x,i)=>
+        <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start",color:"var(--muted)"}}>
+          <button className="btn q" title="Put it back on the agenda"
+            style={{padding:"0 4px",color:"var(--muted)",lineHeight:1.3}}
+            onClick={()=>cover(x.id,false)}>↩</button>
+          <span style={{flex:1,textDecoration:"line-through"}}>{x.title}</span>
+        </li>)}</ul></div>
+      <div style={{fontSize:13,color:"var(--muted)",marginTop:6}}>These stay off the agenda for the rest of the day, however their dates or status change.</div>
+    </div>}
     {a.own_view && <div className="note">This is what your manager sees when they open your 1:1, minus any private notes they've written.</div>}
-    {!a.completed.length && !a.overdue.length && !a.open.length && !a.waiting_on_you.length &&
+    {!a.completed.length && !live(a.overdue).length && !live(a.open).length && !live(a.waiting_on_you).length &&
       <div className="card"><div className="empty">Nothing to talk about yet — no tasks in this window.</div></div>}
   </>;
 }

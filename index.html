@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="6.9">
+<meta name="app-version" content="7.0">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -204,6 +204,9 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .ttable td.muted{color:var(--muted);font-size:13px}
 .ttable td.late{color:var(--red);font-weight:700}
 .ttable td.today{color:#b26a00;font-weight:700}
+.ttable td.whycol,.ttable th.whycol{white-space:normal;min-width:140px}
+.ttable td.whycol .why{display:inline-block;font-size:12px;padding:2px 7px;border-radius:7px}
+@media(max-width:820px){.ttable .hide-sm{display:none}.ttable td.task{min-width:150px}}
 </style>
 </head>
 <body>
@@ -234,6 +237,13 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"7.0", d:"October 1, 2026", items:[
+    "Every list is now a table — Home, All tasks, Finished, Repeating and Trash. Same columns, same sorting: click a heading once for ascending, again for descending, a third time to go back to the natural order.",
+    "The List/Table toggle is gone. Tables everywhere was the point, and a setting you have to remember is one more thing to remember.",
+    "On a phone the less important columns (Entered, Last update, Origin) drop out so the ones that matter still fit.",
+    "All tasks: \"From Kathleen's Inbox\" is now an option in the origin filter, and the Origin column names it, so you can see at a glance what came out of your own list.",
+    "A task you send back to your Inbox now lands in Finished instead of Trash. It was work that got done and handed over, not work that was binned. It carries a \"Returned to Kathleen's Inbox\" tag and can't be reopened here, since it lives with you now."
+  ]},
   {v:"6.9", d:"September 30, 2026", items:[
     "Tasks arriving from your own list now read as \"Kathleen's Inbox\" everywhere in the app, rather than \"Brain Dump\" — your team has no reason to know what you call it.",
     "A task you've sent back shows as \"Returned to Kathleen's Inbox\" in Trash, so it's clear it wasn't thrown away.",
@@ -809,28 +819,29 @@ function ManagerHome(ctx){
   const sorting = tasks.filter(t=>!CLOSED(t.status) && (!owned(t) || !t.due_date));
   return <>
     {mineToDo.length>0 && <><div className="h"><h2>Assigned to you</h2><span className="sub">{mineToDo.length} — things your team handed up</span></div>
-      <div className="card">{mineToDo.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.opener(mineToDo)} showWho={false} why={attention(t,today)||(t.created_by!==ctx.me.id?{why:`${nameOf(people,t.created_by)} is waiting on you`,tone:"warn"}:null)}/>)}</div></>}
+      <TaskTable list={mineToDo} people={people} today={today} setOpen={ctx.opener(mineToDo)} isMgr={false}
+        cols={["title","status","due","updated","why"]}
+        why={t=>attention(t,today)||(t.created_by!==ctx.me.id?{why:`${nameOf(people,t.created_by)} is waiting on you`,tone:"warn",rank:5}:null)}/></>}
     <div className="h"><h2>Needs your attention</h2><span className="sub">{flagged.length ? `${flagged.length} item${flagged.length>1?"s":""}` : "Nothing — enjoy it"}</span></div>
-    <div className="card attn">
-      {flagged.length ? groupSeries(flagged.map(x=>x.t)).map(({t,extra})=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.opener(flagged.map(x=>x.t))} why={attention(t,today)} extra={extra}/>)
-        : <div className="empty">Everything you've delegated is on track. The other {openT.length} open tasks are fine without you.</div>}
-    </div>
+    <TaskTable list={groupSeries(flagged.map(x=>x.t)).map(g=>g.t)} people={people} today={today}
+      setOpen={ctx.opener(flagged.map(x=>x.t))} cols={["who","title","status","due","updated","why"]}
+      empty={`Everything you've delegated is on track. The other ${openT.length} open tasks are fine without you.`}/>
     {sorting.length>0 && <><div className="h"><h2>Needs sorting</h2><span className="sub">{sorting.length} without an owner or a date</span></div>
-      <div className="card">{sorting.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.opener(sorting)} why={{why:!owned(t)&&!t.due_date?"No owner, no date":!owned(t)?"No owner":"No due date",tone:"warn"}}/>)}</div></>}
+      <TaskTable list={sorting} people={people} today={today} setOpen={ctx.opener(sorting)}
+        cols={["who","title","status","due","why"]}
+        why={t=>({why:!owned(t)&&!t.due_date?"No owner, no date":!owned(t)?"No owner":"No due date",tone:"warn",rank:5})}/></>}
     {theirOwn.length>0 && <div className="note" style={{marginTop:10,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
       <span style={{flex:1}}>{theirOwn.length} task{theirOwn.length===1?"":"s"} your team set for themselves {theirOwn.length===1?"is":"are"} overdue or stuck. Their list, not yours — but here if you want it.</span>
       <button className="btn sm" onClick={()=>setShowTheirs(!showTheirs)}>{showTheirs?"Hide":"Show"}</button>
     </div>}
-    {showTheirs && theirOwn.length>0 && <div className="card" style={{marginTop:8}}>
-      {theirOwn.map(({t})=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.opener(theirOwn.map(x=>x.t))} why={attention(t,today)}/>)}
-    </div>}
+    {showTheirs && theirOwn.length>0 && <TaskTable list={theirOwn.map(x=>x.t)} people={people} today={today}
+      setOpen={ctx.opener(theirOwn.map(x=>x.t))} cols={["who","title","status","due","why"]}/>}
     <div className="counts">
       {[["track","On track"],["waiting","Waiting"],["week","Due this week"],["overdue","Overdue"]].map(([k,l])=>
         <button key={k} className={filter===k?"on":""} onClick={()=>setFilter(filter===k?null:k)}><b>{buckets[k].length}</b><span>{l}</span></button>)}
     </div>
-    {shown && <div className="card" style={{marginTop:10}}>
-      {shown.length ? groupSeries(shown).map(({t,extra})=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.opener(shown)} extra={extra}/>) : <div className="empty">Nothing here.</div>}
-    </div>}
+    {shown && <TaskTable list={groupSeries(shown).map(g=>g.t)} people={people} today={today}
+      setOpen={ctx.opener(shown)} cols={["who","title","status","due","updated"]} empty="Nothing here."/>}
   </>;
 }
 
@@ -891,9 +902,6 @@ function People(ctx){
 function AllTasks(ctx){
   const {tasks,people,today,isMgr} = ctx;
   const [q,setQ] = useState(""); const [st,setSt] = useState("open"); const [who,setWho]=useState(""); const [origin,setOrigin]=useState("all");
-  const [mode,setMode] = useState(()=>{ try{ return localStorage.getItem("td_all_mode")||"list"; }catch(e){ return "list"; } });
-  const pickMode = (m) => { setMode(m); try{ localStorage.setItem("td_all_mode",m); }catch(e){} };
-  const [sort,setSort] = useState({k:"due_date",dir:1});
   const match = (t) => {
     if(st==="open") return !CLOSED(t.status);
     if(st==="blocked") return !CLOSED(t.status) && (t.status==="waiting" || t.need_help);
@@ -903,17 +911,15 @@ function AllTasks(ctx){
     return true;
   };
   const list = tasks.filter(match)
-    .filter(t=>origin==="all" ? true : origin==="delegated" ? DELEGATED(t) : !DELEGATED(t))
+    .filter(t=>origin==="all" ? true : origin==="delegated" ? DELEGATED(t)
+      : origin==="bd" ? !!t.bd_task_id : !DELEGATED(t))
     .filter(t=>!who ? true
       : String(who).startsWith("email:")
         ? String(t.assignee_email||"").toLowerCase() === who.slice(6)
         : t.assignee_id===who)
     .filter(t=>!q||(t.title+" "+t.context+" "+t.details).toLowerCase().includes(q.toLowerCase()));
   return <>
-    <div className="h"><h2>{isMgr?"All tasks":"All my tasks"}</h2><span className="sub">{list.length} shown</span>
-      <span style={{marginLeft:"auto",display:"flex",gap:6}}>
-        <button className={"btn sm"+(mode==="list"?" p":"")} onClick={()=>pickMode("list")}>List</button>
-        <button className={"btn sm"+(mode==="table"?" p":"")} onClick={()=>pickMode("table")}>Table</button></span></div>
+    <div className="h"><h2>{isMgr?"All tasks":"All my tasks"}</h2><span className="sub">{list.length} shown</span></div>
     <div className="filters" style={{marginBottom:10}}>
       <input placeholder="Search" value={q} onChange={e=>setQ(e.target.value)}/>
       <select value={st} onChange={e=>setSt(e.target.value)}>
@@ -932,35 +938,72 @@ function AllTasks(ctx){
       {isMgr && <select value={origin} onChange={e=>setOrigin(e.target.value)}>
         <option value="all">However it started</option>
         <option value="delegated">Delegated to them</option>
-        <option value="own">Their own tasks</option></select>}
+        <option value="own">Their own tasks</option>
+        <option value="bd">From Kathleen's Inbox</option></select>}
     </div>
-    {mode==="table" ? <TaskTable list={list} people={people} today={today} setOpen={ctx.opener(list)} sort={sort} setSort={setSort} isMgr={isMgr}/>
-      : <div className="card">{list.length?list.map(t=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.opener(list)} showWho={isMgr}/>):<div className="empty">No tasks match.</div>}</div>}
+    <TaskTable list={list} people={people} today={today} setOpen={ctx.opener(list)} isMgr={isMgr} empty="No tasks match."
+      cols={isMgr?["who","title","status","origin","entered","due","updated"]:["title","status","entered","due","updated"]}/>
   </>;
 }
 
-function TaskTable({list,people,today,setOpen,sort,setSort,isMgr}){
+// One table for every list in the app. `cols` picks the columns; `actions` adds a
+// right-hand cell of buttons; rows open the drawer unless `actions` says otherwise.
+function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
+  const [sort,setSort] = useState(null);
   const whoOf = (t) => t.assignee_id ? nameOf(people,t.assignee_id)
-    : t.assignee_email ? ((INVITEES.find(i=>i.email===String(t.assignee_email).toLowerCase())||{}).full_name || t.assignee_email) : "Unassigned";
-  const val = (t,k) => k==="who" ? whoOf(t).toLowerCase() : k==="title" ? t.title.toLowerCase() : k==="status" ? (STATUS[t.status]||"").toLowerCase()
-    : k==="created_at" ? t.created_at : k==="due_date" ? (t.due_date||"9999") : k==="last_update_at" ? (t.last_update_at||t.updated_at||"") : "";
-  const rows = list.slice().sort((a,b)=>{ const x=val(a,sort.k), y=val(b,sort.k); return (x<y?-1:x>y?1:0)*sort.dir || a.title.localeCompare(b.title); });
-  const hdr = (k,label,extra) => <th className={extra||""} onClick={()=>setSort(sort.k===k?{k,dir:-sort.dir}:{k,dir:1})}>
-    {label}{sort.k===k ? <span className="sortmark">{sort.dir===1?"\u25B4":"\u25BE"}</span> : null}</th>;
+    : t.assignee_email ? (((INVITEES.find(i=>i.email===String(t.assignee_email).toLowerCase())||{}).full_name || t.assignee_email)+" (not signed up yet)") : "Unassigned";
+  const finishedAt = (t) => new Date(t.status==="skipped" ? t.updated_at : (t.completed_at || t.updated_at));
+  const ago = (d) => { const days=Math.round((Date.now()-d)/86400000);
+    return days<=0 ? "today" : days===1 ? "yesterday" : `${d.toLocaleDateString(undefined,{month:"short",day:"numeric"})} (${days}d ago)`; };
   const dueCls = (t) => { if(!t.due_date || CLOSED(t.status)) return ""; return t.due_date < today ? "late" : t.due_date===today ? "today" : ""; };
+
+  const COLS = {
+    who:     {label:"Person", cls:"who", val:t=>whoOf(t).toLowerCase(), cell:t=>whoOf(t)},
+    title:   {label:"Task", cls:"task", val:t=>t.title.toLowerCase(), cell:t=><>
+               {t.title}
+               {t.priority==="high" && <span className="pill high" style={{marginLeft:6}}>High</span>}
+               {(t.need_manager||t.need_help) && <span className="pill" style={{marginLeft:6,background:"#fdecea",color:"var(--red)"}}>{t.need_help?"Needs help":"Needs you"}</span>}
+               {t.bd_status==="returned" && <span className="pill" style={{marginLeft:6,background:"#e0ecff",color:"#1f3a7a"}}>Returned to Kathleen's Inbox</span>}
+             </>},
+    origin:  {label:"Origin", cls:"muted hide-sm", val:t=>t.bd_task_id?"0":DELEGATED(t)?"1":"2",
+              cell:t=>t.bd_task_id ? "Kathleen's Inbox"
+                    : DELEGATED(t) ? (t.created_by===(ME&&ME.id) ? "You assigned" : "From "+String(nameOf(people,t.created_by)).split(" ")[0])
+                    : t.assignee_id ? (t.assignee_id===(ME&&ME.id) ? "Your own" : "Their own") : "—"},
+    status:  {label:"Status", val:t=>(STATUS[t.status]||"").toLowerCase(),
+              cell:t=><><span className={"pill "+t.status}>{STATUS[t.status]}</span>
+                {t.status==="waiting" && t.waiting_on ? <span className="meta"> on {t.waiting_on}</span> : null}</>},
+    entered: {label:"Entered", cls:"num muted hide-sm", val:t=>t.created_at||"", cell:t=>fmtDate(String(t.created_at).slice(0,10))},
+    due:     {label:"Due", cls:"num", cellCls:dueCls, val:t=>t.due_date||"9999", cell:t=>t.due_date?fmtDate(t.due_date):"—"},
+    updated: {label:"Last update", cls:"num muted hide-sm", val:t=>t.last_update_at||t.updated_at||"", cell:t=>t.last_update_at?fmtWhen(t.last_update_at):"—"},
+    finished:{label:"Finished", cls:"num", val:t=>String(+finishedAt(t)).padStart(16,"0"), cell:t=>ago(finishedAt(t))},
+    trashed: {label:"Trashed", cls:"num muted", val:t=>t.updated_at||"",
+              cell:t=>t.bd_status==="returned" ? `Sent back ${fmtWhen(t.updated_at)}` : fmtWhen(t.updated_at)},
+    repeats: {label:"Repeats", cls:"muted", val:t=>recurLabel(t).toLowerCase(), cell:t=>recurLabel(t)},
+    why:     {label:"Why", cls:"whycol", val:t=>{const a=why?why(t):attention(t,today); return a?String(a.rank??9):"9";},
+              cell:t=>{const a=why?why(t):attention(t,today); return a ? <span className={"why "+a.tone}>{a.why}</span> : null;}},
+  };
+  const keys = (cols||["who","title","status","due","updated"]).filter(k=>COLS[k] && !(k==="who" && isMgr===false));
+
+  const rows = (() => {
+    if(!sort) return list;
+    const c = COLS[sort.k]; if(!c) return list;
+    return list.slice().sort((a,b)=>{ const x=c.val(a), y=c.val(b);
+      return (x<y?-1:x>y?1:0)*sort.dir || String(a.title).localeCompare(String(b.title)); });
+  })();
+
+  if(!list.length) return <div className="card"><div className="empty">{empty||"Nothing here."}</div></div>;
   return <div className="card tablewrap">
-    {rows.length ? <table className="ttable"><thead><tr>
-      {isMgr && hdr("who","Person")}{hdr("title","Task")}{hdr("status","Status")}{hdr("created_at","Entered","num")}{hdr("due_date","Due","num")}{hdr("last_update_at","Last update","num")}
+    <table className="ttable"><thead><tr>
+      {keys.map(k=><th key={k} className={COLS[k].cls||""} title="Sort by this column"
+        onClick={()=>setSort(sort && sort.k===k ? (sort.dir===1?{k,dir:-1}:null) : {k,dir:1})}>
+        {COLS[k].label}{sort && sort.k===k ? <span className="sortmark">{sort.dir===1?"\u25B4":"\u25BE"}</span> : null}</th>)}
+      {actions && <th className="num"></th>}
     </tr></thead><tbody>
-      {rows.map(t=><tr key={t.id} onClick={()=>setOpen(t.id)}>
-        {isMgr && <td className="who">{whoOf(t)}</td>}
-        <td className="task">{t.title}{t.priority==="high" && <span className="pill high" style={{marginLeft:6}}>High</span>}{t.need_manager||t.need_help ? <span className="pill" style={{marginLeft:6,background:"#fdecea",color:"var(--red)"}}>{t.need_help?"Needs help":"Needs you"}</span> : null}</td>
-        <td><span className={"pill "+t.status}>{STATUS[t.status]}</span></td>
-        <td className="num">{fmtDate(String(t.created_at).slice(0,10))}</td>
-        <td className={"num "+dueCls(t)}>{fmtDate(t.due_date)}</td>
-        <td className="num muted">{t.last_update_at ? fmtWhen(t.last_update_at) : "—"}</td>
+      {rows.map(t=><tr key={t.id} onClick={()=>setOpen && setOpen(t.id)} style={setOpen?undefined:{cursor:"default"}}>
+        {keys.map(k=><td key={k} className={[COLS[k].cls||"",COLS[k].cellCls?COLS[k].cellCls(t):""].join(" ").trim()}>{COLS[k].cell(t)}</td>)}
+        {actions && <td className="num" onClick={e=>e.stopPropagation()}>{actions(t)}</td>}
       </tr>)}
-    </tbody></table> : <div className="empty">No tasks match.</div>}
+    </tbody></table>
   </div>;
 }
 
@@ -982,7 +1025,8 @@ function MyDay(ctx){
     {groups.map(([l,list])=> list.length ? <React.Fragment key={l}>
       <div className="section-title">{l} ({list.length})</div>
       {l==="Waiting on your manager" && <div style={{fontSize:13,color:"var(--muted)",margin:"-2px 0 6px"}}>You've asked for help on these. They'll move back once you get a reply — nothing to do in the meantime.</div>}
-      <div className="card">{groupSeries(list).map(({t,extra})=><Row key={t.id} t={t} people={people} today={today} setOpen={ctx.opener(list)} showWho={false} why={null} extra={extra}/>)}</div></React.Fragment> : null)}
+      <TaskTable list={groupSeries(list).map(g=>g.t)} people={people} today={today} setOpen={ctx.opener(list)}
+        isMgr={false} cols={["title","status","entered","due","updated"]}/></React.Fragment> : null)}
   </>;
 }
 
@@ -1363,7 +1407,7 @@ function TaskModal(ctx){
       {isMgr && t.status==="ready_for_review" && <button className="btn" onClick={()=>quick({status:"working"},"Sent back")}>Send back</button>}
       {isMgr && (t.need_manager||t.need_help) && <button className="btn r" onClick={()=>setReplying(true)}>Reply &amp; clear flag</button>}
       {!CLOSED(t.status) && t.assignee_id!==me.id && <button className="btn" onClick={()=>quick({status:"done"},"Marked done")}>Mark done</button>}
-      {(isMgr || iCreated) && CLOSED(t.status) && <button className="btn" onClick={()=>quick({status:"working",skip_reason:null},"Reopened")}>Reopen</button>}
+      {(isMgr || iCreated) && CLOSED(t.status) && t.bd_status!=="returned" && <button className="btn" onClick={()=>quick({status:"working",skip_reason:null},"Reopened")}>Reopen</button>}
       {t.recur_rule && !CLOSED(t.status) && (isMgr || t.assignee_id===me.id) && <button className="btn" onClick={()=>setSkipping(true)}>Skip this one</button>}
       {isMgr && root && <button className="btn" onClick={()=>update(root.id,{recur_paused:!root.recur_paused}).then(ok=>ok&&showToast(root.recur_paused?"Series resumed":"Series paused — no new ones will be created"))}>{root.recur_paused?"Resume series":"Pause series"}</button>}
       {canReshape && <button className="btn" onClick={()=>setEdit(true)}>{isMgr?"Edit / reassign":"Edit"}</button>}
@@ -1595,11 +1639,11 @@ function Trash({trashed,people,today,update,showToast,setOpen,load}){
   };
   return <>
     <div className="h"><h2>Trash</h2><span className="sub">Restore anything here with one tap</span></div>
-    <div className="card">{trashed.length ? trashed.map(t=><div className="row" key={t.id} style={{cursor:"default"}}>
-      <div><div className="t">{nameOf(people,t.assignee_id)} — {t.title}</div><div className="m">{t.bd_status==="returned" ? `Returned to Kathleen's Inbox ${fmtWhen(t.updated_at)} — it lives there now` : `Trashed ${fmtWhen(t.updated_at)}`}</div></div>
-      <div style={{display:"flex",gap:6}}><button className="btn sm" onClick={()=>update(t.id,{deleted_at:null}).then(ok=>ok&&showToast("Restored"))}>Restore</button>
-        <button className="btn sm" style={{color:"var(--red)"}} onClick={()=>purge(t)}>Delete permanently</button></div>
-    </div>) : <div className="empty">Trash is empty.</div>}</div>
+    <TaskTable list={trashed} people={people} today={today} setOpen={null} empty="Trash is empty."
+      cols={["who","title","trashed"]}
+      actions={t=><span style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+        <button className="btn sm" onClick={()=>update(t.id,{deleted_at:null}).then(ok=>ok&&showToast("Restored"))}>Restore</button>
+        <button className="btn sm" style={{color:"var(--red)"}} onClick={()=>purge(t)}>Delete permanently</button></span>}/>
   </>;
 }
 
@@ -1684,6 +1728,7 @@ function WeekAhead({tasks,people,today,setOpen,opener,me,isMgr}){
 
 function Repeating({showToast,setOpen,tasks,isMgr,update}){
   const [rows,setRows] = useState(null);
+  const [sort,setSort] = useState(null);
   const load = useCallback(()=>{ sb.rpc("recurring_overview").then(({data,error})=>{
     if(error){ showToast(error.message); return; } setRows(data||[]); }); },[showToast]);
   useEffect(()=>{load();},[load]);
@@ -1701,34 +1746,37 @@ function Repeating({showToast,setOpen,tasks,isMgr,update}){
     if(ok){ load(); showToast(r.paused?"Resumed":"Paused — no new ones will be created"); }
   };
   if(rows===null) return <div className="empty">Loading…</div>;
+  const sval = (r,k) => k==="title" ? String(r.title).toLowerCase() : k==="assignee" ? String(r.assignee||"zz").toLowerCase()
+    : k==="rule" ? ruleText(r).toLowerCase() : k==="open_count" ? String(r.open_count).padStart(6,"0")
+    : k==="oldest_open" ? (r.oldest_open||"9999") : k==="next" ? ((r.next_dates||[])[0]||"9999") : "";
+  const sorted = !sort ? rows : rows.slice().sort((a,b)=>{ const x=sval(a,sort.k), y=sval(b,sort.k);
+    return (x<y?-1:x>y?1:0)*sort.dir || String(a.title).localeCompare(String(b.title)); });
   return <>
     <div className="h"><h2>Repeating</h2><span className="sub">{rows.length} recurring task{rows.length===1?"":"s"}</span></div>
     <div className="note" style={{marginBottom:10}}>Weekly and monthly tasks appear five days before each due date, whether or not the last one got finished — they stack up rather than disappearing. Daily ones roll forward instead of piling up. Dates below that haven't happened yet are scheduled, not created.</div>
-    {rows.length ? rows.map(r=><div className="panel" key={r.series_id}>
-      <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap",alignItems:"flex-start"}}>
-        <div style={{flex:1,minWidth:200}}>
-          <div style={{fontWeight:600,fontSize:15}}>{r.title}</div>
-          <div style={{fontSize:13,color:"var(--muted)",marginTop:2}}>
-            {ruleText(r)} · {r.assignee||"Unassigned"}
-            {r.paused ? " · paused" : ""}
-          </div>
-        </div>
-        <div style={{display:"flex",gap:6}}>
-          {isMgr && r.open_count>1 && <button className="btn sm" onClick={()=>catchUp(r)}>Catch up</button>}
-          {isMgr && <button className="btn sm" onClick={()=>togglePause(r)}>{r.paused?"Resume":"Pause"}</button>}
-        </div>
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginTop:12}}>
-        <div><div style={{fontSize:11,textTransform:"uppercase",letterSpacing:".6px",color:"var(--muted)",fontWeight:700}}>Open now</div>
-          <div style={{fontSize:18,fontWeight:600,color:r.stalled?"var(--red)":"inherit"}}>{r.open_count}{r.open_count>=r.cap?` — behind`:""}</div>
-          {r.oldest_open && <div style={{fontSize:13,color:"var(--muted)"}}>oldest due {fmtDate(r.oldest_open)}</div>}</div>
-        <div><div style={{fontSize:11,textTransform:"uppercase",letterSpacing:".6px",color:"var(--muted)",fontWeight:700}}>Coming up</div>
-          <div style={{fontSize:14}}>{r.paused ? <span style={{color:"var(--muted)"}}>paused — none scheduled</span>
-            : (r.next_dates||[]).map(d=>fmtDate(d)).join(" · ") || "—"}</div></div>
-      </div>
-      {r.stalled && <div className="note" style={{marginTop:10,background:"var(--red-soft)",color:"var(--red)"}}>
-        {r.open_count} open, which is at or past your warning level of {r.cap}. New ones still arrive on schedule — use Catch up to skip the old ones and keep only the newest.</div>}
-    </div>) : <div className="card"><div className="empty">No repeating tasks yet. Set one up by choosing how often it repeats when you assign it.</div></div>}
+    {rows.length ? <div className="card tablewrap">
+      <table className="ttable"><thead><tr>
+        {[["title","Task","task"],["assignee","Person","who"],["rule","Repeats","muted"],
+          ["open_count","Open now","num"],["oldest_open","Oldest due","num hide-sm"],["next","Coming up","muted hide-sm"]].map(([k,label,cls])=>
+          <th key={k} className={cls} title="Sort by this column"
+            onClick={()=>setSort(sort && sort.k===k ? (sort.dir===1?{k,dir:-1}:null) : {k,dir:1})}>
+            {label}{sort && sort.k===k ? <span className="sortmark">{sort.dir===1?"\u25B4":"\u25BE"}</span> : null}</th>)}
+        {isMgr && <th className="num"></th>}
+      </tr></thead><tbody>
+        {sorted.map(r=><tr key={r.series_id} style={{cursor:"default"}}>
+          <td className="task">{r.title}{r.paused && <span className="pill" style={{marginLeft:6,background:"#eef0f4",color:"var(--muted)"}}>Paused</span>}
+            {r.stalled && <span className="pill" style={{marginLeft:6,background:"#fdecea",color:"var(--red)"}}>Behind</span>}</td>
+          <td className="who">{r.assignee||"Unassigned"}</td>
+          <td className="muted">{ruleText(r)}</td>
+          <td className="num" style={r.stalled?{color:"var(--red)",fontWeight:700}:undefined}>{r.open_count}</td>
+          <td className="num muted hide-sm">{r.oldest_open?fmtDate(r.oldest_open):"—"}</td>
+          <td className="muted hide-sm">{r.paused ? "paused — none scheduled" : ((r.next_dates||[]).map(d=>fmtDate(d)).join(" · ") || "—")}</td>
+          {isMgr && <td className="num"><span style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+            {r.open_count>1 && <button className="btn sm" onClick={()=>catchUp(r)}>Catch up</button>}
+            <button className="btn sm" onClick={()=>togglePause(r)}>{r.paused?"Resume":"Pause"}</button></span></td>}
+        </tr>)}
+      </tbody></table>
+    </div> : <div className="card"><div className="empty">No repeating tasks yet. Set one up by choosing how often it repeats when you assign it.</div></div>}
   </>;
 }
 
@@ -1994,8 +2042,10 @@ function Agenda({personId,withWhom,people,onBack,showToast,setOpen,openTaskId,st
         <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
           <span style={{flex:1,cursor:x.id?"pointer":undefined}}
             onClick={()=>open(x.id, a.completed)} title={x.id?"Open the task":undefined}>{x.title}</span>
-          <button className="btn q" style={{padding:"0 6px",color:"var(--muted)",whiteSpace:"nowrap"}}
-            title="Put it back to Working" onClick={(e)=>{e.stopPropagation(); reopen(x.id, x.title);}}>↻ Reopen</button>
+          {(ALL_TASKS.find(t=>t.id===x.id)||{}).bd_status==="returned"
+            ? <span className="meta" style={{whiteSpace:"nowrap"}}>back with Kathleen</span>
+            : <button className="btn q" style={{padding:"0 6px",color:"var(--muted)",whiteSpace:"nowrap"}}
+                title="Put it back to Working" onClick={(e)=>{e.stopPropagation(); reopen(x.id, x.title);}}>↻ Reopen</button>}
         </li>)}</ul></div>
       <div style={{fontSize:13,color:"var(--muted)",marginTop:6}}>Reopening keeps the due date and records who did it in the task's history.</div>
     </div>}
@@ -2055,22 +2105,8 @@ function Finished({tasks,people,today,setOpen,me,setMe,showToast}){
         <option value="today">Finished today</option><option value="week">Last 7 days</option>
         <option value="month">Last 30 days</option><option value="all">Everything</option></select>
     </div>
-    <div className="card">
-      {list.length ? list.map(t=><div className="row" key={t.id} onClick={()=>setOpen(t.id, list.map(x=>x.id))}>
-        <div>
-          <div className="t">
-            {finishedAt(t)>seen && !t.seen_at && <span style={{color:"var(--red)",fontWeight:700,marginRight:6}}>•</span>}
-            <b style={{color:"var(--navy)"}}>{nameOf(people,t.assignee_id)}</b> — {t.title}
-          </div>
-          <div className="m">
-            <span className={"pill "+t.status}>{t.status==="skipped"?"Skipped":"Done"}</span>{" "}
-            {when(t)}
-            {t.status==="skipped" && t.skip_reason ? ` · ${t.skip_reason}` : ""}
-            {t.context ? ` · ${t.context}` : ""}
-          </div>
-        </div>
-      </div>) : <div className="empty">Nothing finished in this window.</div>}
-    </div>
+    <TaskTable list={list} people={people} today={today} setOpen={(id)=>setOpen(id, list.map(x=>x.id))}
+      cols={["who","title","status","finished"]} empty="Nothing finished in this window."/>
   </>;
 }
 

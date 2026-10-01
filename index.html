@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="6.7">
+<meta name="app-version" content="6.8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -220,6 +220,12 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"6.8", d:"September 30, 2026", items:[
+    "Mentions — things to raise at the next 1:1 that aren't tasks. No due date, no status, nothing chasing anybody. Type it, and it waits on the agenda under \"Worth mentioning\" until it's been said.",
+    "They go both ways: your people can raise things for you, which is the point. Whoever raised it is named, and both of you see it before the meeting.",
+    "Tick it once you've said it and it drops off. If it turns out to need doing, \"Make it a task\" carries the wording straight into the assign form.",
+    "Anything still unsaid after 60 days is marked stale, so the list stays a list rather than a graveyard."
+  ]},
   {v:"6.7", d:"September 30, 2026", items:[
     "Tasks can now arrive from Kathleen's Brain Dump. They look and behave like any other task from her — same assignment email, same steps, same attachments — and carry a small \"from Brain Dump\" line on the task.",
     "Return to Kathleen: on one of those tasks, a button hands it straight back to her with everything you did on it — finished steps, comments and files. Say why if it helps. The task closes here once it's back with her.",
@@ -674,7 +680,12 @@ function Shell({me,setMe}){
 
   const live = tasks.filter(t=>!t.deleted_at); ALL_TASKS = live; INVITEES = invitees; ME = me;
   const openTask = tasks.find(t=>t.id===open);
-  const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,opener,showToast,isMgr,isOwner,invitees,openTaskId:open};
+  // a mention that turns out to need doing: open the assign form with its wording,
+  // aimed at the person whose 1:1 it came from, and link the two once it saves
+  const startTaskFromMention = useCallback((mention, personId) => {
+    setAssign({ parent:null, prefill:{ title: mention.body, assignee_id: personId }, fromMention: mention.id });
+  },[]);
+  const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,opener,showToast,isMgr,isOwner,invitees,openTaskId:open,startTaskFromMention};
 
   const attnCount = isMgr ? live.filter(t=>attention(t,today) && (DELEGATED(t) || t.assignee_id===me.id)).length : 0;
   const freshDone = isMgr ? live.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id
@@ -706,7 +717,7 @@ function Shell({me,setMe}){
       {view==="new" && <WhatsNew onBack={()=>setView(isMgr?"home":"myday")}/>}
     </main>
     {openTask && <TaskModal {...ctx} task={openTask} queueIds={openList} onClose={()=>setOpenId(null)} addSub={()=>setAssign({parent:openTask})}/>}
-    {assign && <AssignModal {...ctx} parent={assign.parent} onClose={()=>setAssign(null)}/>}
+    {assign && <AssignModal {...ctx} parent={assign.parent} prefill={assign.prefill} fromMention={assign.fromMention} onClose={()=>setAssign(null)}/>}
     {toast && <div className="toast">{toast.text}{toast.undo && <button onClick={()=>{toast.undo();setToast(null);}}>Undo</button>}</div>}
   </>;
 }
@@ -923,7 +934,7 @@ function MyDay(ctx){
 
 // ---------- assign modal (manager) ----------
 function AssignModal(ctx){
-  const {people,me,onClose,load,showToast,today,isMgr,parent} = ctx;
+  const {people,me,onClose,load,showToast,today,isMgr,parent,prefill,fromMention} = ctx;
   const blank = {title:"",assignee_id:isMgr?"":me.id,due_date:"",priority:"normal",context:parent?parent.context:"",details:"",definition_of_done:"",standing_notes:"",recur_rule:"",recur_day:"",recur_cap:3};
   const [several,setSeveral] = useState([]);   // extra people to give a copy to
   const [steps,setSteps] = useState([]);      // checklist typed while writing the task
@@ -933,7 +944,7 @@ function AssignModal(ctx){
     if(!lines.length) return;
     setSteps([...steps, ...lines]); setStepText("");
   };
-  const [f,setF] = useState(blank); const [ai,setAi] = useState(""); const [busy,setBusy]=useState(false); const [err,setErr]=useState("");
+  const [f,setF] = useState(prefill ? {...blank, ...prefill} : blank); const [ai,setAi] = useState(""); const [busy,setBusy]=useState(false); const [err,setErr]=useState("");
   const staff = isMgr ? people.filter(p=>p.active) : people.filter(p=>p.active && (p.id===me.id || (parent && p.role==="manager")));
   const pending = isMgr ? (ctx.invitees||[]) : [];
   const capture = async () => {
@@ -969,6 +980,10 @@ function AssignModal(ctx){
       : byEmail ? `Saved for ${byEmail} — it'll be waiting when they sign up`
       : `Assigned to ${nameOf(people,row.assignee_id)}`);
     onClose();
+    if(firstMade && fromMention){
+      const {error:le} = await sb.rpc("mention_became_task",{p_id:fromMention, p_task:firstMade});
+      if(le) showToast("Task saved, but it could not be linked to the mention");
+    }
     // drop straight into the task so a comment or attachment can go on now
     if(firstMade && rows.length===1 && ctx.setOpen) ctx.setOpen(firstMade, [firstMade]);
   };
@@ -1714,7 +1729,8 @@ function OneOnOnes(ctx){
   },[showToast,openTaskId,pick]);
 
   if(pick) return <Agenda personId={pick.id} withWhom={pick.label} people={people}
-    onBack={()=>setPick(null)} showToast={showToast} setOpen={setOpen} openTaskId={openTaskId}/>;
+    onBack={()=>setPick(null)} showToast={showToast} setOpen={setOpen} openTaskId={openTaskId}
+    startTaskFromMention={ctx.startTaskFromMention}/>;
   if(!list) return <div className="empty">Loading…</div>;
 
   const Row = ({p, label, sub}) => <div className="person" key={p.id}
@@ -1726,6 +1742,7 @@ function OneOnOnes(ctx){
         <span><b>{p.open}</b> open</span>
         {p.overdue>0 && <span><b style={{color:"var(--red)"}}>{p.overdue}</b> overdue</span>}
         {p.flagged>0 && <span><b style={{color:"var(--warn)"}}>{p.flagged}</b> waiting on you</span>}
+        {p.mentions>0 && <span><b>{p.mentions}</b> to mention</span>}
       </div>
     </div>
     <button className="btn sm p" onClick={(e)=>{e.stopPropagation(); setPick({id:p.id, label});}}>Open agenda</button>
@@ -1753,7 +1770,7 @@ function OneOnOnes(ctx){
   </>;
 }
 
-function Agenda({personId,withWhom,people,onBack,showToast,setOpen,openTaskId}){
+function Agenda({personId,withWhom,people,onBack,showToast,setOpen,openTaskId,startTaskFromMention}){
   const [days,setDays] = useState(14);
   const [a,setA] = useState(null);
   useEffect(()=>{ let live=true;
@@ -1780,6 +1797,32 @@ function Agenda({personId,withWhom,people,onBack,showToast,setOpen,openTaskId}){
   const copy = async () => {
     try{ await navigator.clipboard.writeText(asText()); showToast("Copied — paste it anywhere"); }
     catch(e){ showToast("Couldn't copy on this device"); }
+  };
+  const [mentions,setMentions] = useState(null);
+  const [newMention,setNewMention] = useState("");
+  const loadMentions = useCallback(()=>{
+    sb.rpc("mentions_for",{p_person:personId}).then(({data,error})=>{
+      if(error){ showToast(error.message); return; }
+      setMentions(data);
+    });
+  },[personId,showToast]);
+  useEffect(()=>{ loadMentions(); },[loadMentions,openTaskId]);
+  const addMention = async () => {
+    const body = newMention.trim();
+    if(!body) return;
+    const {error} = await sb.rpc("add_mention",{p_for:personId, p_body:body});
+    if(error){ showToast(error.message); return; }
+    setNewMention(""); loadMentions();
+  };
+  const tickMention = async (id,on) => {
+    const {error} = await sb.rpc("mark_mentioned",{p_id:id, p_on:on});
+    if(error){ showToast(error.message); return; }
+    loadMentions();
+  };
+  const dropMention = async (id) => {
+    const {error} = await sb.rpc("archive_mention",{p_id:id});
+    if(error){ showToast(error.message); return; }
+    loadMentions(); showToast("Off the list");
   };
   const reload = () => sb.rpc("one_on_one",{p_person:personId, since_days:days})
     .then(({data,error})=>{ if(error){ showToast(error.message); return; } setA(data); });
@@ -1842,6 +1885,39 @@ function Agenda({personId,withWhom,people,onBack,showToast,setOpen,openTaskId}){
       {x.note?<div className="meta">"{x.note}"</div>:null}</>}/>
     <Sec title="Waiting on others" items={a.waiting_on_others} render={x=><>{x.title} {x.who?<span className="meta">— {x.who}</span>:null}</>}/>
     <Sec title="Still open" items={a.open} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:"no date"}{x.next?` · next: ${x.next}`:""}</span></>}/>
+    <div className="panel">
+      <h3>Worth mentioning {mentions && mentions.open_count>0 ? `(${mentions.open_count})` : ""}</h3>
+      <div style={{fontSize:13,color:"var(--muted)",marginBottom:8}}>
+        Things to raise when you talk — not tasks. Nobody is chased about these and no email goes out.
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <input value={newMention} onChange={e=>setNewMention(e.target.value)}
+          onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); addMention(); } }}
+          placeholder="Something to bring up next time…"
+          style={{flex:1,border:"1px solid var(--line)",borderRadius:8,padding:"9px 11px",minHeight:42}}/>
+        <button className="btn sm p" onClick={addMention} disabled={!newMention.trim()}>Add</button>
+      </div>
+      {mentions && mentions.items.length ? <div className="ag"><ul>{mentions.items.map(x=>
+        <li key={x.id} style={{display:"flex",gap:8,alignItems:"flex-start",
+              color:x.mentioned?"var(--muted)":undefined}}>
+          <button className="btn q" style={{padding:"0 4px",color:"var(--muted)",lineHeight:1.3}}
+            title={x.mentioned?"Put it back":"Said it — tick it off"}
+            onClick={()=>tickMention(x.id,!x.mentioned)}>{x.mentioned?"↩":"✓"}</button>
+          <span style={{flex:1,textDecoration:x.mentioned?"line-through":undefined}}>
+            {x.body}
+            <span className="meta"> — {x.mine?"you raised this":`${String(x.who).split(" ")[0]} raised this`}
+              {x.became_task?" · became a task":""}{x.stale?" · still unsaid after 60 days":""}</span>
+          </span>
+          {!x.mentioned && <>
+            <button className="btn q" style={{padding:"0 6px",color:"var(--muted)",whiteSpace:"nowrap"}}
+              title="Turn it into a real task" onClick={()=>startTaskFromMention && startTaskFromMention(x, personId)}>Make it a task</button>
+            <button className="btn q" style={{padding:"0 4px",color:"var(--muted)"}}
+              title="Drop it — never needed saying" onClick={()=>dropMention(x.id)}>×</button>
+          </>}
+        </li>)}</ul></div>
+      : <div className="empty">Nothing waiting. Add anything you want to remember to bring up.</div>}
+    </div>
+
     <Sec title="They've asked you for" items={a.they_asked_you} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:""}</span></>}/>
     <Sec title="Your private notes" items={a.notes} render={x=><><b>{x.title}</b><div className="meta">{x.body}</div></>}/>
     {coveredItems().length>0 && <div className="panel" style={{background:"var(--paper,#f6f7f9)"}}>

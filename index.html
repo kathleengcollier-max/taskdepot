@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="7.0">
+<meta name="app-version" content="7.1">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -237,6 +237,9 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"7.1", d:"October 1, 2026", items:[
+    "Fixed: opening your 1:1 with your own manager said \"That person doesn't report to you.\" It now opens your agenda — your work, your mentions — which is what that meeting is about."
+  ]},
   {v:"7.0", d:"October 1, 2026", items:[
     "Every list is now a table — Home, All tasks, Finished, Repeating and Trash. Same columns, same sorting: click a heading once for ascending, again for descending, a third time to go back to the natural order.",
     "The List/Table toggle is gone. Tables everywhere was the point, and a setting you have to remember is one more thing to remember.",
@@ -1832,13 +1835,13 @@ function OneOnOnes(ctx){
     return ()=>{live=false;};
   },[showToast,openTaskId,pick]);
 
-  if(pick) return <Agenda personId={pick.id} withWhom={pick.label} people={people}
+  if(pick) return <Agenda personId={pick.id} pairWith={pick.pairWith} withWhom={pick.label} people={people}
     onBack={()=>setPick(null)} showToast={showToast} setOpen={setOpen} openTaskId={openTaskId}
     startTaskFromMention={ctx.startTaskFromMention}/>;
   if(!list) return <div className="empty">Loading…</div>;
 
-  const Row = ({p, label, sub}) => <div className="person" key={p.id}
-      onClick={()=>setPick({id:p.id, label})} style={{cursor:"pointer"}}>
+  const Row = ({p, label, sub, openAs}) => <div className="person" key={p.id}
+      onClick={()=>setPick({id:openAs||p.id, pairWith:p.id, label})} style={{cursor:"pointer"}}>
     <div>
       <b>{p.name}</b>
       <div style={{fontSize:13,color:"var(--muted)"}}>{sub}</div>
@@ -1849,7 +1852,7 @@ function OneOnOnes(ctx){
         {p.mentions>0 && <span><b>{p.mentions}</b> to mention</span>}
       </div>
     </div>
-    <button className="btn sm p" onClick={(e)=>{e.stopPropagation(); setPick({id:p.id, label});}}>Open agenda</button>
+    <button className="btn sm p" onClick={(e)=>{e.stopPropagation(); setPick({id:openAs||p.id, pairWith:p.id, label});}}>Open agenda</button>
   </div>;
 
   const team = list.team || [];
@@ -1859,7 +1862,7 @@ function OneOnOnes(ctx){
 
     {list.manager && <>
       <div className="section-title">Your meeting with {list.manager.name}</div>
-      <div className="card"><Row p={list.manager} label={`with ${list.manager.name}`}
+      <div className="card"><Row p={list.manager} openAs={me.id} label={`with ${list.manager.name}`}
         sub={`This is what ${String(list.manager.name).split(" ")[0]} sees when they open yours, minus their private notes.`}/></div>
     </>}
 
@@ -1874,7 +1877,10 @@ function OneOnOnes(ctx){
   </>;
 }
 
-function Agenda({personId,withWhom,people,onBack,showToast,setOpen,openTaskId,startTaskFromMention}){
+function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,openTaskId,startTaskFromMention}){
+  // personId = whose work the agenda is about. pairWith = the other person in the meeting,
+  // which is who mentions belong to. They differ only when you open your 1:1 with your own manager.
+  const other = pairWith || personId;
   const [days,setDays] = useState(14);
   const [a,setA] = useState(null);
   useEffect(()=>{ let live=true;
@@ -1906,16 +1912,16 @@ function Agenda({personId,withWhom,people,onBack,showToast,setOpen,openTaskId,st
   const [mentions,setMentions] = useState(null);
   const [newMention,setNewMention] = useState("");
   const loadMentions = useCallback(()=>{
-    sb.rpc("mentions_for",{p_person:personId}).then(({data,error})=>{
+    sb.rpc("mentions_for",{p_person:other}).then(({data,error})=>{
       if(error){ showToast(error.message); return; }
       setMentions(data);
     });
-  },[personId,showToast]);
+  },[other,showToast]);
   useEffect(()=>{ loadMentions(); },[loadMentions,openTaskId]);
   const addMention = async () => {
     const body = newMention.trim();
     if(!body) return;
-    const {error} = await sb.rpc("add_mention",{p_for:personId, p_body:body});
+    const {error} = await sb.rpc("add_mention",{p_for:other, p_body:body});
     if(error){ showToast(error.message); return; }
     setNewMention(""); loadMentions();
   };
@@ -2009,7 +2015,7 @@ function Agenda({personId,withWhom,people,onBack,showToast,setOpen,openTaskId,st
           </span>
           {!x.mentioned && <>
             <button className="btn q" style={{padding:"0 6px",color:"var(--muted)",whiteSpace:"nowrap"}}
-              title="Turn it into a real task" onClick={()=>startTaskFromMention && startTaskFromMention(x, personId)}>Make it a task</button>
+              title="Turn it into a real task" onClick={()=>startTaskFromMention && startTaskFromMention(x, other)}>Make it a task</button>
             <button className="btn q" style={{padding:"0 4px",color:"var(--muted)"}}
               title="Drop it — never needed saying" onClick={()=>dropMention(x.id)}>×</button>
           </>}

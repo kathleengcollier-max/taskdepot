@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="8.2">
+<meta name="app-version" content="8.4">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -232,6 +232,7 @@ const coverIfInMeeting = (id) => {
   sb.rpc("mark_discussed",{p_task:id, p_on:true}).then(()=>{});
 };
 let INVITEES = [];
+let LINK_COUNTS = {};   // task id -> how many live tasks it is linked to
 
 const DOW = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const recurLabel = (t) => !t.recur_rule ? "" : t.recur_rule==="daily" ? "Repeats daily" : t.recur_rule==="weekly" ? `Repeats ${DOW[t.recur_day??0]}s` : `Repeats monthly on the ${t.recur_day||1}`;
@@ -242,6 +243,19 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"8.4", d:"October 4, 2026", items:[
+    "Search results are the same sortable table as All tasks, with two extra columns: what the match was found in, and the matching text.",
+    "A task linked to others carries a link pill with the count, in every table — Home, All tasks, Search, Finished, Trash — so you can see at a glance that a task has company.",
+    "The task drawer already lists them by name under Linked to; the pill is for spotting it without opening anything.",
+  ]},
+  {v:"8.3", d:"October 4, 2026", items:[
+    "Task Depot now spots work that looks like a task you already have, and says so on the task with Link, Merge and Not related. It reads two signals: a shared order, PO or S/O number, and how close the wording is.",
+    "The order number is the strong one — on your own tasks it matched \"Process order 2200961A\" to \"Reconcile PO 2200961A bill\", a pair that shares almost no words.",
+    "No AI involved, deliberately: it is instant, costs nothing, and always tells you why it matched so you can judge it in a second. Tasks whose wording differs completely still need a person; that's the next layer if this one proves useful.",
+    "\"Not related\" is permanent for that pair — it will never suggest it again.",
+    "Link now takes several tasks at once: tick as many as you like and link them in one go.",
+    "Copies link themselves. Assigning one task to several people, or copying an open task to others, now links the copies, so opening any of them shows the rest.",
+  ]},
   {v:"8.2", d:"October 4, 2026", items:[
     "Fixed: work held by somebody who hasn't signed up yet showed as \"Unassigned\" in the merge and link pickers. It was never unassigned — the name just wasn't being looked up. Every one of those lists now names them.",
     "Whose task it is is now worked out in one place instead of five, so the next screen that asks can't get a different answer.",
@@ -760,12 +774,13 @@ function Shell({me,setMe}){
 
   const [invitees,setInvitees] = useState([]);
   const load = useCallback(async ()=>{
-    const [{data:p},{data:t},inv] = await Promise.all([
+    const [{data:p},{data:t},inv,lc] = await Promise.all([
       sb.from("profiles").select("*").order("full_name"),
       sb.from("tasks").select("*").order("due_date",{ascending:true,nullsFirst:false}),
-      sb.rpc("waiting_on_signup")
+      sb.rpc("waiting_on_signup"),
+      sb.rpc("link_counts")
     ]);
-    setPeople(p||[]); setTasks(t||[]); setInvitees(inv.data||[]);
+    setPeople(p||[]); setTasks(t||[]); setInvitees(inv.data||[]); LINK_COUNTS = lc.data || {};
   },[]);
   useEffect(()=>{ load(); const id=setInterval(load,60000); return ()=>clearInterval(id); },[load]);
 
@@ -1122,6 +1137,8 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
                {t.priority==="high" && <span className="pill high" style={{marginLeft:6}}>High</span>}
                {(t.need_manager||t.need_help) && <span className="pill" style={{marginLeft:6,background:"#fdecea",color:"var(--red)"}}>{t.need_help?"Needs help":"Needs you"}</span>}
                {t.bd_status==="returned" && <span className="pill" style={{marginLeft:6,background:"#e0ecff",color:"#1f3a7a"}}>Returned to Kathleen's Inbox</span>}
+               {LINK_COUNTS[t.id] > 0 && <span className="pill" title="Linked to other tasks"
+                 style={{marginLeft:6,background:"#eef3fd",color:"var(--navy)"}}>&#128279; {LINK_COUNTS[t.id]}</span>}
              </>},
     origin:  {label:"Origin", cls:"muted hide-sm", val:t=>t.bd_task_id?"0":t.via_email?"1":DELEGATED(t)?"2":"3",
               cell:t=>t.bd_task_id ? "Kathleen's Inbox"
@@ -1138,6 +1155,9 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
     trashed: {label:"Trashed", cls:"num muted", val:t=>t.updated_at||"",
               cell:t=>t.bd_status==="returned" ? `Sent back ${fmtWhen(t.updated_at)}` : fmtWhen(t.updated_at)},
     repeats: {label:"Repeats", cls:"muted", val:t=>recurLabel(t).toLowerCase(), cell:t=>recurLabel(t)},
+    matched: {label:"Matched in", cls:"muted", val:t=>String(t.__hit||""), cell:t=>t.__hit||""},
+    snippet: {label:"Where", cls:"muted hide-sm", val:t=>String(t.__snippet||""),
+              cell:t=><span style={{fontSize:13}}>{t.__snippet||""}</span>},
     why:     {label:"Why", cls:"whycol", val:t=>{const a=why?why(t):attention(t,today); return a?String(a.rank??9):"9";},
               cell:t=>{const a=why?why(t):attention(t,today); return a ? <span className={"why "+a.tone}>{a.why}</span> : null;}},
   };
@@ -1227,6 +1247,11 @@ function AssignModal(ctx){
       : {...row, assignee_id:target||null, assignee_email:null});
     const {data:made, error} = await sb.from("tasks").insert(rows).select("id");
     const firstMade = made && made.length ? made[0].id : null;
+    // one job split between people — link the copies so any of them shows the others
+    if(!error && made && made.length>1){
+      const {error:le} = await sb.rpc("link_many",{p_task:firstMade, p_others:made.slice(1).map(x=>x.id)});
+      if(le) showToast("Tasks saved, but they couldn't be linked to each other");
+    }
     if(!error && steps.length && made && made.length){
       const stepRows = made.flatMap(t => steps.map((body,i)=>({task_id:t.id, body, position:i, created_by:me.id})));
       const {error:se} = await sb.from("task_steps").insert(stepRows);
@@ -1235,7 +1260,7 @@ function AssignModal(ctx){
     setBusy(false);
     if(error){ setErr(error.message); return; }
     await load();
-    showToast(rows.length>1 ? `Assigned to ${rows.length} people`
+    showToast(rows.length>1 ? `Assigned to ${rows.length} people — their copies are linked to each other`
       : byEmail ? `Saved for ${byEmail} — it'll be waiting when they sign up`
       : `Assigned to ${nameOf(people,row.assignee_id)}`);
     onClose();
@@ -1268,7 +1293,7 @@ function AssignModal(ctx){
                ...pending.map(p=>({k:"email:"+p.email, label:(p.full_name||p.email)+" (not signed up yet)"}))]
           .map(o=><button key={o.k} type="button" className="chip" style={several.includes(o.k)?{background:"var(--navy)",color:"#fff",borderColor:"var(--navy)"}:{}}
             onClick={()=>setSeveral(several.includes(o.k)?several.filter(x=>x!==o.k):[...several,o.k])}>{o.label}</button>)}</div>
-        {several.length>0 && <div style={{fontSize:13,color:"var(--muted)",marginTop:4}}>Each person gets their own copy with its own progress and due date. Tap a name again to remove them.</div>}
+        {several.length>0 && <div style={{fontSize:13,color:"var(--muted)",marginTop:4}}>Each person gets their own copy with its own progress and due date, and the copies are linked to each other so you can see them together. Tap a name again to remove them.</div>}
       </div>}
       <label>Details<textarea value={f.details} onChange={e=>setF({...f,details:e.target.value})}/></label>
       <label>Definition of done<input value={f.definition_of_done} onChange={e=>setF({...f,definition_of_done:e.target.value})} placeholder="Quote attached + PO updated"/></label>
@@ -1315,7 +1340,7 @@ function TaskModal(ctx){
   const [copying,setCopying] = useState(false);
   const [joining,setJoining] = useState(null);      // "link" | "merge"
   const [joinQ,setJoinQ] = useState("");
-  const [joinPick,setJoinPick] = useState(null);
+  const [joinPick,setJoinPick] = useState([]);   // several at once when linking
   const [joinBusy,setJoinBusy] = useState(false);
   const [links,setLinks] = useState([]);
   const loadLinks = useCallback(()=>{
@@ -1327,22 +1352,37 @@ function TaskModal(ctx){
       && (!joinQ.trim() || (x.title||"").toLowerCase().includes(joinQ.trim().toLowerCase())))
     .slice(0,40);
   const doJoin = async () => {
-    if(!joinPick) return;
+    if(!joinPick.length) return;
     setJoinBusy(true);
     if(joining==="link"){
-      const {error} = await sb.rpc("link_tasks",{p_a:t.id, p_b:joinPick});
+      const {data,error} = await sb.rpc("link_many",{p_task:t.id, p_others:joinPick});
       setJoinBusy(false);
       if(error){ showToast(error.message); return; }
-      setJoining(null); setJoinPick(null); setJoinQ(""); loadLinks();
-      showToast("Linked — each one now points at the other");
+      setJoining(null); setJoinPick([]); setJoinQ(""); loadLinks();
+      showToast(`Linked to ${data} task${data===1?"":"s"}`);
     } else {
-      const {data,error} = await sb.rpc("merge_tasks",{p_from:joinPick, p_into:t.id});
+      const {data,error} = await sb.rpc("merge_tasks",{p_from:joinPick[0], p_into:t.id});
       setJoinBusy(false);
       if(error){ showToast(error.message); return; }
-      setJoining(null); setJoinPick(null); setJoinQ("");
+      setJoining(null); setJoinPick([]); setJoinQ("");
       await ctx.load(); refresh(); loadLinks();
       showToast(`Merged in — ${data.comments} comment(s), ${data.files} file(s), ${data.steps} step(s) came across`);
     }
+  };
+  // things that look like the same work — shared order number, or near-identical wording
+  const [hints,setHints] = useState([]);
+  const loadHints = useCallback(()=>{
+    sb.rpc("related_tasks",{p_task:t.id}).then(({data})=>setHints(data||[]));
+  },[t.id]);
+  useEffect(()=>{loadHints();},[loadHints,links.length]);
+  const dismissHint = async (id) => {
+    await sb.rpc("dismiss_link",{p_a:t.id, p_b:id});
+    loadHints(); showToast("Noted — it won't come up again");
+  };
+  const linkHint = async (id) => {
+    const {error} = await sb.rpc("link_tasks",{p_a:t.id, p_b:id});
+    if(error){ showToast(error.message); return; }
+    loadLinks(); loadHints(); showToast("Linked");
   };
   const dropLink = async (id) => {
     const {error} = await sb.rpc("unlink_tasks",{p_a:t.id, p_b:id});
@@ -1602,29 +1642,56 @@ function TaskModal(ctx){
       <div className="actions"><button className="btn" disabled={returnBusy} onClick={()=>{setReturning(false);setReturnWhy("");}}>Cancel</button>
         <button className="btn p" disabled={returnBusy} onClick={doReturn}>{returnBusy?"Sending back…":"Return to Kathleen"}</button></div>
     </div>}
+    {!joining && hints.length>0 && <div className="note" style={{marginBottom:12,background:"#eef3fd",borderLeft:"3px solid var(--navy)"}}>
+      <div style={{fontWeight:600,marginBottom:6}}>
+        {hints.length===1 ? "This looks like the same work as another task" : `This looks like the same work as ${hints.length} other tasks`}</div>
+      {hints.map(h=><div key={h.id} style={{display:"flex",gap:8,alignItems:"flex-start",flexWrap:"wrap",padding:"5px 0",borderTop:"1px solid #dbe3f5"}}>
+        <div style={{flex:"1 1 220px"}}>
+          <a href="#" style={{color:"var(--navy)",fontWeight:600,textDecoration:"none"}}
+             onClick={(e)=>{e.preventDefault(); ctx.setOpen(h.id);}}>{h.title}</a>
+          <div className="meta">{h.who||"Unassigned"}{" · "}{h.due_date?`due ${fmtDate(h.due_date)}`:"no date"}
+            {" · "}{STATUS[h.status]}{" · "}<b>{h.why}</b></div>
+        </div>
+        <div style={{display:"flex",gap:6}}>
+          <button className="btn sm" onClick={()=>linkHint(h.id)}>Link</button>
+          {(isMgr || iCreated) && !CLOSED(t.status) &&
+            <button className="btn sm" onClick={()=>{setJoining("merge"); setJoinPick([h.id]); setJoinQ("");}}>Merge…</button>}
+          <button className="btn sm" onClick={()=>dismissHint(h.id)}>Not related</button>
+        </div>
+      </div>)}
+    </div>}
     {joining && <div className="form card" style={{padding:14,marginBottom:12,borderColor:"#c7d7f5",background:"#f7f9ff"}}>
       <div><b>{joining==="link" ? "Link this to another task" : "Merge another task into this one"}</b>
         <div style={{fontSize:13,color:"var(--muted)"}}>
           {joining==="link"
-            ? "Both tasks stay, each showing the other. For different work that belongs to the same job."
+            ? "Both tasks stay, each showing the other. For different work that belongs to the same job. Tick as many as you like."
             : "For the same work that arrived twice. Its comments, files and steps move onto this task and it goes to Trash — restorable, not destroyed."}
         </div></div>
-      <input autoFocus value={joinQ} onChange={e=>{setJoinQ(e.target.value); setJoinPick(null);}} placeholder="Find the other task…"/>
+      <input autoFocus value={joinQ} onChange={e=>setJoinQ(e.target.value)} placeholder="Find the other task…"/>
       <div style={{maxHeight:220,overflowY:"auto",border:"1px solid var(--line)",borderRadius:8}}>
-        {joinable.length ? joinable.map(x=>
-          <div key={x.id} onClick={()=>setJoinPick(x.id)}
+        {joinable.length ? joinable.map(x=>{
+          const on = joinPick.includes(x.id);
+          const hint = hints.find(h=>h.id===x.id);
+          return <div key={x.id}
+            onClick={()=>setJoinPick(joining==="merge" ? [x.id]
+              : on ? joinPick.filter(i=>i!==x.id) : [...joinPick, x.id])}
             style={{padding:"8px 10px",cursor:"pointer",borderTop:"1px solid var(--line)",
-                    background:joinPick===x.id?"#e7edfb":undefined}}>
-            <div style={{fontWeight:joinPick===x.id?600:400}}>{x.title}</div>
+                    background:on?"#e7edfb":undefined}}>
+            <div style={{fontWeight:on?600:400}}>
+              {joining==="link" && <span style={{color:on?"var(--navy)":"var(--muted)",marginRight:6}}>{on?"\u2611":"\u2610"}</span>}
+              {x.title}</div>
             <div className="meta">{ownerName(people,x)}
-              {" · "}{x.due_date?`due ${fmtDate(x.due_date)}`:"no date"}{" · "}{STATUS[x.status]}</div>
-          </div>)
+              {" · "}{x.due_date?`due ${fmtDate(x.due_date)}`:"no date"}{" · "}{STATUS[x.status]}
+              {hint && <span style={{color:"var(--navy)",fontWeight:600}}> · looks related ({hint.why})</span>}</div>
+          </div>; })
           : <div className="empty">Nothing matches.</div>}
       </div>
       <div className="actions">
-        <button className="btn" disabled={joinBusy} onClick={()=>{setJoining(null);setJoinPick(null);setJoinQ("");}}>Cancel</button>
-        <button className="btn p" disabled={!joinPick||joinBusy} onClick={doJoin}>
-          {joinBusy ? "Working…" : joining==="link" ? "Link them" : "Merge it in"}</button>
+        <button className="btn" disabled={joinBusy} onClick={()=>{setJoining(null);setJoinPick([]);setJoinQ("");}}>Cancel</button>
+        <button className="btn p" disabled={!joinPick.length||joinBusy} onClick={doJoin}>
+          {joinBusy ? "Working…"
+            : joining==="link" ? `Link ${joinPick.length||""} task${joinPick.length===1?"":"s"}`
+            : "Merge it in"}</button>
       </div>
     </div>}
     {copying && <div className="form card" style={{padding:14,marginBottom:12}}>
@@ -1652,8 +1719,8 @@ function TaskModal(ctx){
       {!canReshape && t.assignee_id===me.id && !CLOSED(t.status) && !t.requested_due &&
         <button className="btn" onClick={()=>setDating(true)}>Need more time</button>}
       <button className="btn" onClick={addSub}>Split off a linked task</button>
-      {!CLOSED(t.status) && <button className="btn" onClick={()=>{setJoining("link");setJoinPick(null);setJoinQ("");}}>Link to another task</button>}
-      {(isMgr || iCreated) && !CLOSED(t.status) && <button className="btn" onClick={()=>{setJoining("merge");setJoinPick(null);setJoinQ("");}}>Merge another in</button>}
+      {!CLOSED(t.status) && <button className="btn" onClick={()=>{setJoining("link");setJoinPick([]);setJoinQ("");}}>Link to another task</button>}
+      {(isMgr || iCreated) && !CLOSED(t.status) && <button className="btn" onClick={()=>{setJoining("merge");setJoinPick([]);setJoinQ("");}}>Merge another in</button>}
       {isMgr && (people.filter(p=>p.active && p.id!==t.assignee_id).length + (INVITEES||[]).length)>0 &&
         <button className="btn" onClick={()=>setCopying(true)}>Copy to others</button>}
       {fromBD && !CLOSED(t.status) && <button className="btn" style={{color:"#1f3a7a",borderColor:"#c7d7f5"}} onClick={()=>setReturning(true)}>Return to Kathleen</button>}
@@ -2030,7 +2097,7 @@ function Repeating({showToast,setOpen,tasks,isMgr,update}){
   </>;
 }
 
-function Search({setOpen,showToast,trashedIds,openTaskId}){
+function Search({setOpen,showToast,trashedIds,openTaskId,people,today,isMgr}){
   const [q,setQ] = useState(""); const [closed,setClosed] = useState(false);
   const [rows,setRows] = useState(null); const [busy,setBusy] = useState(false);
   const [ran,setRan] = useState("");
@@ -2048,7 +2115,14 @@ function Search({setOpen,showToast,trashedIds,openTaskId}){
   useEffect(()=>{ if(openTaskId===null && ran) run(ran); },[openTaskId]);   // eslint-disable-line
   const gone = new Set(trashedIds||[]);
   const shown = (rows||[]).filter(r=>!gone.has(r.task_id));
-  const tone = {task:"var(--navy)","comment":"#5b3fa0","private note":"var(--warn)",step:"var(--ok)"};
+  // reuse the real task rows so the table looks and behaves like All tasks; carry the
+  // match detail along on the object so the two search-only columns can read it
+  const asTasks = shown.map(r=>{
+    const live = (ALL_TASKS||[]).find(x=>x.id===r.task_id);
+    const base = live || {id:r.task_id, title:r.title, status:r.status, due_date:r.due_date,
+                          assignee_id:null, assignee_email:null, created_at:null, updated_at:null};
+    return {...base, __hit:r.hit_kind, __snippet:r.snippet};
+  });
   return <>
     <div className="h"><h2>Search</h2><span className="sub">{rows?`${shown.length} result${shown.length===1?"":"s"}`:"Titles, details, comments, steps and your private notes"}</span></div>
     <div className="form" style={{marginBottom:10}}>
@@ -2061,18 +2135,10 @@ function Search({setOpen,showToast,trashedIds,openTaskId}){
         Include finished and skipped tasks
       </label>
     </div>
-    {rows && <div className="card">
-      {shown.length ? shown.map((r,i)=><div className="row" key={i} onClick={()=>setOpen(r.task_id, shown.map(x=>x.task_id))}>
-        <div>
-          <div className="t">{r.title}</div>
-          <div className="m">
-            <span className="pill" style={{color:tone[r.hit_kind]||"inherit"}}>matched in {r.hit_kind}</span>{" "}
-            {r.assignee||"Unassigned"} · {r.due_date?`due ${fmtDate(r.due_date)}`:"no due date"}
-            {r.snippet ? <div style={{marginTop:3}}>{r.snippet}</div> : null}
-          </div>
-        </div>
-      </div>) : <div className="empty">Nothing matched. Try a shorter word, or tick the box to include finished tasks.</div>}
-    </div>}
+    {rows && <TaskTable list={asTasks} people={people} today={today} isMgr={isMgr}
+      setOpen={(id)=>setOpen(id, asTasks.map(x=>x.id))}
+      cols={isMgr?["who","title","status","due","matched","snippet"]:["title","status","due","matched","snippet"]}
+      empty="Nothing matched. Try a shorter word, or tick the box to include finished tasks."/>}
   </>;
 }
 

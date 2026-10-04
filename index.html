@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="7.1">
+<meta name="app-version" content="7.4">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -237,6 +237,23 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"7.4", d:"October 4, 2026", items:[
+    "Search shows one row per task instead of one per match. Five results for two tasks was the search being literal, not five tasks.",
+    "Search also names people who have been invited but haven't signed up, rather than calling their work \"Unassigned\".",
+    "Email intake is its own tab, with the full set of rules, how far back you want to look, and a click through to the task each email made.",
+    "Week ahead: overdue sits below the calendar now, where it reads as a footnote rather than the headline.",
+    "Fixed a way the same email thread could make two tasks. Mail doesn't arrive in the order it was written — a forward can land before the reply it quotes — and thread matching only looked one way.",
+  ]},
+  {v:"7.3", d:"October 4, 2026", items:[
+    "Alternate email addresses work for people who haven't signed up yet. Record the shared mailbox now, on the Invited list, and it starts working by itself the day they create an account — nothing to remember later.",
+    "On file so far: Eliseth also sends from ap@, Ilah from purchasing@, Bianca from ar@.",
+  ]},
+  {v:"7.2", d:"October 4, 2026", items:[
+    "People can send task emails from more than one address. Add them on the People tab — a shared AP or purchasing mailbox, an old address, a phone account — and mail from there lands as their task instead of being dropped as a stranger.",
+    "Those alternates also count on the To or Cc line, so putting the AP mailbox on a forward assigns it to the right person.",
+    "All tasks: \"Emailed in\" is its own filter, separate from \"From Kathleen's Inbox\". The first means it arrived at tasks@, the second means it was pushed across from Kathleen's own list — they were being confused for each other, which they would be, sharing one label.",
+    "Copy to others now includes people who have been invited but haven't signed up yet, both when assigning and from an open task. Their copy waits for them like any other.",
+  ]},
   {v:"7.1", d:"October 1, 2026", items:[
     "Fixed: opening your 1:1 with your own manager said \"That person doesn't report to you.\" It now opens your agenda — your work, your mentions — which is what that meeting is about."
   ]},
@@ -726,7 +743,7 @@ function Shell({me,setMe}){
   const freshDone = isMgr ? live.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id && !t.seen_at
       && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0)).length : 0;
   const nav = isMgr
-    ? [["home","Home",attnCount],["week","Week ahead"],["all","All tasks"],["repeating","Repeating"],["finished","Finished",freshDone],["reports","Reports"],["trash","Trash"],["ones","1:1s"],["people","People"],["settings","Settings"],["search","Search"]]
+    ? [["home","Home",attnCount],["week","Week ahead"],["all","All tasks"],["repeating","Repeating"],["finished","Finished",freshDone],["reports","Reports"],["trash","Trash"],["ones","1:1s"],["people","People"],["intake","Email intake"],["settings","Settings"],["search","Search"]]
     : [["myday","My day"],["week","Week ahead"],["all","All my tasks"],["ones","1:1s"],["settings","Settings"],["search","Search"]];
 
   return <>
@@ -748,6 +765,7 @@ function Shell({me,setMe}){
       {view==="search" && <Search {...ctx}/>}
       {view==="finished" && isMgr && <Finished {...ctx} setMe={setMe}/>}
       {view==="reports" && isMgr && <Reports {...ctx}/>}
+      {view==="intake" && isMgr && <IntakeLog showToast={showToast} standalone={true} setOpen={setOpen}/>}
       {view==="settings" && <Settings me={me} setMe={setMe} showToast={showToast} isMgr={isMgr}/>}
       {view==="new" && <WhatsNew onBack={()=>setView(isMgr?"home":"myday")}/>}
     </main>
@@ -882,6 +900,7 @@ function People(ctx){
             <span><b>{mine.length}</b> open</span>
             <span><b style={{color:flag?"var(--red)":"inherit"}}>{flag}</b> needing attention</span>
           </div>
+          <AltEmails person={p} canEdit={isOwner} showToast={showToast}/>
         </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
           {isOwner && <>
@@ -901,6 +920,57 @@ function People(ctx){
   </>;
 }
 
+// A person can send task emails from more than one address — a shared AP or purchasing
+// mailbox, an old address, a phone account. Without this, intake sees a stranger and drops it.
+function AltEmails({person,invitee,canEdit,showToast}){
+  const key = invitee ? {col:"invitee_email", val:String(invitee).toLowerCase()} : {col:"profile_id", val:person.id};
+  const [rows,setRows] = useState(null);
+  const [adding,setAdding] = useState(false);
+  const [addr,setAddr] = useState(""); const [note,setNote] = useState("");
+  const load = useCallback(()=>{
+    sb.from("person_emails").select("*").eq(key.col,key.val).order("created_at")
+      .then(({data,error})=>{ if(error){ showToast(error.message); return; } setRows(data||[]); });
+  },[key.col,key.val,showToast]);
+  useEffect(()=>{load();},[load]);
+  const add = async () => {
+    const e = addr.trim().toLowerCase();
+    if(!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(e)){ showToast("That doesn't look like an email address"); return; }
+    const row = invitee ? {invitee_email:key.val, email:e, note:note.trim()||null}
+                        : {profile_id:person.id, email:e, note:note.trim()||null};
+    const {error} = await sb.from("person_emails").insert(row);
+    if(error){ showToast(/duplicate|unique/i.test(error.message) ? "That address is already on somebody" : error.message); return; }
+    setAddr(""); setNote(""); setAdding(false); load();
+    showToast(invitee ? "Added — it starts working the day they sign up" : "Added — email from there will land as their task");
+  };
+  const drop = async (r) => {
+    const {error} = await sb.from("person_emails").delete().eq("id",r.id);
+    if(error){ showToast(error.message); return; }
+    load(); showToast("Removed");
+  };
+  if(!rows) return null;
+  return <div style={{marginTop:6}}>
+    {rows.length>0 && <div style={{fontSize:13,color:"var(--muted)"}}>
+      Also sends from: {rows.map((r,i)=><span key={r.id}>{i>0?", ":""}
+        <b>{r.email}</b>{r.note?` (${r.note})`:""}
+        {canEdit && <button className="btn q" title="Remove this address"
+          style={{padding:"0 4px",color:"var(--muted)"}} onClick={()=>drop(r)}>&times;</button>}</span>)}
+      {invitee && <span> — live once they sign up</span>}
+    </div>}
+    {canEdit && (adding
+      ? <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>
+          <input value={addr} onChange={e=>setAddr(e.target.value)} placeholder="ap@johnstoneoc.com" autoFocus
+            onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); add(); } }}
+            style={{flex:"1 1 200px",border:"1px solid var(--line)",borderRadius:8,padding:"6px 9px"}}/>
+          <input value={note} onChange={e=>setNote(e.target.value)} placeholder="what it is (optional)"
+            style={{flex:"1 1 140px",border:"1px solid var(--line)",borderRadius:8,padding:"6px 9px"}}/>
+          <button className="btn sm p" onClick={add}>Add</button>
+          <button className="btn sm" onClick={()=>{setAdding(false);setAddr("");setNote("");}}>Cancel</button>
+        </div>
+      : <button className="btn q" style={{padding:"2px 0",color:"var(--navy)",fontSize:13}}
+          onClick={()=>setAdding(true)}>+ another email address they send from</button>)}
+  </div>;
+}
+
 // ---------- all tasks ----------
 function AllTasks(ctx){
   const {tasks,people,today,isMgr} = ctx;
@@ -915,7 +985,7 @@ function AllTasks(ctx){
   };
   const list = tasks.filter(match)
     .filter(t=>origin==="all" ? true : origin==="delegated" ? DELEGATED(t)
-      : origin==="bd" ? !!t.bd_task_id : !DELEGATED(t))
+      : origin==="bd" ? !!t.bd_task_id : origin==="email" ? !!t.via_email : !DELEGATED(t))
     .filter(t=>!who ? true
       : String(who).startsWith("email:")
         ? String(t.assignee_email||"").toLowerCase() === who.slice(6)
@@ -942,6 +1012,7 @@ function AllTasks(ctx){
         <option value="all">However it started</option>
         <option value="delegated">Delegated to them</option>
         <option value="own">Their own tasks</option>
+        <option value="email">Emailed in</option>
         <option value="bd">From Kathleen's Inbox</option></select>}
     </div>
     <TaskTable list={list} people={people} today={today} setOpen={ctx.opener(list)} isMgr={isMgr} empty="No tasks match."
@@ -968,8 +1039,9 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
                {(t.need_manager||t.need_help) && <span className="pill" style={{marginLeft:6,background:"#fdecea",color:"var(--red)"}}>{t.need_help?"Needs help":"Needs you"}</span>}
                {t.bd_status==="returned" && <span className="pill" style={{marginLeft:6,background:"#e0ecff",color:"#1f3a7a"}}>Returned to Kathleen's Inbox</span>}
              </>},
-    origin:  {label:"Origin", cls:"muted hide-sm", val:t=>t.bd_task_id?"0":DELEGATED(t)?"1":"2",
+    origin:  {label:"Origin", cls:"muted hide-sm", val:t=>t.bd_task_id?"0":t.via_email?"1":DELEGATED(t)?"2":"3",
               cell:t=>t.bd_task_id ? "Kathleen's Inbox"
+                    : t.via_email ? "Emailed in"
                     : DELEGATED(t) ? (t.created_by===(ME&&ME.id) ? "You assigned" : "From "+String(nameOf(people,t.created_by)).split(" ")[0])
                     : t.assignee_id ? (t.assignee_id===(ME&&ME.id) ? "Your own" : "Their own") : "—"},
     status:  {label:"Status", val:t=>(STATUS[t.status]||"").toLowerCase(),
@@ -1065,8 +1137,10 @@ function AssignModal(ctx){
     const byEmail = String(f.assignee_id||"").startsWith("email:") ? f.assignee_id.slice(6) : null;
     const row = {...f, created_by:me.id, assignee_id:byEmail?null:(f.assignee_id||null), assignee_email:byEmail, due_date:f.due_date||null, parent_id:parent?parent.id:null,
                  recur_rule:f.recur_rule||null, recur_day:(!f.recur_rule||f.recur_rule==="daily")?null:(parseInt(f.recur_day)||null), recur_cap:parseInt(f.recur_cap)||3};
-    const targets = several.length ? several : [row.assignee_id];
-    const rows = targets.map(id=>({...row, assignee_id:id||null}));
+    const targets = several.length ? several : [byEmail ? "email:"+byEmail : row.assignee_id];
+    const rows = targets.map(target => String(target||"").startsWith("email:")
+      ? {...row, assignee_id:null, assignee_email:String(target).slice(6)}
+      : {...row, assignee_id:target||null, assignee_email:null});
     const {data:made, error} = await sb.from("tasks").insert(rows).select("id");
     const firstMade = made && made.length ? made[0].id : null;
     if(!error && steps.length && made && made.length){
@@ -1104,10 +1178,12 @@ function AssignModal(ctx){
         <label>Due<input type="date" value={f.due_date} onChange={e=>setF({...f,due_date:e.target.value})}/></label>
         <label>Priority<select value={f.priority} onChange={e=>setF({...f,priority:e.target.value})}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></label>
       </div>
-      {isMgr && staff.length>1 && <div>
+      {isMgr && (staff.length+pending.length)>1 && <div>
         <div className="section-title" style={{marginTop:0}}>Or give the same task to several people</div>
-        <div>{staff.map(p=><button key={p.id} type="button" className="chip" style={several.includes(p.id)?{background:"var(--navy)",color:"#fff",borderColor:"var(--navy)"}:{}}
-          onClick={()=>setSeveral(several.includes(p.id)?several.filter(x=>x!==p.id):[...several,p.id])}>{p.full_name}</button>)}</div>
+        <div>{[...staff.map(p=>({k:p.id, label:p.full_name})),
+               ...pending.map(p=>({k:"email:"+p.email, label:(p.full_name||p.email)+" (not signed up yet)"}))]
+          .map(o=><button key={o.k} type="button" className="chip" style={several.includes(o.k)?{background:"var(--navy)",color:"#fff",borderColor:"var(--navy)"}:{}}
+            onClick={()=>setSeveral(several.includes(o.k)?several.filter(x=>x!==o.k):[...several,o.k])}>{o.label}</button>)}</div>
         {several.length>0 && <div style={{fontSize:13,color:"var(--muted)",marginTop:4}}>Each person gets their own copy with its own progress and due date. Tap a name again to remove them.</div>}
       </div>}
       <label>Details<textarea value={f.details} onChange={e=>setF({...f,details:e.target.value})}/></label>
@@ -1221,10 +1297,21 @@ function TaskModal(ctx){
   const [copyTo,setCopyTo] = useState([]);
   const [copyDue,setCopyDue] = useState("");
   const doCopy = async () => {
-    const {data,error} = await sb.rpc("copy_task_to",{src:t.id, people:copyTo, new_due:copyDue||null});
-    if(error){ showToast(error.message); return; }
+    const ids = copyTo.filter(x=>!String(x).startsWith("email:"));
+    const mails = copyTo.filter(x=>String(x).startsWith("email:")).map(x=>String(x).slice(6));
+    let made = 0;
+    if(ids.length){
+      const {data,error} = await sb.rpc("copy_task_to",{src:t.id, people:ids, new_due:copyDue||null});
+      if(error){ showToast(error.message); return; }
+      made += data||0;
+    }
+    if(mails.length){
+      const {data,error} = await sb.rpc("copy_task_to_emails",{src:t.id, emails:mails, new_due:copyDue||null});
+      if(error){ showToast(error.message); return; }
+      made += data||0;
+    }
     setCopying(false); setCopyTo([]); setCopyDue("");
-    await ctx.load(); showToast(`Copied to ${data} ${data===1?"person":"people"}`);
+    await ctx.load(); showToast(`Copied to ${made} ${made===1?"person":"people"}`);
   };
   const [skipWhy,setSkipWhy] = useState("");
   const doSkip = async () => {
@@ -1397,8 +1484,11 @@ function TaskModal(ctx){
     </div>}
     {copying && <div className="form card" style={{padding:14,marginBottom:12}}>
       <div><b>Give this task to other people</b><div style={{fontSize:13,color:"var(--muted)"}}>Each person gets their own copy with its own progress. Comments and attachments stay with this one.</div></div>
-      <div>{people.filter(p=>p.active && p.id!==t.assignee_id).map(p=><button key={p.id} type="button" className="chip" style={copyTo.includes(p.id)?{background:"var(--navy)",color:"#fff",borderColor:"var(--navy)"}:{}}
-        onClick={()=>setCopyTo(copyTo.includes(p.id)?copyTo.filter(x=>x!==p.id):[...copyTo,p.id])}>{p.full_name}</button>)}</div>
+      <div>{[...people.filter(p=>p.active && p.id!==t.assignee_id).map(p=>({k:p.id,label:p.full_name})),
+             ...(INVITEES||[]).filter(i=>String(i.email).toLowerCase()!==String(t.assignee_email||"").toLowerCase())
+                              .map(i=>({k:"email:"+i.email,label:(i.full_name||i.email)+" (not signed up yet)"}))]
+        .map(o=><button key={o.k} type="button" className="chip" style={copyTo.includes(o.k)?{background:"var(--navy)",color:"#fff",borderColor:"var(--navy)"}:{}}
+          onClick={()=>setCopyTo(copyTo.includes(o.k)?copyTo.filter(x=>x!==o.k):[...copyTo,o.k])}>{o.label}</button>)}</div>
       <label>Due date for the copies<input type="date" value={copyDue} onChange={e=>setCopyDue(e.target.value)}/>
         <span style={{fontSize:13,color:"var(--muted)"}}>Leave blank to keep {fmtDate(t.due_date)}.</span></label>
       <div className="actions"><button className="btn" onClick={()=>{setCopying(false);setCopyTo([]);}}>Cancel</button>
@@ -1417,7 +1507,7 @@ function TaskModal(ctx){
       {!canReshape && t.assignee_id===me.id && !CLOSED(t.status) && !t.requested_due &&
         <button className="btn" onClick={()=>setDating(true)}>Need more time</button>}
       <button className="btn" onClick={addSub}>Split off a linked task</button>
-      {isMgr && people.filter(p=>p.active && p.id!==t.assignee_id).length>0 &&
+      {isMgr && (people.filter(p=>p.active && p.id!==t.assignee_id).length + (INVITEES||[]).length)>0 &&
         <button className="btn" onClick={()=>setCopying(true)}>Copy to others</button>}
       {fromBD && !CLOSED(t.status) && <button className="btn" style={{color:"#1f3a7a",borderColor:"#c7d7f5"}} onClick={()=>setReturning(true)}>Return to Kathleen</button>}
       {isMgr && CLOSED(t.status) && t.assignee_id!==me.id && !t.seen_at && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0) &&
@@ -1566,7 +1656,8 @@ function Invites({invitees,load,showToast}){
     <div className="card" style={{padding:14}}>
       {invitees.length ? invitees.map(p=><div key={p.email} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderTop:"1px solid var(--line)"}}>
         <div style={{flex:1}}><b>{p.full_name||p.email}</b>
-          <div style={{fontSize:13,color:"var(--muted)"}}>{p.email} · {p.open_tasks} task{p.open_tasks===1?"":"s"} waiting</div></div>
+          <div style={{fontSize:13,color:"var(--muted)"}}>{p.email} · {p.open_tasks} task{p.open_tasks===1?"":"s"} waiting</div>
+          <AltEmails invitee={p.email} canEdit={true} showToast={showToast}/></div>
         <button className="btn sm" onClick={()=>remove(p.email)}>Remove</button>
       </div>) : <div style={{color:"var(--muted)",fontSize:14}}>Nobody waiting. Add someone below to assign them work before they join.</div>}
       <div className="form three" style={{marginTop:12}}>
@@ -1701,11 +1792,6 @@ function WeekAhead({tasks,people,today,setOpen,opener,me,isMgr}){
         return <span key={o}><i style={{background:colourOf(sample)}}/>{nameFor(sample)}</span>; })}
     </div>}
 
-    {overdue.length>0 && <div className="panel" style={{borderColor:"#f0c7c7",background:"var(--red-soft)"}}>
-      <h3 style={{color:"var(--red)"}}>Overdue — {overdue.length}</h3>
-      {overdue.map(t=><Task key={t.id} t={t} list={overdue}/>)}
-    </div>}
-
     <div className="week">
       {days.map(({iso,d,list})=>{
         const weekend = d.getDay()===0 || d.getDay()===6;
@@ -1721,6 +1807,12 @@ function WeekAhead({tasks,people,today,setOpen,opener,me,isMgr}){
         {undated.map(t=><Task key={t.id} t={t} list={undated}/>)}
       </div>}
     </div>
+
+    {overdue.length>0 && <div className="panel" style={{marginTop:12,borderColor:"#f0c7c7",background:"var(--red-soft)"}}>
+      <h3 style={{color:"var(--red)"}}>Overdue — {overdue.length}</h3>
+      <div style={{fontSize:13,color:"var(--muted)",marginBottom:6}}>Already past their date, so they aren't on the calendar above.</div>
+      {overdue.map(t=><Task key={t.id} t={t} list={overdue}/>)}
+    </div>}
 
     {later.length>0 && <div style={{marginTop:12,fontSize:14,color:"var(--muted)"}}>
       {later.length} more due after {fmtDate(days[days.length-1].iso)}.</div>}
@@ -2190,19 +2282,34 @@ function Reports({tasks,people,today,setOpen}){
   </>;
 }
 
-function IntakeLog({showToast}){
+function IntakeLog({showToast,standalone,setOpen}){
   const [rows,setRows] = useState(null);
-  useEffect(()=>{ sb.from("inbound_emails").select("*").order("received_at",{ascending:false}).limit(12)
-    .then(({data,error})=>{ if(error){ showToast(error.message); return; } setRows(data||[]); }); },[showToast]);
+  const [limit,setLimit] = useState(standalone?40:12);
+  useEffect(()=>{ sb.from("inbound_emails").select("*").order("received_at",{ascending:false}).limit(limit)
+    .then(({data,error})=>{ if(error){ showToast(error.message); return; } setRows(data||[]); }); },[showToast,limit]);
   const tone = {created:"var(--ok)", unknown_sender:"var(--warn)", unreadable:"var(--warn)", error:"var(--red)"};
   const label = {created:"Became a task", unknown_sender:"Sender has no account — dropped",
                  unreadable:"Couldn't read it", error:"Something went wrong"};
+  const dropped = (rows||[]).filter(r=>r.outcome!=="created").length;
   return <>
-    <div className="section-title">Email intake</div>
-    <div className="note" style={{marginBottom:10}}>Forward a work email to the Task Depot address and it becomes a task. Put a name first in the subject — "Ilah: get the Goodman quote" — to say who it's for. Anything it can't place lands in Needs sorting.</div>
+    {standalone
+      ? <><div className="h"><h2>Email intake</h2>
+            <span className="sub">{rows ? `last ${rows.length}` : ""}{dropped?` · ${dropped} not turned into a task`:""}</span></div>
+          <div className="note" style={{marginBottom:10}}>
+            Forward a work email to <b>tasks@in.myjohnstonesupplygroup.com</b> and it becomes a task. To, Cc and Bcc all work.
+            Put a name first in the subject — "Ilah: get the Goodman quote" — to say who it's for, and a date — "by Friday", "10/9" —
+            to set when. With no date it lands on the next working day. Replies on a thread you've already sent in are added to that
+            task as a comment; start the subject with "new:" to force a separate one.
+            Anything that can't be placed lands in Needs sorting.
+          </div></>
+      : <><div className="section-title">Email intake</div>
+          <div className="note" style={{marginBottom:10}}>Forward a work email to the Task Depot address and it becomes a task. Put a name first in the subject — "Ilah: get the Goodman quote" — to say who it's for. Anything it can't place lands in Needs sorting.</div></>}
     <div className="card">
       {rows===null ? <div className="empty">Loading…</div>
-      : rows.length ? rows.map(r=><div className="row" key={r.id} style={{cursor:"default"}}>
+      : rows.length ? rows.map(r=><div className="row" key={r.id}
+          style={{cursor:(setOpen&&r.task_id)?"pointer":"default"}}
+          onClick={()=>{ if(setOpen&&r.task_id) setOpen(r.task_id); }}
+          title={(setOpen&&r.task_id)?"Open the task this made":undefined}>
           <div>
             <div className="t">{r.subject||"(no subject)"}</div>
             <div className="m">
@@ -2214,6 +2321,8 @@ function IntakeLog({showToast}){
         </div>)
       : <div className="empty">Nothing has come in yet. Once the address is live, forwarded emails show up here.</div>}
     </div>
+    {standalone && rows && rows.length>=limit &&
+      <button className="btn sm" style={{marginTop:10}} onClick={()=>setLimit(limit+40)}>Show older</button>}
   </>;
 }
 
@@ -2240,7 +2349,6 @@ function Settings({me,setMe,showToast,isMgr}){
         title="Weekday morning digest"
         sub="What needs your decision, what's ready for review, what's overdue, and which recurring tasks have stalled. No email on a quiet day."/>}
     </div>
-    {isMgr && <IntakeLog showToast={showToast}/>}
     <div className="note" style={{marginTop:10}}>Emails go out on weekday mornings. Turning this off doesn't change anything in the app — you'll still see everything when you open it.</div>
   </>;
 }

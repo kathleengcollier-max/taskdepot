@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="7.6">
+<meta name="app-version" content="7.7">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -237,6 +237,11 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"7.7", d:"October 4, 2026", items:[
+    "Email intake now says where each email's task stands now — its current title, or that it is in Trash, finished, or gone. Trashing a task never removed its email from this list and never will, because the list is the post, not the work. It just looked broken.",
+    "A row whose task is in Trash carries a Restore it button, so undoing a wrong trash doesn't mean hunting through Trash.",
+    "The page says plainly at the top that it is a record of emails received, not a list of tasks.",
+  ]},
   {v:"7.6", d:"October 4, 2026", items:[
     "Fixed: trashing a task you opened from Search left it sitting in the results. The trash worked every time — the list behind it was a snapshot that never refreshed, so it looked like nothing happened.",
     "Search results now re-run when you close a task, so anything you trashed, finished or renamed in there shows its new state instead of the old one.",
@@ -777,7 +782,7 @@ function Shell({me,setMe}){
       {view==="search" && <Search {...ctx} trashedIds={trashedIds}/>}
       {view==="finished" && isMgr && <Finished {...ctx} setMe={setMe}/>}
       {view==="reports" && isMgr && <Reports {...ctx}/>}
-      {view==="intake" && isMgr && <IntakeLog showToast={showToast} standalone={true} setOpen={setOpen}/>}
+      {view==="intake" && isMgr && <IntakeLog showToast={showToast} standalone={true} setOpen={setOpen} allTasks={tasks} update={update}/>}
       {view==="settings" && <Settings me={me} setMe={setMe} showToast={showToast} isMgr={isMgr}/>}
       {view==="new" && <WhatsNew onBack={()=>setView(isMgr?"home":"myday")}/>}
     </main>
@@ -2372,7 +2377,7 @@ function Reports({tasks,people,today,setOpen}){
   </>;
 }
 
-function IntakeLog({showToast,standalone,setOpen}){
+function IntakeLog({showToast,standalone,setOpen,allTasks,update}){
   const [rows,setRows] = useState(null);
   const [limit,setLimit] = useState(standalone?40:12);
   useEffect(()=>{ sb.from("inbound_emails").select("*").order("received_at",{ascending:false}).limit(limit)
@@ -2380,6 +2385,16 @@ function IntakeLog({showToast,standalone,setOpen}){
   const tone = {created:"var(--ok)", unknown_sender:"var(--warn)", unreadable:"var(--warn)", error:"var(--red)"};
   const label = {created:"Became a task", unknown_sender:"Sender has no account — dropped",
                  unreadable:"Couldn't read it", error:"Something went wrong"};
+  // This is a list of emails that arrived, not a list of tasks — the row stays put
+  // whatever happens to the task afterwards. So say where that task stands now.
+  const taskNow = (r) => {
+    if(r.outcome!=="created" || !r.task_id) return null;
+    const tk = (allTasks||[]).find(x=>x.id===r.task_id);
+    if(!tk) return {state:"gone", text:"the task it made has been deleted permanently", tone:"var(--muted)"};
+    if(tk.deleted_at) return {state:"trashed", text:"the task it made is in Trash", tone:"var(--muted)", task:tk};
+    if(CLOSED(tk.status)) return {state:"closed", text:`task ${tk.status==="skipped"?"skipped":"done"} — "${tk.title}"`, tone:"var(--muted)", task:tk};
+    return {state:"live", text:`"${tk.title}"`, tone:"inherit", task:tk};
+  };
   const dropped = (rows||[]).filter(r=>r.outcome!=="created").length;
   return <>
     {standalone
@@ -2391,6 +2406,8 @@ function IntakeLog({showToast,standalone,setOpen}){
             to set when. With no date it lands on the next working day. Replies on a thread you've already sent in are added to that
             task as a comment; start the subject with "new:" to force a separate one.
             Anything that can't be placed lands in Needs sorting.
+            <div style={{marginTop:6}}><b>This is a record of the emails that arrived, not a list of tasks.</b> Rows stay here for good —
+            trashing or finishing the task doesn't remove its email. Each row says where that task stands now.</div>
           </div></>
       : <><div className="section-title">Email intake</div>
           <div className="note" style={{marginBottom:10}}>Forward a work email to the Task Depot address and it becomes a task. Put a name first in the subject — "Ilah: get the Goodman quote" — to say who it's for. Anything it can't place lands in Needs sorting.</div></>}
@@ -2405,6 +2422,13 @@ function IntakeLog({showToast,standalone,setOpen}){
             <div className="m">
               <span style={{color:tone[r.outcome]||"inherit",fontWeight:600}}>{label[r.outcome]||r.outcome}</span>
               {" · "}{r.from_email||"unknown sender"} · {fmtWhen(r.received_at)}
+              {(() => { const n = taskNow(r); if(!n) return null;
+                return <div style={{marginTop:2,color:n.tone}}>
+                  {n.text}
+                  {n.state==="trashed" && update && <button className="btn q"
+                    style={{padding:"0 6px",color:"var(--navy)"}}
+                    onClick={(e)=>{e.stopPropagation(); update(r.task_id,{deleted_at:null}).then(ok=>ok&&showToast("Restored"));}}>Restore it</button>}
+                </div>; })()}
               {r.detail ? <div style={{marginTop:2}}>{r.detail}</div> : null}
             </div>
           </div>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="7.4">
+<meta name="app-version" content="7.6">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -237,6 +237,16 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"7.6", d:"October 4, 2026", items:[
+    "Fixed: trashing a task you opened from Search left it sitting in the results. The trash worked every time — the list behind it was a snapshot that never refreshed, so it looked like nothing happened.",
+    "Search results now re-run when you close a task, so anything you trashed, finished or renamed in there shows its new state instead of the old one.",
+  ]},
+  {v:"7.5", d:"October 4, 2026", items:[
+    "Tasks that came in separately can now be joined, in one of two ways, because they are not the same problem.",
+    "Link to another task — both stay, each shows the other, and you can click straight across. For different work that belongs to the same job.",
+    "Merge another in — for the same work that arrived twice. Comments, files, steps, subtasks and any links move onto the task you keep; the other goes to Trash, where it can still be restored.",
+    "A merge writes a comment on the surviving task saying what came across, so a year from now it is obvious what happened.",
+  ]},
   {v:"7.4", d:"October 4, 2026", items:[
     "Search shows one row per task instead of one per match. Five results for two tasks was the search being literal, not five tasks.",
     "Search also names people who have been invited but haven't signed up, rather than calling their work \"Unassigned\".",
@@ -731,6 +741,8 @@ function Shell({me,setMe}){
   };
 
   const live = tasks.filter(t=>!t.deleted_at); ALL_TASKS = live; INVITEES = invitees; ME = me;
+  // Search keeps its own results, so it needs to know what has been trashed since
+  const trashedIds = tasks.filter(t=>t.deleted_at).map(t=>t.id);
   const openTask = tasks.find(t=>t.id===open);
   // a mention that turns out to need doing: open the assign form with its wording,
   // aimed at the person whose 1:1 it came from, and link the two once it saves
@@ -762,7 +774,7 @@ function Shell({me,setMe}){
       {view==="myday" && <MyDay {...ctx}/>}
       {view==="week" && <WeekAhead {...ctx}/>}
       {view==="repeating" && <Repeating {...ctx}/>}
-      {view==="search" && <Search {...ctx}/>}
+      {view==="search" && <Search {...ctx} trashedIds={trashedIds}/>}
       {view==="finished" && isMgr && <Finished {...ctx} setMe={setMe}/>}
       {view==="reports" && isMgr && <Reports {...ctx}/>}
       {view==="intake" && isMgr && <IntakeLog showToast={showToast} standalone={true} setOpen={setOpen}/>}
@@ -1229,6 +1241,42 @@ function TaskModal(ctx){
   const root = t.series_id ? tasks.find(x=>x.id===t.series_id) : null;
   const [skipping,setSkipping] = useState(false);
   const [copying,setCopying] = useState(false);
+  const [joining,setJoining] = useState(null);      // "link" | "merge"
+  const [joinQ,setJoinQ] = useState("");
+  const [joinPick,setJoinPick] = useState(null);
+  const [joinBusy,setJoinBusy] = useState(false);
+  const [links,setLinks] = useState([]);
+  const loadLinks = useCallback(()=>{
+    sb.rpc("linked_tasks",{p_task:t.id}).then(({data})=>setLinks(data||[]));
+  },[t.id]);
+  useEffect(()=>{loadLinks();},[loadLinks]);
+  const joinable = (tasks||[]).filter(x=>x.id!==t.id && !x.deleted_at
+      && !links.some(l=>l.id===x.id)
+      && (!joinQ.trim() || (x.title||"").toLowerCase().includes(joinQ.trim().toLowerCase())))
+    .slice(0,40);
+  const doJoin = async () => {
+    if(!joinPick) return;
+    setJoinBusy(true);
+    if(joining==="link"){
+      const {error} = await sb.rpc("link_tasks",{p_a:t.id, p_b:joinPick});
+      setJoinBusy(false);
+      if(error){ showToast(error.message); return; }
+      setJoining(null); setJoinPick(null); setJoinQ(""); loadLinks();
+      showToast("Linked — each one now points at the other");
+    } else {
+      const {data,error} = await sb.rpc("merge_tasks",{p_from:joinPick, p_into:t.id});
+      setJoinBusy(false);
+      if(error){ showToast(error.message); return; }
+      setJoining(null); setJoinPick(null); setJoinQ("");
+      await ctx.load(); refresh(); loadLinks();
+      showToast(`Merged in — ${data.comments} comment(s), ${data.files} file(s), ${data.steps} step(s) came across`);
+    }
+  };
+  const dropLink = async (id) => {
+    const {error} = await sb.rpc("unlink_tasks",{p_a:t.id, p_b:id});
+    if(error){ showToast(error.message); return; }
+    loadLinks(); showToast("Unlinked");
+  };
   const [returning,setReturning] = useState(false); const [returnWhy,setReturnWhy] = useState(""); const [returnBusy,setReturnBusy] = useState(false);
   const fromBD = !!t.bd_task_id && t.bd_status==="linked";
   const doReturn = async () => {
@@ -1482,6 +1530,31 @@ function TaskModal(ctx){
       <div className="actions"><button className="btn" disabled={returnBusy} onClick={()=>{setReturning(false);setReturnWhy("");}}>Cancel</button>
         <button className="btn p" disabled={returnBusy} onClick={doReturn}>{returnBusy?"Sending back…":"Return to Kathleen"}</button></div>
     </div>}
+    {joining && <div className="form card" style={{padding:14,marginBottom:12,borderColor:"#c7d7f5",background:"#f7f9ff"}}>
+      <div><b>{joining==="link" ? "Link this to another task" : "Merge another task into this one"}</b>
+        <div style={{fontSize:13,color:"var(--muted)"}}>
+          {joining==="link"
+            ? "Both tasks stay, each showing the other. For different work that belongs to the same job."
+            : "For the same work that arrived twice. Its comments, files and steps move onto this task and it goes to Trash — restorable, not destroyed."}
+        </div></div>
+      <input autoFocus value={joinQ} onChange={e=>{setJoinQ(e.target.value); setJoinPick(null);}} placeholder="Find the other task…"/>
+      <div style={{maxHeight:220,overflowY:"auto",border:"1px solid var(--line)",borderRadius:8}}>
+        {joinable.length ? joinable.map(x=>
+          <div key={x.id} onClick={()=>setJoinPick(x.id)}
+            style={{padding:"8px 10px",cursor:"pointer",borderTop:"1px solid var(--line)",
+                    background:joinPick===x.id?"#e7edfb":undefined}}>
+            <div style={{fontWeight:joinPick===x.id?600:400}}>{x.title}</div>
+            <div className="meta">{nameOf(people,x.assignee_id) || x.assignee_email || "Unassigned"}
+              {" · "}{x.due_date?`due ${fmtDate(x.due_date)}`:"no date"}{" · "}{STATUS[x.status]}</div>
+          </div>)
+          : <div className="empty">Nothing matches.</div>}
+      </div>
+      <div className="actions">
+        <button className="btn" disabled={joinBusy} onClick={()=>{setJoining(null);setJoinPick(null);setJoinQ("");}}>Cancel</button>
+        <button className="btn p" disabled={!joinPick||joinBusy} onClick={doJoin}>
+          {joinBusy ? "Working…" : joining==="link" ? "Link them" : "Merge it in"}</button>
+      </div>
+    </div>}
     {copying && <div className="form card" style={{padding:14,marginBottom:12}}>
       <div><b>Give this task to other people</b><div style={{fontSize:13,color:"var(--muted)"}}>Each person gets their own copy with its own progress. Comments and attachments stay with this one.</div></div>
       <div>{[...people.filter(p=>p.active && p.id!==t.assignee_id).map(p=>({k:p.id,label:p.full_name})),
@@ -1494,7 +1567,7 @@ function TaskModal(ctx){
       <div className="actions"><button className="btn" onClick={()=>{setCopying(false);setCopyTo([]);}}>Cancel</button>
         <button className="btn p" disabled={!copyTo.length} onClick={doCopy}>Copy to {copyTo.length||""} {copyTo.length===1?"person":"people"}</button></div>
     </div>}
-    {!edit && !skipping && !asking && !replying && !copying && !returning && (isMgr || iCreated || t.assignee_id===me.id) &&
+    {!edit && !skipping && !asking && !replying && !copying && !returning && !joining && (isMgr || iCreated || t.assignee_id===me.id) &&
      <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
       {isMgr && t.status==="ready_for_review" && <button className="btn p" onClick={()=>quick({status:"done",need_manager:false},"Approved and closed")}>Approve — mark done</button>}
       {isMgr && t.status==="ready_for_review" && <button className="btn" onClick={()=>quick({status:"working"},"Sent back")}>Send back</button>}
@@ -1507,6 +1580,8 @@ function TaskModal(ctx){
       {!canReshape && t.assignee_id===me.id && !CLOSED(t.status) && !t.requested_due &&
         <button className="btn" onClick={()=>setDating(true)}>Need more time</button>}
       <button className="btn" onClick={addSub}>Split off a linked task</button>
+      {!CLOSED(t.status) && <button className="btn" onClick={()=>{setJoining("link");setJoinPick(null);setJoinQ("");}}>Link to another task</button>}
+      {(isMgr || iCreated) && !CLOSED(t.status) && <button className="btn" onClick={()=>{setJoining("merge");setJoinPick(null);setJoinQ("");}}>Merge another in</button>}
       {isMgr && (people.filter(p=>p.active && p.id!==t.assignee_id).length + (INVITEES||[]).length)>0 &&
         <button className="btn" onClick={()=>setCopying(true)}>Copy to others</button>}
       {fromBD && !CLOSED(t.status) && <button className="btn" style={{color:"#1f3a7a",borderColor:"#c7d7f5"}} onClick={()=>setReturning(true)}>Return to Kathleen</button>}
@@ -1517,6 +1592,14 @@ function TaskModal(ctx){
     {edit && <EditForm t={t} people={people} isMgr={isMgr} me={me} onCancel={()=>setEdit(false)} onSave={async p=>{ if(await update(t.id,p)){ setEdit(false); showToast("Saved"); } }}/>}
 
     <div className="panel"><h3>The task</h3><dl className="kv">
+      {links.length>0 && <><dt>Linked to</dt><dd>{links.map((l,i)=>
+        <span key={l.id}>{i>0?", ":""}
+          <a href="#" style={{color:"var(--navy)",fontWeight:600,textDecoration:"none"}}
+             onClick={(e)=>{e.preventDefault(); ctx.setOpen(l.id);}}
+             title={`${l.who||"Unassigned"} · ${l.due_date?fmtDate(l.due_date):"no date"} · ${STATUS[l.status]}`}>{l.title}</a>
+          <button className="btn q" title="Unlink these two"
+            style={{padding:"0 4px",color:"var(--muted)"}} onClick={()=>dropLink(l.id)}>&times;</button>
+        </span>)}</dd></>}
       <dt>Origin</dt><dd>{DELEGATED(t) ? `Delegated by ${nameOf(people,t.created_by)}` : t.assignee_id ? "Their own task" : "Not assigned yet"}{t.bd_task_id ? <span style={{marginLeft:8,fontSize:11,fontWeight:700,color:"#1f3a7a",background:"#e0ecff",padding:"1px 7px",borderRadius:7}}>{t.bd_status==="returned"?"returned to Kathleen's Inbox":"from Kathleen's Inbox"}</span> : null}</dd>
       <dt>Assigned to</dt><dd>{t.assignee_id ? nameOf(people,t.assignee_id)
         : t.assignee_email ? `${(INVITEES.find(i=>i.email===String(t.assignee_email).toLowerCase())||{}).full_name || t.assignee_email} — waiting for them to sign up (${t.assignee_email})` : "Unassigned"}{t.assignee_id && t.created_by!==t.assignee_id ? ` · assigned by ${nameOf(people,t.created_by)}` : t.assignee_id ? " · self-assigned" : ""}</dd>
@@ -1875,24 +1958,31 @@ function Repeating({showToast,setOpen,tasks,isMgr,update}){
   </>;
 }
 
-function Search({setOpen,showToast}){
+function Search({setOpen,showToast,trashedIds,openTaskId}){
   const [q,setQ] = useState(""); const [closed,setClosed] = useState(false);
   const [rows,setRows] = useState(null); const [busy,setBusy] = useState(false);
-  const run = async () => {
-    if(q.trim().length<2){ showToast("Type at least two characters"); return; }
+  const [ran,setRan] = useState("");
+  const run = useCallback(async (term) => {
+    const text = (term===undefined ? q : term);
+    if(String(text).trim().length<2){ showToast("Type at least two characters"); return; }
     setBusy(true);
-    const {data,error} = await sb.rpc("search_all",{q, include_closed:closed});
+    const {data,error} = await sb.rpc("search_all",{q:text, include_closed:closed});
     setBusy(false);
     if(error){ showToast(error.message); return; }
-    setRows(data||[]);
-  };
+    setRows(data||[]); setRan(String(text));
+  },[q,closed,showToast]);
+  // results are a snapshot: re-run them when a task drawer closes, so anything you
+  // just trashed, finished or retitled in there stops showing the old version
+  useEffect(()=>{ if(openTaskId===null && ran) run(ran); },[openTaskId]);   // eslint-disable-line
+  const gone = new Set(trashedIds||[]);
+  const shown = (rows||[]).filter(r=>!gone.has(r.task_id));
   const tone = {task:"var(--navy)","comment":"#5b3fa0","private note":"var(--warn)",step:"var(--ok)"};
   return <>
-    <div className="h"><h2>Search</h2><span className="sub">{rows?`${rows.length} result${rows.length===1?"":"s"}`:"Titles, details, comments, steps and your private notes"}</span></div>
+    <div className="h"><h2>Search</h2><span className="sub">{rows?`${shown.length} result${shown.length===1?"":"s"}`:"Titles, details, comments, steps and your private notes"}</span></div>
     <div className="form" style={{marginBottom:10}}>
       <div style={{display:"flex",gap:8}}>
         <input autoFocus value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&run()} placeholder="Goodman, freight quote, Suan…" style={{flex:1}}/>
-        <button className="btn p" onClick={run} disabled={busy}>{busy?"…":"Search"}</button>
+        <button className="btn p" onClick={()=>run()} disabled={busy}>{busy?"…":"Search"}</button>
       </div>
       <label style={{display:"flex",gap:8,alignItems:"center",fontSize:14,color:"var(--muted)"}}>
         <input type="checkbox" checked={closed} onChange={e=>setClosed(e.target.checked)} style={{width:"auto"}}/>
@@ -1900,7 +1990,7 @@ function Search({setOpen,showToast}){
       </label>
     </div>
     {rows && <div className="card">
-      {rows.length ? rows.map((r,i)=><div className="row" key={i} onClick={()=>setOpen(r.task_id, rows.map(x=>x.task_id))}>
+      {shown.length ? shown.map((r,i)=><div className="row" key={i} onClick={()=>setOpen(r.task_id, shown.map(x=>x.task_id))}>
         <div>
           <div className="t">{r.title}</div>
           <div className="m">

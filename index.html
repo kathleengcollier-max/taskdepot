@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="8.0">
+<meta name="app-version" content="8.2">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -242,6 +242,13 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"8.2", d:"October 4, 2026", items:[
+    "Fixed: work held by somebody who hasn't signed up yet showed as \"Unassigned\" in the merge and link pickers. It was never unassigned — the name just wasn't being looked up. Every one of those lists now names them.",
+    "Whose task it is is now worked out in one place instead of five, so the next screen that asks can't get a different answer.",
+  ]},
+  {v:"8.1", d:"October 4, 2026", items:[
+    "Home: the line about work your team set for themselves now sits straight after Assigned to you, above Needs your attention, instead of being buried near the bottom.",
+  ]},
   {v:"8.0", d:"October 4, 2026", items:[
     "Needs your attention is split into sections by why it needs you, and every section folds. Shut one and it stays shut on that browser, so a group you never act on stops taking up the screen.",
     "Order: waiting on a decision from you, ready for your review, asked you for help, stuck waiting on someone else, due now but gone quiet — then overdue at the bottom.",
@@ -633,6 +640,21 @@ function richText(text){
 }
 
 const nameOf = (people, id) => (people.find(p=>p.id===id)||{}).full_name || "Unassigned";
+// The single answer to "whose task is this?" — an account, somebody invited but not
+// signed up, or genuinely nobody. Worth having in one place: nameOf() returns the
+// string "Unassigned" for a missing id, which is truthy, so the obvious-looking
+// `nameOf(people, t.assignee_id) || t.assignee_email` never reaches the email and
+// quietly labels every invited person's work as unassigned.
+const ownerName = (people, t, opts) => {
+  if(!t) return "Unassigned";
+  if(t.assignee_id) return nameOf(people, t.assignee_id);
+  if(t.assignee_email){
+    const hit = (INVITEES||[]).find(i=>String(i.email).toLowerCase()===String(t.assignee_email).toLowerCase());
+    const name = (hit && hit.full_name) || t.assignee_email;
+    return (opts && opts.plain) ? name : `${name} (not signed up yet)`;
+  }
+  return "Unassigned";
+};
 
 // Why does this task need attention? Returns {why, tone} or null.
 function attention(t, today) {
@@ -822,9 +844,7 @@ function groupSeries(list){
 // ---------- task row ----------
 function Row({t,people,today,setOpen,showWho=true,why,extra=0}){
   const allTasks = ALL_TASKS;
-  const invited = t.assignee_email ? (INVITEES.find(i=>i.email===String(t.assignee_email).toLowerCase())||null) : null;
-  const whoLabel = t.assignee_id ? nameOf(people,t.assignee_id)
-    : t.assignee_email ? `${(invited&&invited.full_name)||t.assignee_email} (not signed up yet)` : "Unassigned";
+  const whoLabel = ownerName(people, t);
   const a = why === undefined ? attention(t,today) : why;
   return <div className="row" onClick={()=>setOpen(t.id)}>
     <div>
@@ -897,6 +917,12 @@ function ManagerHome(ctx){
       <TaskTable list={mineToDo} people={people} today={today} setOpen={ctx.opener(mineToDo)} isMgr={false}
         cols={["title","status","due","updated","why"]}
         why={t=>attention(t,today)||(t.created_by!==ctx.me.id?{why:`${nameOf(people,t.created_by)} is waiting on you`,tone:"warn",rank:5}:null)}/></>}
+    {theirOwn.length>0 && <div className="note" style={{marginTop:10,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+      <span style={{flex:1}}>{theirOwn.length} task{theirOwn.length===1?"":"s"} your team set for themselves {theirOwn.length===1?"is":"are"} overdue or stuck. Their list, not yours — but here if you want it.</span>
+      <button className="btn sm" onClick={()=>setShowTheirs(!showTheirs)}>{showTheirs?"Hide":"Show"}</button>
+    </div>}
+    {showTheirs && theirOwn.length>0 && <TaskTable list={theirOwn.map(x=>x.t)} people={people} today={today}
+      setOpen={ctx.opener(theirOwn.map(x=>x.t))} cols={["who","title","status","due","why"]}/>}
     <div className="h"><h2>Needs your attention</h2><span className="sub">{flagged.length ? `${flagged.length} item${flagged.length>1?"s":""}` : "Nothing — enjoy it"}</span></div>
     {flagged.length
       ? Object.entries(flagged.reduce((acc,x)=>{
@@ -916,12 +942,6 @@ function ManagerHome(ctx){
       <TaskTable list={sorting} people={people} today={today} setOpen={ctx.opener(sorting)}
         cols={["who","title","status","due","why"]}
         why={t=>({why:!owned(t)&&!t.due_date?"No owner, no date":!owned(t)?"No owner":"No due date",tone:"warn",rank:5})}/></>}
-    {theirOwn.length>0 && <div className="note" style={{marginTop:10,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-      <span style={{flex:1}}>{theirOwn.length} task{theirOwn.length===1?"":"s"} your team set for themselves {theirOwn.length===1?"is":"are"} overdue or stuck. Their list, not yours — but here if you want it.</span>
-      <button className="btn sm" onClick={()=>setShowTheirs(!showTheirs)}>{showTheirs?"Hide":"Show"}</button>
-    </div>}
-    {showTheirs && theirOwn.length>0 && <TaskTable list={theirOwn.map(x=>x.t)} people={people} today={today}
-      setOpen={ctx.opener(theirOwn.map(x=>x.t))} cols={["who","title","status","due","why"]}/>}
     <div className="counts">
       {[["track","On track"],["waiting","Waiting"],["week","Due this week"],["overdue","Overdue"]].map(([k,l])=>
         <button key={k} className={filter===k?"on":""} onClick={()=>setFilter(filter===k?null:k)}><b>{buckets[k].length}</b><span>{l}</span></button>)}
@@ -1089,8 +1109,7 @@ function AllTasks(ctx){
 // right-hand cell of buttons; rows open the drawer unless `actions` says otherwise.
 function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
   const [sort,setSort] = useState(null);
-  const whoOf = (t) => t.assignee_id ? nameOf(people,t.assignee_id)
-    : t.assignee_email ? (((INVITEES.find(i=>i.email===String(t.assignee_email).toLowerCase())||{}).full_name || t.assignee_email)+" (not signed up yet)") : "Unassigned";
+  const whoOf = (t) => ownerName(people, t);
   const finishedAt = (t) => new Date(t.status==="skipped" ? t.updated_at : (t.completed_at || t.updated_at));
   const ago = (d) => { const days=Math.round((Date.now()-d)/86400000);
     return days<=0 ? "today" : days===1 ? "yesterday" : `${d.toLocaleDateString(undefined,{month:"short",day:"numeric"})} (${days}d ago)`; };
@@ -1570,7 +1589,7 @@ function TaskModal(ctx){
     </div>}
 
     {replying && <div className="form card" style={{padding:14,marginBottom:12}}>
-      <div><b>Reply to {nameOf(people,t.assignee_id)}</b>
+      <div><b>Reply to {ownerName(people,t,{plain:true})}</b>
         <div style={{fontSize:13,color:"var(--muted)"}}>What you write is added to the task's comments and emailed to them. Leave it blank and they just get a note that you've looked at it.</div></div>
       <label>Your reply<textarea autoFocus value={replyNote} onChange={e=>setReplyNote(e.target.value)} placeholder="Call Suan directly, she has the unlock code. Push it to Thursday if you need to."/></label>
       <div className="actions"><button className="btn" onClick={()=>{setReplying(false);setReplyNote("");}}>Cancel</button>
@@ -1597,7 +1616,7 @@ function TaskModal(ctx){
             style={{padding:"8px 10px",cursor:"pointer",borderTop:"1px solid var(--line)",
                     background:joinPick===x.id?"#e7edfb":undefined}}>
             <div style={{fontWeight:joinPick===x.id?600:400}}>{x.title}</div>
-            <div className="meta">{nameOf(people,x.assignee_id) || x.assignee_email || "Unassigned"}
+            <div className="meta">{ownerName(people,x)}
               {" · "}{x.due_date?`due ${fmtDate(x.due_date)}`:"no date"}{" · "}{STATUS[x.status]}</div>
           </div>)
           : <div className="empty">Nothing matches.</div>}

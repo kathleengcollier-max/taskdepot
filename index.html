@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="7.7">
+<meta name="app-version" content="7.8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -237,6 +237,11 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"7.8", d:"October 4, 2026", items:[
+    "Finished can be filtered by how the work started — emailed in, assigned in the app, from Kathleen's Inbox, or they set it themselves — with a matching Origin column.",
+    "Two new buttons beside the green bar: \"Mark these N as seen\" clears what you're looking at, and \"Mark the other N as seen\" clears everything outside the current filter. So you can show the ones you want to read, clear the rest, and come back to a tab counting only what matters.",
+    "\"Mark all as seen\" is still there for the blunt version.",
+  ]},
   {v:"7.7", d:"October 4, 2026", items:[
     "Email intake now says where each email's task stands now — its current title, or that it is in Trash, finished, or gone. Trashing a task never removed its email from this list and never will, because the list is the post, not the work. It just looked broken.",
     "A row whose task is in Trash carries a Restore it button, so undoing a wrong trash doesn't mean hunting through Trash.",
@@ -2248,9 +2253,11 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
   </>;
 }
 
-function Finished({tasks,people,today,setOpen,me,setMe,showToast}){
+function Finished({tasks,people,today,setOpen,me,setMe,showToast,load}){
   const [who,setWho] = useState("");
   const [range,setRange] = useState("month");
+  const [origin,setOrigin] = useState("");   // how the task started
+  const [busy,setBusy] = useState(false);
   const seen = new Date(me.completions_seen_at || 0);
   const finishedAt = (t) => new Date(t.status==="skipped" ? t.updated_at : (t.completed_at || t.updated_at));
   const cutoff = () => {
@@ -2260,14 +2267,31 @@ function Finished({tasks,people,today,setOpen,me,setMe,showToast}){
     if(range==="month"){ d.setDate(d.getDate()-30); return d; }
     return new Date(0);
   };
+  const startedAs = (t) => t.bd_task_id ? "bd" : t.via_email ? "email" : DELEGATED(t) ? "app" : "own";
   const list = tasks.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id)
+    .filter(t=>!origin ? true : startedAs(t)===origin)
     .filter(t=>!who ? true
       : String(who).startsWith("email:")
         ? String(t.assignee_email||"").toLowerCase() === who.slice(6)
         : t.assignee_id===who)
     .filter(t=>finishedAt(t) >= cutoff())
     .sort((a,b)=>finishedAt(b)-finishedAt(a));
-  const fresh = list.filter(t=>finishedAt(t) > seen && !t.seen_at);
+  const unseen = (t) => finishedAt(t) > seen && !t.seen_at;
+  const fresh = list.filter(unseen);
+  // everything NOT in the current view and still unread — the pile you want to clear
+  // so that what's left in front of you is only what you care about
+  const elsewhere = tasks.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id && unseen(t)
+                                    && !list.some(x=>x.id===t.id));
+  const markIds = async (rows, note) => {
+    if(!rows.length) return;
+    setBusy(true);
+    const now = new Date().toISOString();
+    const {error} = await sb.from("tasks").update({seen_at:now}).in("id", rows.map(t=>t.id));
+    setBusy(false);
+    if(error){ showToast(error.message); return; }
+    if(load) await load();
+    showToast(note);
+  };
   const markSeen = async () => {
     const now = new Date().toISOString();
     const {error} = await sb.from("profiles").update({completions_seen_at:now}).eq("id",me.id);
@@ -2281,13 +2305,28 @@ function Finished({tasks,people,today,setOpen,me,setMe,showToast}){
   };
   return <>
     <div className="h"><h2>Finished</h2></div>
-    {fresh.length>0 && <div className="note" style={{marginBottom:10,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",
+    {(fresh.length>0 || elsewhere.length>0) && <div className="note" style={{marginBottom:10,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",
         background:"#e3f2e6",borderLeft:"3px solid var(--ok)"}}>
-      <span style={{flex:1}}><b>{fresh.length} finished since you last looked.</b> Clearing this is what takes the number off the Finished tab.</span>
-      <button className="btn p" onClick={markSeen}>Mark all as seen</button>
+      <span style={{flex:1}}>
+        <b>{fresh.length} unread here{elsewhere.length?`, ${elsewhere.length} outside this filter`:""}.</b>{" "}
+        Clearing them is what takes the number off the Finished tab.</span>
+      {elsewhere.length>0 && <button className="btn" disabled={busy}
+        onClick={()=>markIds(elsewhere, `Marked ${elsewhere.length} as seen — the ones in front of you are untouched`)}>
+        {elsewhere.length===1 ? "Mark the other one as seen" : `Mark the other ${elsewhere.length} as seen`}</button>}
+      {fresh.length>0 && <button className="btn" disabled={busy}
+        onClick={()=>markIds(fresh, fresh.length===1?"Marked it as seen":`Marked these ${fresh.length} as seen`)}>
+        {fresh.length===1 ? "Mark this one as seen" : `Mark these ${fresh.length} as seen`}</button>}
+      <button className="btn p" disabled={busy} onClick={markSeen}>Mark all as seen</button>
     </div>}
     <div className="note" style={{marginBottom:10}}>Everything your team has closed out. Nothing emails you when a task is finished — it just collects here until you look.</div>
-    <div className="form two" style={{marginBottom:10}}>
+    <div className="form three" style={{marginBottom:10}}>
+      <select value={origin} onChange={e=>setOrigin(e.target.value)}>
+        <option value="">However it started</option>
+        <option value="email">Emailed in</option>
+        <option value="app">I assigned it in the app</option>
+        <option value="bd">From Kathleen's Inbox</option>
+        <option value="own">They set it themselves</option>
+      </select>
       <select value={who} onChange={e=>setWho(e.target.value)}>
         <option value="">Everyone</option>
         {people.filter(p=>p.id!==me.id).map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}
@@ -2299,7 +2338,7 @@ function Finished({tasks,people,today,setOpen,me,setMe,showToast}){
         <option value="month">Last 30 days</option><option value="all">Everything</option></select>
     </div>
     <TaskTable list={list} people={people} today={today} setOpen={(id)=>setOpen(id, list.map(x=>x.id))}
-      cols={["who","title","status","finished"]} empty="Nothing finished in this window."/>
+      cols={["who","title","status","origin","finished"]} empty="Nothing finished in this window."/>
   </>;
 }
 

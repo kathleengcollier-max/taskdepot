@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="8.6">
+<meta name="app-version" content="8.7">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -243,6 +243,11 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"8.7", d:"October 5, 2026", items:[
+    "Repeating: click a row to open the occurrence that's live now — the oldest one still open, since that's the one running late. If they're all finished, it opens the most recent.",
+    "The drawer's arrows then step back through that series' earlier occurrences, so you can see how the last few months went without leaving the task.",
+    "Catch up and Pause still work as buttons; clicking them doesn't open anything.",
+  ]},
   {v:"8.6", d:"October 5, 2026", items:[
     "Data-loss safeguard. A failed read can no longer look like an empty account: loading retries four times with backoff, an empty answer is treated as suspect once real data has been seen this session, and if every attempt fails the last good data stays on screen behind a red banner instead of being replaced by nothing.",
     "Task Depot was never at risk of the overwrite version of this bug — it saves one field of one row at a time and has no demo data to fall back to — but a blip could still blank every list for a minute, which looks exactly the same from where you are sitting.",
@@ -2168,6 +2173,28 @@ function Repeating({showToast,setOpen,tasks,isMgr,update}){
     const ok = await update(r.series_id,{recur_paused:!r.paused});
     if(ok){ load(); showToast(r.paused?"Resumed":"Paused — no new ones will be created"); }
   };
+  // Which occurrence to open when a series is clicked: the one that is live now —
+  // the oldest still-open, since that is the one running late — and failing that the
+  // most recently finished, so there is always something to look at.
+  const occurrences = (r) => (tasks||[]).filter(x=>x.series_id===r.series_id && !x.deleted_at);
+  const current = (r) => {
+    const all = occurrences(r);
+    const open = all.filter(x=>!CLOSED(x.status))
+                    .sort((a,b)=>String(a.due_date||"9999").localeCompare(String(b.due_date||"9999")));
+    if(open.length) return open[0];
+    const done = all.filter(x=>CLOSED(x.status))
+                    .sort((a,b)=>String(b.completed_at||b.updated_at||"").localeCompare(String(a.completed_at||a.updated_at||"")));
+    return done[0] || null;
+  };
+  const openCurrent = (r) => {
+    const t = current(r);
+    if(!t){ showToast("The next one hasn't been created yet — nothing to open"); return; }
+    // the queue is the whole series, so the drawer arrows step through its history
+    const queue = occurrences(r)
+      .sort((a,b)=>String(b.due_date||"").localeCompare(String(a.due_date||"")))
+      .map(x=>x.id);
+    setOpen(t.id, queue);
+  };
   if(rows===null) return <div className="empty">Loading…</div>;
   const sval = (r,k) => k==="title" ? String(r.title).toLowerCase() : k==="assignee" ? String(r.assignee||"zz").toLowerCase()
     : k==="rule" ? ruleText(r).toLowerCase() : k==="open_count" ? String(r.open_count).padStart(6,"0")
@@ -2176,7 +2203,7 @@ function Repeating({showToast,setOpen,tasks,isMgr,update}){
     return (x<y?-1:x>y?1:0)*sort.dir || String(a.title).localeCompare(String(b.title)); });
   return <>
     <div className="h"><h2>Repeating</h2><span className="sub">{rows.length} recurring task{rows.length===1?"":"s"}</span></div>
-    <div className="note" style={{marginBottom:10}}>Weekly and monthly tasks appear five days before each due date, whether or not the last one got finished — they stack up rather than disappearing. Daily ones roll forward instead of piling up. Dates below that haven't happened yet are scheduled, not created.</div>
+    <div className="note" style={{marginBottom:10}}>Click a row to open the one that's live now — the arrows in the drawer then step back through earlier ones. Weekly and monthly tasks appear five days before each due date, whether or not the last one got finished — they stack up rather than disappearing. Daily ones roll forward instead of piling up. Dates below that haven't happened yet are scheduled, not created.</div>
     {rows.length ? <div className="card tablewrap">
       <table className="ttable"><thead><tr>
         {[["title","Task","task"],["assignee","Person","who"],["rule","Repeats","muted"],
@@ -2186,7 +2213,9 @@ function Repeating({showToast,setOpen,tasks,isMgr,update}){
             {label}{sort && sort.k===k ? <span className="sortmark">{sort.dir===1?"\u25B4":"\u25BE"}</span> : null}</th>)}
         {isMgr && <th className="num"></th>}
       </tr></thead><tbody>
-        {sorted.map(r=><tr key={r.series_id} style={{cursor:"default"}}>
+        {sorted.map(r=>{ const cur = current(r); return <tr key={r.series_id}
+          style={{cursor:cur?"pointer":"default"}} onClick={()=>openCurrent(r)}
+          title={cur ? (CLOSED(cur.status) ? "Open the most recent one (finished)" : `Open the one due ${fmtDate(cur.due_date)}`) : undefined}>
           <td className="task">{r.title}{r.paused && <span className="pill" style={{marginLeft:6,background:"#eef0f4",color:"var(--muted)"}}>Paused</span>}
             {r.stalled && <span className="pill" style={{marginLeft:6,background:"#fdecea",color:"var(--red)"}}>Behind</span>}</td>
           <td className="who">{r.assignee||"Unassigned"}</td>
@@ -2194,10 +2223,10 @@ function Repeating({showToast,setOpen,tasks,isMgr,update}){
           <td className="num" style={r.stalled?{color:"var(--red)",fontWeight:700}:undefined}>{r.open_count}</td>
           <td className="num muted hide-sm">{r.oldest_open?fmtDate(r.oldest_open):"—"}</td>
           <td className="muted hide-sm">{r.paused ? "paused — none scheduled" : ((r.next_dates||[]).map(d=>fmtDate(d)).join(" · ") || "—")}</td>
-          {isMgr && <td className="num"><span style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+          {isMgr && <td className="num" onClick={e=>e.stopPropagation()}><span style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
             {r.open_count>1 && <button className="btn sm" onClick={()=>catchUp(r)}>Catch up</button>}
             <button className="btn sm" onClick={()=>togglePause(r)}>{r.paused?"Resume":"Pause"}</button></span></td>}
-        </tr>)}
+        </tr>; })}
       </tbody></table>
     </div> : <div className="card"><div className="empty">No repeating tasks yet. Set one up by choosing how often it repeats when you assign it.</div></div>}
   </>;

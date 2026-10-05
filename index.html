@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="9.2">
+<meta name="app-version" content="9.3">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -87,7 +87,25 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .four{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px}
 .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:6px}
 .modalbg{position:fixed;inset:0;background:rgba(20,26,40,.45);z-index:40;display:flex;align-items:stretch;justify-content:flex-end;animation:fade .15s ease-out}
-.modal{background:var(--paper);width:100%;max-width:560px;height:100%;overflow:auto;border-radius:0;padding:18px 18px 28px;box-shadow:-8px 0 28px rgba(20,26,40,.18);animation:slidein .2s ease-out;padding-top:calc(18px + env(safe-area-inset-top,0px));padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
+/* The drawer reads as a file pulled from a drawer: a coloured spine down the left
+   edge in its department's colour, a tinted band at the top so the colour means
+   something, and enough shadow that it sits above the page rather than on it. */
+.modal{background:var(--paper);width:100%;max-width:560px;height:100%;overflow:auto;
+  border-radius:16px 0 0 16px;padding:18px 18px 28px;
+  border-left:8px solid var(--tab,var(--navy));
+  box-shadow:-18px 0 44px rgba(20,26,40,.28), -1px 0 0 rgba(255,255,255,.7) inset;
+  animation:slidein .2s ease-out;padding-top:calc(18px + env(safe-area-inset-top,0px));
+  padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
+/* the band bleeds to the drawer's edges, so it meets the spine with no seam */
+.modal .spine{margin:-18px -18px 14px -18px;padding:11px 18px;
+  margin-top:calc(-18px - env(safe-area-inset-top,0px));
+  padding-top:calc(11px + env(safe-area-inset-top,0px));
+  background:var(--tabwash,#eef2fb);border-bottom:1px solid rgba(20,26,40,.08);
+  display:flex;align-items:center;gap:10px;justify-content:space-between;
+  font-size:12px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;
+  color:var(--tab,var(--navy))}
+.modal .spine .spine-sub{font-weight:600;letter-spacing:.3px;text-transform:none;
+  font-size:12px;color:var(--muted)}
 @keyframes slidein{from{transform:translateX(100%)}to{transform:translateX(0)}}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 .panel{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
@@ -113,7 +131,7 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .panel h3{font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:var(--muted);font-weight:700;margin:0 0 10px}
 .kv{display:grid;grid-template-columns:118px 1fr;gap:7px 12px;font-size:14px;margin:0}
 .kv dt{color:var(--muted)} .kv dd{margin:0}
-@media (max-width:640px){.modal{max-width:100%}.kv{grid-template-columns:100px 1fr}}
+@media (max-width:640px){.modal{max-width:100%;border-radius:0;border-left-width:6px}.kv{grid-template-columns:100px 1fr}}
 .modal h2{font-size:19px;font-weight:600;margin-bottom:12px}
 .modal .x{position:sticky;top:0;float:right;background:#fff;border:0;font-size:22px;cursor:pointer;color:var(--muted);line-height:1}
 .detail dl{display:grid;grid-template-columns:130px 1fr;gap:6px 12px;margin:0 0 14px;font-size:14px}
@@ -286,6 +304,10 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"9.3", d:"October 5, 2026", items:[
+    "The drawers have dimension, like Brain Dump's: a coloured spine down the left edge in the task's department colour, a tinted band across the top naming that department and who has it, a rounded outer corner and a deeper shadow, so an open task sits above the page instead of flat on it. The new-task drawer does the same and recolours as you pick a department.",
+    "The \"Clear \u2014 show all\" line in the filter dropdowns was printing the dash as raw characters. Fixed.",
+  ]},
   {v:"9.2", d:"October 5, 2026", items:[
     "Every task has a Department, using the same nine Kathleen already sorts by in Brain Dump \u2014 Operations, Finance, HR, Facilities, Vendors, Marketing, Sales, Personal, Other. It sits in the drawer, on the new-task and edit forms, as a colour-coded column on All tasks and Finished, and as a filter on both.",
     "All 96 live tasks were sorted into a department up front, so the column is useful from the first time you open it rather than a wall of dashes. Finance 33, Operations 30, Facilities 11, Vendors 8, HR 8, Marketing 5, Other 1. Change any that read wrong \u2014 the edit form has the dropdown.",
@@ -1212,7 +1234,7 @@ function MultiPick({allLabel, options, value, onChange}){
       <span className="mp-text">{text}</span><span className="mp-caret">{open?"\u25B4":"\u25BE"}</span>
     </button>
     {open && <div className="mp-panel">
-      {sel.length>0 && <button type="button" className="mp-clear" onClick={()=>onChange([])}>Clear \u2014 show all</button>}
+      {sel.length>0 && <button type="button" className="mp-clear" onClick={()=>onChange([])}>{"Clear \u2014 show all"}</button>}
       {options.map(o=>o.header
         ? <div key={"h"+o.header} className="mp-head">{o.header}</div>
         : <label key={o.k} className="mp-row">
@@ -1429,7 +1451,13 @@ function AssignModal(ctx){
     // drop straight into the task so a comment or attachment can go on now
     if(firstMade && rows.length===1 && ctx.setOpen) ctx.setOpen(firstMade, [firstMade]);
   };
-  return <div className="modalbg" style={{zIndex:50}} onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}>
+  const tone = DEPT_TONE[f.department] || {bg:"#eef2fb", fg:"#1f3a7a"};
+  return <div className="modalbg" style={{zIndex:50}} onClick={onClose}><div className="modal"
+      style={{"--tab":tone.fg, "--tabwash":tone.bg}} onClick={e=>e.stopPropagation()}>
+    <div className="spine">
+      <span>{f.department || "New task"}</span>
+      <span className="spine-sub">{parent ? "linked to another task" : isMgr ? "handing it over" : "yours"}</span>
+    </div>
     <h2>{parent ? "Split off a linked task" : isMgr ? "Assign a task" : "Add a task"}</h2>
     {parent && <div className="note" style={{marginBottom:12}}>This becomes its own task, linked back to <b>{parent.title}</b>, with its own owner and due date.{!isMgr && " You can hand it to yourself or to your manager."}</div>}
     {isMgr && <div className="ai">
@@ -1743,7 +1771,13 @@ function TaskModal(ctx){
     }
   };
 
-  return <div className="modalbg" onClick={onClose}><div className="modal detail" onClick={e=>e.stopPropagation()}>
+  const tone = DEPT_TONE[t.department] || {bg:"#eef2fb", fg:"#1f3a7a"};
+  return <div className="modalbg" onClick={onClose}><div className="modal detail"
+      style={{"--tab":tone.fg, "--tabwash":tone.bg}} onClick={e=>e.stopPropagation()}>
+    <div className="spine">
+      <span>{t.department || "Not filed"}</span>
+      <span className="spine-sub">{ownerName(people,t,{plain:true})}</span>
+    </div>
     {queue.length>1 && at>=0 && <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
       <button className="btn sm" disabled={at<=0} onClick={()=>go(-1)} aria-label="Previous task">←</button>
       <span style={{fontSize:13,color:"var(--muted)"}}>{at+1} of {queue.length}</span>

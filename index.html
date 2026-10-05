@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="8.4">
+<meta name="app-version" content="8.5">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -243,6 +243,11 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"8.5", d:"October 5, 2026", items:[
+    "\"Copy to others\" is now \"Who has this\" — it shows everyone carrying the work, including you, and you add or remove from one place.",
+    "Untick anyone to take it off their list; their copy goes to Trash and can be restored. Untick yourself to hand it over completely and clear it off your own list in the same step.",
+    "Removals happen after the copies are made, so the work always exists somewhere before it leaves you.",
+  ]},
   {v:"8.4", d:"October 4, 2026", items:[
     "Search results are the same sortable table as All tasks, with two extra columns: what the match was found in, and the matching text.",
     "A task linked to others carries a link pill with the count, in every table — Home, All tasks, Search, Finished, Trash — so you can see at a glance that a task has company.",
@@ -1338,6 +1343,8 @@ function TaskModal(ctx){
   const root = t.series_id ? tasks.find(x=>x.id===t.series_id) : null;
   const [skipping,setSkipping] = useState(false);
   const [copying,setCopying] = useState(false);
+  const [drop,setDrop] = useState([]);        // holders being taken off it
+  const [copyBusy,setCopyBusy] = useState(false);
   const [joining,setJoining] = useState(null);      // "link" | "merge"
   const [joinQ,setJoinQ] = useState("");
   const [joinPick,setJoinPick] = useState([]);   // several at once when linking
@@ -1456,22 +1463,37 @@ function TaskModal(ctx){
   };
   const [copyTo,setCopyTo] = useState([]);
   const [copyDue,setCopyDue] = useState("");
-  const doCopy = async () => {
+  const doCopy = async (holders) => {
+    setCopyBusy(true);
     const ids = copyTo.filter(x=>!String(x).startsWith("email:"));
     const mails = copyTo.filter(x=>String(x).startsWith("email:")).map(x=>String(x).slice(6));
-    let made = 0;
+    let made = 0, removed = 0, selfDropped = false;
     if(ids.length){
       const {data,error} = await sb.rpc("copy_task_to",{src:t.id, people:ids, new_due:copyDue||null});
-      if(error){ showToast(error.message); return; }
+      if(error){ setCopyBusy(false); showToast(error.message); return; }
       made += data||0;
     }
     if(mails.length){
       const {data,error} = await sb.rpc("copy_task_to_emails",{src:t.id, emails:mails, new_due:copyDue||null});
-      if(error){ showToast(error.message); return; }
+      if(error){ setCopyBusy(false); showToast(error.message); return; }
       made += data||0;
     }
-    setCopying(false); setCopyTo([]); setCopyDue("");
-    await ctx.load(); showToast(`Copied to ${made} ${made===1?"person":"people"}`);
+    // removals last, so copies exist before this task can drop off
+    for(const key of drop){
+      const h = (holders||[]).find(x=>x.key===key);
+      if(!h) continue;
+      const {error} = await sb.from("tasks").update({deleted_at:new Date().toISOString()}).eq("id",h.taskId);
+      if(error){ setCopyBusy(false); showToast(error.message); return; }
+      removed++;
+      if(key==="self") selfDropped = true;
+    }
+    setCopyBusy(false);
+    setCopying(false); setCopyTo([]); setDrop([]); setCopyDue("");
+    await ctx.load();
+    if(selfDropped){ onClose(); }
+    else { refresh(); loadLinks(); }
+    showToast([made?`${made} copy${made===1?"":"ies"} made`:null,
+               removed?`${removed} moved to Trash`:null].filter(Boolean).join(" \u00b7 ") || "Nothing changed");
   };
   const [skipWhy,setSkipWhy] = useState("");
   const doSkip = async () => {
@@ -1694,18 +1716,62 @@ function TaskModal(ctx){
             : "Merge it in"}</button>
       </div>
     </div>}
-    {copying && <div className="form card" style={{padding:14,marginBottom:12}}>
-      <div><b>Give this task to other people</b><div style={{fontSize:13,color:"var(--muted)"}}>Each person gets their own copy with its own progress. Comments and attachments stay with this one.</div></div>
-      <div>{[...people.filter(p=>p.active && p.id!==t.assignee_id).map(p=>({k:p.id,label:p.full_name})),
-             ...(INVITEES||[]).filter(i=>String(i.email).toLowerCase()!==String(t.assignee_email||"").toLowerCase())
-                              .map(i=>({k:"email:"+i.email,label:(i.full_name||i.email)+" (not signed up yet)"}))]
-        .map(o=><button key={o.k} type="button" className="chip" style={copyTo.includes(o.k)?{background:"var(--navy)",color:"#fff",borderColor:"var(--navy)"}:{}}
-          onClick={()=>setCopyTo(copyTo.includes(o.k)?copyTo.filter(x=>x!==o.k):[...copyTo,o.k])}>{o.label}</button>)}</div>
-      <label>Due date for the copies<input type="date" value={copyDue} onChange={e=>setCopyDue(e.target.value)}/>
-        <span style={{fontSize:13,color:"var(--muted)"}}>Leave blank to keep {fmtDate(t.due_date)}.</span></label>
-      <div className="actions"><button className="btn" onClick={()=>{setCopying(false);setCopyTo([]);}}>Cancel</button>
-        <button className="btn p" disabled={!copyTo.length} onClick={doCopy}>Copy to {copyTo.length||""} {copyTo.length===1?"person":"people"}</button></div>
-    </div>}
+    {copying && (() => {
+      // Everyone holding this piece of work: this task, plus the copies linked to it.
+      // Ticked means they have it. Untick to take it off their list — including your own.
+      const copies = links.filter(l=>l.title===t.title);
+      const holders = [{key:"self", taskId:t.id, label:(t.assignee_id===me.id?"You":ownerName(people,t,{plain:true}))+" (this task)"},
+                       ...copies.map(c=>({key:"copy:"+c.id, taskId:c.id, label:c.who||"Unassigned"}))];
+      const heldBy = new Set(copies.map(c=>String(c.who||"").toLowerCase()));
+      const free = [
+        ...people.filter(p=>p.active && p.id!==t.assignee_id && !heldBy.has(String(p.full_name||"").toLowerCase()))
+                 .map(p=>({k:p.id, label:p.full_name})),
+        ...(INVITEES||[]).filter(i=>String(i.email).toLowerCase()!==String(t.assignee_email||"").toLowerCase()
+                                 && !heldBy.has(String(i.full_name||"").toLowerCase()))
+                 .map(i=>({k:"email:"+i.email, label:(i.full_name||i.email)+" (not signed up yet)"}))];
+      const dropping = holders.filter(h=>drop.includes(h.key));
+      return <div className="form card" style={{padding:14,marginBottom:12}}>
+        <div><b>Who has this work</b><div style={{fontSize:13,color:"var(--muted)"}}>
+          Add people and each gets their own copy, linked to the others. Untick anyone who shouldn't be
+          carrying it — their copy goes to Trash, where it can still be restored.</div></div>
+
+        <div>
+          <div className="section-title" style={{marginTop:0}}>Has it now</div>
+          <div>{holders.map(h=>{
+            const off = drop.includes(h.key);
+            return <button key={h.key} type="button" className="chip"
+              title={off?"Will be moved to Trash":"Tap to take it off their list"}
+              style={off?{textDecoration:"line-through",color:"var(--red)",borderColor:"#f0c7c7"}
+                        :{background:"var(--navy)",color:"#fff",borderColor:"var(--navy)"}}
+              onClick={()=>setDrop(off?drop.filter(x=>x!==h.key):[...drop,h.key])}>
+              {off?"\u21a9 ":"\u2713 "}{h.label}</button>;})}</div>
+        </div>
+
+        {free.length>0 && <div>
+          <div className="section-title" style={{marginTop:0}}>Give it to</div>
+          <div>{free.map(o=><button key={o.k} type="button" className="chip"
+            style={copyTo.includes(o.k)?{background:"var(--navy)",color:"#fff",borderColor:"var(--navy)"}:{}}
+            onClick={()=>setCopyTo(copyTo.includes(o.k)?copyTo.filter(x=>x!==o.k):[...copyTo,o.k])}>{o.label}</button>)}</div>
+        </div>}
+
+        {copyTo.length>0 && <label>Due date for the new copies<input type="date" value={copyDue} onChange={e=>setCopyDue(e.target.value)}/>
+          <span style={{fontSize:13,color:"var(--muted)"}}>Leave blank to keep {fmtDate(t.due_date)}.</span></label>}
+
+        {dropping.length>0 && <div className="note" style={{background:"var(--red-soft)",color:"var(--red)"}}>
+          {dropping.map(d=>d.label).join(", ")} {dropping.length===1?"loses":"lose"} this task — it moves to Trash.
+          {drop.includes("self") && " This drawer will close."}
+        </div>}
+
+        <div className="actions">
+          <button className="btn" onClick={()=>{setCopying(false);setCopyTo([]);setDrop([]);}}>Cancel</button>
+          <button className="btn p" disabled={(!copyTo.length && !drop.length) || copyBusy} onClick={()=>doCopy(holders)}>
+            {copyBusy ? "Saving\u2026"
+             : copyTo.length && drop.length ? `Add ${copyTo.length}, remove ${drop.length}`
+             : copyTo.length ? `Give it to ${copyTo.length} ${copyTo.length===1?"person":"people"}`
+             : `Remove ${drop.length} ${drop.length===1?"person":"people"}`}</button>
+        </div>
+      </div>;
+    })()}
     {!edit && !skipping && !asking && !replying && !copying && !returning && !joining && (isMgr || iCreated || t.assignee_id===me.id) &&
      <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
       {isMgr && t.status==="ready_for_review" && <button className="btn p" onClick={()=>quick({status:"done",need_manager:false},"Approved and closed")}>Approve — mark done</button>}
@@ -1722,7 +1788,7 @@ function TaskModal(ctx){
       {!CLOSED(t.status) && <button className="btn" onClick={()=>{setJoining("link");setJoinPick([]);setJoinQ("");}}>Link to another task</button>}
       {(isMgr || iCreated) && !CLOSED(t.status) && <button className="btn" onClick={()=>{setJoining("merge");setJoinPick([]);setJoinQ("");}}>Merge another in</button>}
       {isMgr && (people.filter(p=>p.active && p.id!==t.assignee_id).length + (INVITEES||[]).length)>0 &&
-        <button className="btn" onClick={()=>setCopying(true)}>Copy to others</button>}
+        <button className="btn" onClick={()=>{setCopying(true);setCopyTo([]);setDrop([]);}}>Who has this</button>}
       {fromBD && !CLOSED(t.status) && <button className="btn" style={{color:"#1f3a7a",borderColor:"#c7d7f5"}} onClick={()=>setReturning(true)}>Return to Kathleen</button>}
       {isMgr && CLOSED(t.status) && t.assignee_id!==me.id && !t.seen_at && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0) &&
         <button className="btn" style={{color:"var(--ok)",borderColor:"#bfe3c5"}} onClick={()=>update(t.id,{seen_at:new Date().toISOString()}).then(ok=>ok&&showToast("Seen — one fewer on the Finished count"))}>Mark as seen</button>}

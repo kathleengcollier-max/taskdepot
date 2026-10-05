@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="8.5">
+<meta name="app-version" content="8.6">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -243,6 +243,11 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"8.6", d:"October 5, 2026", items:[
+    "Data-loss safeguard. A failed read can no longer look like an empty account: loading retries four times with backoff, an empty answer is treated as suspect once real data has been seen this session, and if every attempt fails the last good data stays on screen behind a red banner instead of being replaced by nothing.",
+    "Task Depot was never at risk of the overwrite version of this bug — it saves one field of one row at a time and has no demo data to fall back to — but a blip could still blank every list for a minute, which looks exactly the same from where you are sitting.",
+    "Profile updates (your role, your notification settings, marking finished work as seen) now merge instead of overwriting, so two changes landing together can't undo each other.",
+  ]},
   {v:"8.5", d:"October 5, 2026", items:[
     "\"Copy to others\" is now \"Who has this\" — it shows everyone carrying the work, including you, and you add or remove from one place.",
     "Untick anyone to take it off their list; their copy goes to Trash and can be restored. Untick yourself to hand it over completely and clear it off your own list in the same step.",
@@ -778,14 +783,42 @@ function Shell({me,setMe}){
   const today = todayISO();
 
   const [invitees,setInvitees] = useState([]);
+  // ---- loading, written so a bad read can never look like an empty account ----
+  // Nothing in this app writes a whole-state snapshot, so a failed read cannot
+  // overwrite the database. What it CAN do is blank every list on screen, which
+  // looks identical to losing everything. So: retry with backoff, treat a
+  // suddenly-empty read as suspect once real data has been seen, and on total
+  // failure keep what is already on screen rather than replacing it with nothing.
+  const [loadState,setLoadState] = useState({ok:true});
+  const loadedReal = useRef(false);
   const load = useCallback(async ()=>{
-    const [{data:p},{data:t},inv,lc] = await Promise.all([
-      sb.from("profiles").select("*").order("full_name"),
-      sb.from("tasks").select("*").order("due_date",{ascending:true,nullsFirst:false}),
-      sb.rpc("waiting_on_signup"),
-      sb.rpc("link_counts")
-    ]);
-    setPeople(p||[]); setTasks(t||[]); setInvitees(inv.data||[]); LINK_COUNTS = lc.data || {};
+    const attempt = async () => {
+      const [pr,tr,inv,lc] = await Promise.all([
+        sb.from("profiles").select("*").order("full_name"),
+        sb.from("tasks").select("*").order("due_date",{ascending:true,nullsFirst:false}),
+        sb.rpc("waiting_on_signup"),
+        sb.rpc("link_counts")
+      ]);
+      if(pr.error || tr.error) throw new Error((tr.error||pr.error).message || "read failed");
+      return {p:pr.data||[], t:tr.data||[], inv:(inv&&inv.data)||[], lc:(lc&&lc.data)||{}};
+    };
+    const waits = [0, 300, 900, 1800];
+    let why = null;
+    for(let i=0;i<waits.length;i++){
+      if(waits[i]) await new Promise(r=>setTimeout(r, waits[i]));
+      try{
+        const got = await attempt();
+        // an empty answer, when this session has already seen real data, is far more
+        // likely a hiccup than a team that deleted everything in the last minute
+        if(got.t.length===0 && loadedReal.current && i < waits.length-1){ why = "came back empty"; continue; }
+        setPeople(got.p); setTasks(got.t); setInvitees(got.inv); LINK_COUNTS = got.lc;
+        if(got.t.length>0) loadedReal.current = true;
+        setLoadState({ok:true});
+        return true;
+      }catch(e){ why = e.message || String(e); }
+    }
+    setLoadState({ok:false, why});     // keep the last good data on screen
+    return false;
   },[]);
   useEffect(()=>{ load(); const id=setInterval(load,60000); return ()=>clearInterval(id); },[load]);
 
@@ -828,6 +861,13 @@ function Shell({me,setMe}){
       <div className="who"><span>{me.full_name}</span><button onClick={()=>sb.auth.signOut()}>Sign out</button></div>
     </div></header>
     <main>
+      {!loadState.ok && <div className="note" style={{marginBottom:10,background:"#fdecea",borderLeft:"3px solid var(--red)"}}>
+        <b>Couldn't reach the server, so this is the last data that loaded.</b> Nothing has been lost — Task Depot never
+        writes your whole list back, so a bad connection can't overwrite anything. It keeps retrying; don't trust the
+        numbers on screen until this clears.
+        {loadState.why ? <div style={{fontSize:13,color:"var(--muted)",marginTop:4}}>({loadState.why})</div> : null}
+        <div style={{marginTop:8}}><button className="btn sm" onClick={()=>load()}>Try now</button></div>
+      </div>}
       <div style={{display:"flex",justifyContent:"flex-end",marginBottom:-8}}><button className="btn p" onClick={()=>setAssign({parent:null})}>{isMgr?"+ Assign":"+ Add task"}</button></div>
       {view==="home" && <ManagerHome {...ctx}/>}
       {view==="people" && isOwner && <People {...ctx} setMe={setMe}/>}
@@ -978,7 +1018,7 @@ function People(ctx){
   const set = async (p,patch) => {
     const {error} = await sb.from("profiles").update(patch).eq("id",p.id);
     if(error){ showToast(error.message); return; }
-    await load(); if(p.id===me.id) setMe({...me,...patch}); showToast("Saved");
+    await load(); if(p.id===me.id) setMe(prev=>({...prev,...patch})); showToast("Saved");
   };
   if(pick) return <Agenda personId={pick} people={people} onBack={()=>setPick(null)} showToast={showToast} setOpen={ctx.setOpen} openTaskId={ctx.openTaskId}/>;
 
@@ -2490,7 +2530,7 @@ function Finished({tasks,people,today,setOpen,me,setMe,showToast,load}){
     const now = new Date().toISOString();
     const {error} = await sb.from("profiles").update({completions_seen_at:now}).eq("id",me.id);
     if(error){ showToast(error.message); return; }
-    setMe({...me, completions_seen_at:now}); showToast("Cleared");
+    setMe(prev=>({...prev, completions_seen_at:now})); showToast("Cleared");
   };
   const when = (t) => {
     const d = finishedAt(t), days = Math.round((Date.now()-d)/86400000);
@@ -2677,7 +2717,7 @@ function Settings({me,setMe,showToast,isMgr}){
   const set = async (patch) => {
     const {error} = await sb.from("profiles").update(patch).eq("id",me.id);
     if(error){ showToast(error.message); return; }
-    setMe({...me,...patch}); showToast("Saved");
+    setMe(prev=>({...prev,...patch})); showToast("Saved");
   };
   const Toggle = ({on,onChange,title,sub}) => <div className="person" style={{cursor:"default"}}>
     <div style={{paddingRight:12}}><b>{title}</b><div style={{fontSize:13,color:"var(--muted)"}}>{sub}</div></div>

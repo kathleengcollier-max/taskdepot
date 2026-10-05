@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="9.3">
+<meta name="app-version" content="9.4">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -110,6 +110,17 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 .panel{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
 .panel.tint{background:#f2f5fb;border-color:#dde4f2}
+/* Inside a drawer the blocks sit up off the page, each with its own coloured edge so
+   the eye can find a section without reading the headings. The task block borrows the
+   department colour the drawer is already wearing. */
+.modal .panel{border-left:4px solid var(--edge,#c3cbdb);border-radius:12px;
+  box-shadow:0 1px 2px rgba(20,26,40,.06), 0 10px 22px -14px rgba(20,26,40,.35)}
+.modal .panel.edge-dept{--edge:var(--tab,var(--navy))}
+.modal .panel.edge-steps{--edge:#c9821f}
+.modal .panel.edge-linked{--edge:#5340a3}
+.modal .panel.edge-talk{--edge:#1b6482}
+.modal .ai{border-left:4px solid #5340a3;border-radius:12px;
+  box-shadow:0 1px 2px rgba(20,26,40,.06), 0 10px 22px -14px rgba(20,26,40,.35)}
 .week{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
 .day{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px;min-height:90px}
 .day.today{border-color:var(--navy);box-shadow:0 0 0 1px var(--navy) inset}
@@ -304,6 +315,9 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"9.4", d:"October 5, 2026", items:[
+    "The blocks inside a drawer have depth now, the way Brain Dump's do: each sits on a soft shadow with a rounded corner and its own coloured edge \u2014 The task takes the department's colour, Steps amber, Linked tasks purple, and the comments and history block blue. You can find a section by its colour without reading the headings.",
+  ]},
   {v:"9.3", d:"October 5, 2026", items:[
     "The drawers have dimension, like Brain Dump's: a coloured spine down the left edge in the task's department colour, a tinted band across the top naming that department and who has it, a rounded outer corner and a deeper shadow, so an open task sits above the page instead of flat on it. The new-task drawer does the same and recolours as you pick a department.",
     "The \"Clear \u2014 show all\" line in the filter dropdowns was printing the dash as raw characters. Fixed.",
@@ -1994,7 +2008,7 @@ function TaskModal(ctx){
     </div>}
     {edit && <EditForm t={t} people={people} isMgr={isMgr} me={me} onCancel={()=>setEdit(false)} onSave={async p=>{ if(await update(t.id,p)){ setEdit(false); showToast("Saved"); } }}/>}
 
-    <div className="panel"><h3>The task</h3><dl className="kv">
+    <div className="panel edge-dept"><h3>The task</h3><dl className="kv">
       {links.length>0 && <><dt>Linked to</dt><dd>{links.map((l,i)=>
         <span key={l.id}>{i>0?", ":""}
           <a href="#" style={{color:"var(--navy)",fontWeight:600,textDecoration:"none"}}
@@ -2020,7 +2034,7 @@ function TaskModal(ctx){
       <dt>Last update</dt><dd>{fmtWhen(t.last_update_at)}</dd>
     </dl></div>
 
-    <div className="panel"><h3>Steps{steps.length?` — ${steps.filter(x=>x.done).length} of ${steps.length} done`:""}</h3>
+    <div className="panel edge-steps"><h3>Steps{steps.length?` — ${steps.filter(x=>x.done).length} of ${steps.length} done`:""}</h3>
       {steps.map(st=><div key={st.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"8px 0",borderTop:"1px solid var(--line)"}}>
         <input type="checkbox" checked={st.done} onChange={()=>toggleStep(st)} style={{width:18,height:18,marginTop:2,flexShrink:0}}/>
         <span style={{flex:1,textDecoration:st.done?"line-through":"none",color:st.done?"var(--muted)":"inherit"}}>{st.body}</span>
@@ -2033,9 +2047,9 @@ function TaskModal(ctx){
         <button className="btn sm" onClick={addStep} disabled={!newStep.trim()}>Add</button>
       </div>
     </div>
-    {children.length>0 && <div className="panel tint"><h3>Linked tasks — {children.filter(c=>CLOSED(c.status)).length} of {children.length} done</h3>
+    {children.length>0 && <div className="panel tint edge-linked"><h3>Linked tasks — {children.filter(c=>CLOSED(c.status)).length} of {children.length} done</h3>
       <div className="card" style={{marginBottom:12}}>{children.map(c=><Row key={c.id} t={c} people={people} today={today} setOpen={setOpen} showWho={true} why={c.assignee_id===me.id&&c.status!=="done"?{why:"Yours",tone:"navy"}:null}/>)}</div></div>}
-    <div className="panel"><div className="tabs" style={{marginTop:0}}>
+    <div className="panel edge-talk"><div className="tabs" style={{marginTop:0}}>
       <button className={tab==="activity"?"on":""} onClick={()=>setTab("activity")}>Comments ({comments.length})</button>
       <button className={tab==="files"?"on":""} onClick={()=>setTab("files")}>Attachments ({files.length})</button>
       <button className={tab==="history"?"on":""} onClick={()=>setTab("history")}>History</button>

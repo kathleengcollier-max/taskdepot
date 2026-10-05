@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="8.7">
+<meta name="app-version" content="8.8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -235,7 +235,10 @@ let INVITEES = [];
 let LINK_COUNTS = {};   // task id -> how many live tasks it is linked to
 
 const DOW = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-const recurLabel = (t) => !t.recur_rule ? "" : t.recur_rule==="daily" ? "Repeats daily" : t.recur_rule==="weekly" ? `Repeats ${DOW[t.recur_day??0]}s` : `Repeats monthly on the ${t.recur_day||1}`;
+const recurLabel = (t) => !t.recur_rule ? "" : t.recur_rule==="daily" ? "Repeats daily"
+  : t.recur_rule==="weekly" ? `Repeats ${DOW[t.recur_day??0]}s`
+  : t.recur_rule==="yearly" ? "Repeats yearly"
+  : `Repeats monthly on the ${t.recur_day||1}`;
 const STATUS = {not_started:"Not started", working:"Working", waiting:"Waiting", ready_for_review:"Ready for review", done:"Done", skipped:"Skipped"};
 const CLOSED = (st) => st==="done" || st==="skipped";
 // Delegated = it belongs to someone other than whoever created it. Covers people
@@ -243,6 +246,11 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"8.8", d:"October 5, 2026", items:[
+    "Repeats every year is now an option, for renewals, filings, insurance, licences and anything else that comes round once.",
+    "It needs no day setting — the due date you give it is the anniversary. Feb 29 falls back to Feb 28 in a common year, the same way monthly already handles the 30th in February.",
+    "A yearly task appears a month ahead rather than five days. Nobody arranges an annual renewal in a week.",
+  ]},
   {v:"8.7", d:"October 5, 2026", items:[
     "Repeating: click a row to open the occurrence that's live now — the oldest one still open, since that's the one running late. If they're all finished, it opens the most recent.",
     "The drawer's arrows then step back through that series' earlier occurrences, so you can see how the last few months went without leaving the task.",
@@ -1290,7 +1298,7 @@ function AssignModal(ctx){
     setBusy(true);
     const byEmail = String(f.assignee_id||"").startsWith("email:") ? f.assignee_id.slice(6) : null;
     const row = {...f, created_by:me.id, assignee_id:byEmail?null:(f.assignee_id||null), assignee_email:byEmail, due_date:f.due_date||null, parent_id:parent?parent.id:null,
-                 recur_rule:f.recur_rule||null, recur_day:(!f.recur_rule||f.recur_rule==="daily")?null:(parseInt(f.recur_day)||null), recur_cap:parseInt(f.recur_cap)||3};
+                 recur_rule:f.recur_rule||null, recur_day:(!f.recur_rule||f.recur_rule==="daily"||f.recur_rule==="yearly")?null:(parseInt(f.recur_day)||null), recur_cap:parseInt(f.recur_cap)||3};
     const targets = several.length ? several : [byEmail ? "email:"+byEmail : row.assignee_id];
     const rows = targets.map(target => String(target||"").startsWith("email:")
       ? {...row, assignee_id:null, assignee_email:String(target).slice(6)}
@@ -1926,7 +1934,7 @@ function TaskModal(ctx){
 function Recur({f,setF}){
   return <div className="two">
     <label>Repeats<select value={f.recur_rule} onChange={e=>setF({...f,recur_rule:e.target.value,recur_day:e.target.value==="weekly"||e.target.value==="monthly"?"1":""})}>
-      <option value="">Does not repeat</option><option value="daily">Every day</option><option value="weekly">Every week</option><option value="monthly">Every month</option></select></label>
+      <option value="">Does not repeat</option><option value="daily">Every day</option><option value="weekly">Every week</option><option value="monthly">Every month</option><option value="yearly">Every year</option></select></label>
     {(f.recur_rule || f.standing_notes) && <label>Standing notes
         <div style={{fontSize:13,color:"var(--muted)",fontWeight:400,marginBottom:4}}>
           {f.recur_rule ? "Carried to every occurrence, and included in the email each time — where the file lives, who to copy, what caught people out last time."
@@ -1935,8 +1943,10 @@ function Recur({f,setF}){
         <textarea value={f.standing_notes} onChange={e=>setF({...f,standing_notes:e.target.value})} placeholder="Pull it from GL Analytics, export as PDF, copy Robert." rows={2}/></label>}
     {f.recur_rule==="weekly" && <label>On<select value={f.recur_day} onChange={e=>setF({...f,recur_day:e.target.value})}>{DOW.map((d,i)=><option key={i} value={i}>{d}</option>)}</select></label>}
     {f.recur_rule==="monthly" && <label>On day<input type="number" min="1" max="31" value={f.recur_day} onChange={e=>setF({...f,recur_day:e.target.value})}/></label>}
+    {f.recur_rule==="yearly" && <div style={{fontSize:13,color:"var(--muted)",alignSelf:"end"}}>Same date every year — whatever due date you set above is the anniversary.</div>}
     {f.recur_rule && <label>Stop and flag me after<select value={f.recur_cap??3} onChange={e=>setF({...f,recur_cap:e.target.value})}>{[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n} open at once</option>)}</select></label>}
-    {f.recur_rule && f.recur_rule!=="daily" && <div style={{gridColumn:"1 / -1",fontSize:13,color:"var(--muted)"}}>These appear on schedule — five days before each due date — whether or not the last one got finished.</div>}
+    {f.recur_rule==="yearly" && <div style={{gridColumn:"1 / -1",fontSize:13,color:"var(--muted)"}}>A yearly task appears a month before it's due, not five days — an annual renewal or filing needs more notice than a week.</div>}
+    {f.recur_rule && f.recur_rule!=="daily" && f.recur_rule!=="yearly" && <div style={{gridColumn:"1 / -1",fontSize:13,color:"var(--muted)"}}>These appear on schedule — five days before each due date — whether or not the last one got finished.</div>}
     {f.recur_rule==="daily" && <div style={{gridColumn:"1 / -1",fontSize:13,color:"var(--muted)"}}>A daily task rolls forward instead of piling up: the next one appears when this one is closed.</div>}
   </div>;
 }
@@ -1967,7 +1977,7 @@ function EditForm({t,people,onCancel,onSave,isMgr,me}){
     <div className="actions"><button className="btn" onClick={onCancel}>Cancel</button><button className="btn p" onClick={()=>onSave({...f,
       assignee_id:String(f.assignee_id).startsWith("email:")?null:(f.assignee_id||null),
       assignee_email:String(f.assignee_id).startsWith("email:")?f.assignee_id.slice(6):null,
-      due_date:f.due_date||null,recur_rule:f.recur_rule||null,recur_day:f.recur_rule&&f.recur_rule!=="daily"?(parseInt(f.recur_day)||null):null,recur_cap:parseInt(f.recur_cap)||3})}>Save</button></div>
+      due_date:f.due_date||null,recur_rule:f.recur_rule||null,recur_day:(f.recur_rule && f.recur_rule!=="daily" && f.recur_rule!=="yearly")?(parseInt(f.recur_day)||null):null,recur_cap:parseInt(f.recur_cap)||3})}>Save</button></div>
   </div>;
 }
 
@@ -2162,6 +2172,7 @@ function Repeating({showToast,setOpen,tasks,isMgr,update}){
   useEffect(()=>{load();},[load]);
   const ruleText = (r) => r.rule==="daily" ? "Every day"
     : r.rule==="weekly" ? `Every ${DOW[r.recur_day??0]}`
+    : r.rule==="yearly" ? "Every year" 
     : `Monthly on the ${r.recur_day||1}`;
   const catchUp = async (r) => {
     if(!window.confirm(`Skip the ${r.open_count-1} older open one${r.open_count-1===1?"":"s"} of "${r.title}" and keep only the newest? They'll be recorded as skipped, not done.`)) return;

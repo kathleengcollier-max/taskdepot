@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="9.0">
+<meta name="app-version" content="9.2">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -84,6 +84,7 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .form input:focus,.form select:focus,.form textarea:focus,button:focus-visible{outline:2px solid var(--navy);outline-offset:1px}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.four{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px}
 .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:6px}
 .modalbg{position:fixed;inset:0;background:rgba(20,26,40,.45);z-index:40;display:flex;align-items:stretch;justify-content:flex-end;animation:fade .15s ease-out}
 .modal{background:var(--paper);width:100%;max-width:560px;height:100%;overflow:auto;border-radius:0;padding:18px 18px 28px;box-shadow:-8px 0 28px rgba(20,26,40,.18);animation:slidein .2s ease-out;padding-top:calc(18px + env(safe-area-inset-top,0px));padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
@@ -165,8 +166,9 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
   .counts button{flex:1 0 45%;border-left:0;border-top:1px solid var(--line)}
   .form input,.form select,.form textarea{font-size:16px;min-height:46px}
   input[type=checkbox]{min-width:22px;min-height:22px}
+  .mp-row input[type=checkbox]{width:22px;height:22px;min-width:22px;min-height:22px;max-width:22px}
   .person{flex-wrap:wrap}
-  .two,.three{grid-template-columns:1fr}
+  .two,.three,.four{grid-template-columns:1fr}
   .detail dl{grid-template-columns:1fr}
   .who span{display:none}
   .row{grid-template-columns:1fr}
@@ -213,9 +215,19 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .mp-btn .mp-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mp-btn .mp-caret{color:var(--muted);font-size:11px}
 .mp-panel{position:absolute;z-index:40;top:calc(100% + 4px);left:0;min-width:240px;max-height:300px;overflow-y:auto;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(20,30,60,.16);padding:6px}
-.mp-row{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:14px;font-weight:400}
+/* .form label{display:grid} outranked plain .mp-row, so inside a .form filter row
+   (Finished) the tick box stacked above its words in muted grey instead of sitting
+   beside them. Specific enough to win wherever a MultiPick is dropped. */
+.multipick .mp-panel .mp-row{display:flex;align-items:center;gap:9px;padding:6px 8px;
+  border-radius:7px;cursor:pointer;font-size:14px;font-weight:400;color:inherit}
 .mp-row:hover{background:#f2f5fb}
-.mp-row input{width:auto;margin:0}
+/* A MultiPick lives inside .form and .filters rows, whose input rules were sizing
+   this tick box like a text field — padded, bordered, 140px wide — so it read as an
+   empty box with the label pushed away from it. Pin it back to a real checkbox. */
+.mp-row input[type=checkbox]{appearance:checkbox;-webkit-appearance:checkbox;
+  flex:0 0 auto;width:17px;height:17px;min-width:17px;min-height:17px;max-width:17px;
+  padding:0;margin:0;border:0;border-radius:0;background:none;accent-color:var(--navy);cursor:pointer}
+.mp-row span{flex:1 1 auto}
 .mp-head{font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);font-weight:700;padding:8px 8px 4px}
 .mp-clear{width:100%;text-align:left;background:none;border:0;color:var(--navy);font:inherit;font-size:13px;font-weight:600;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--line);margin-bottom:4px}
 .section-title.fold{display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none;border-radius:7px;padding:3px 6px;margin-left:-6px}
@@ -223,6 +235,7 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .section-title.fold .caret{color:var(--muted);font-size:11px;width:10px}
 .section-title.fold .n{background:#e7ebf3;color:var(--muted);font-size:11px;font-weight:700;padding:1px 7px;border-radius:9px}
 .section-title.fold .hint{color:var(--muted);font-size:11px;font-weight:500;text-transform:none;letter-spacing:0}
+.ttable td.deptcol,.ttable th.deptcol{width:110px;white-space:nowrap}
 .ttable td.whycol,.ttable th.whycol{white-space:normal;min-width:140px}
 .ttable td.whycol .why{display:inline-block;font-size:12px;padding:2px 7px;border-radius:7px}
 @media(max-width:820px){.ttable .hide-sm{display:none}.ttable td.task{min-width:150px}}
@@ -255,12 +268,34 @@ const recurLabel = (t) => !t.recur_rule ? "" : t.recur_rule==="daily" ? "Repeats
   : t.recur_rule==="yearly" ? "Repeats yearly"
   : `Repeats monthly on the ${t.recur_day||1}`;
 const STATUS = {not_started:"Not started", working:"Working", waiting:"Waiting", ready_for_review:"Ready for review", done:"Done", skipped:"Skipped"};
+// The same nine Kathleen already sorts by in Brain Dump, so a task that crosses the
+// bridge keeps its label. Colours are quiet on purpose — the pill is for scanning, not shouting.
+const DEPTS = ["Operations","Finance","HR","Facilities","Vendors","Marketing","Sales","Personal","Other"];
+const DEPT_TONE = {
+  Operations:{bg:"#e8eefb",fg:"#24418f"}, Finance:{bg:"#e3f2e6",fg:"#1f6b33"},
+  HR:{bg:"#fdeef4",fg:"#9c3465"},         Facilities:{bg:"#fff1e0",fg:"#9a5712"},
+  Vendors:{bg:"#eceaf8",fg:"#5340a3"},    Marketing:{bg:"#e6f3f8",fg:"#1b6482"},
+  Sales:{bg:"#fdf0e3",fg:"#8a5a12"},      Personal:{bg:"#f0f0f2",fg:"#4a4f5c"},
+  Other:{bg:"#f0f0f2",fg:"#4a4f5c"}};
+const DeptPill = ({d}) => d ? <span className="pill" style={{background:(DEPT_TONE[d]||DEPT_TONE.Other).bg,
+  color:(DEPT_TONE[d]||DEPT_TONE.Other).fg,fontWeight:600}}>{d}</span> : null;
+
 const CLOSED = (st) => st==="done" || st==="skipped";
 // Delegated = it belongs to someone other than whoever created it. Covers people
 // who haven't signed up yet, where the owner is held as an email address.
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"9.2", d:"October 5, 2026", items:[
+    "Every task has a Department, using the same nine Kathleen already sorts by in Brain Dump \u2014 Operations, Finance, HR, Facilities, Vendors, Marketing, Sales, Personal, Other. It sits in the drawer, on the new-task and edit forms, as a colour-coded column on All tasks and Finished, and as a filter on both.",
+    "All 96 live tasks were sorted into a department up front, so the column is useful from the first time you open it rather than a wall of dashes. Finance 33, Operations 30, Facilities 11, Vendors 8, HR 8, Marketing 5, Other 1. Change any that read wrong \u2014 the edit form has the dropdown.",
+    "A task sent over from Kathleen's Inbox keeps the category it had there, and one sent back carries its department home with it.",
+    "An email forwarded to tasks@ gets filed under a department by the same AI pass that works out the owner and the date, and the confirmation back to you says which.",
+  ]},
+  {v:"9.1", d:"October 5, 2026", items:[
+    "The tick boxes in \"However it started\" and the people filter are visible again, sitting to the left of each name. They were always in the dropdown \u2014 the page's form styling was sizing them like text fields, so on Finished they came out as empty rounded boxes and on All tasks as a wide blank slab with the label shoved away from it.",
+    "All tasks and Finished now show the same four options in the same order, so the two screens read alike.",
+  ]},
   {v:"9.0", d:"October 5, 2026", items:[
     "Email intake is a table: Topic, Became a task, Who emailed it in, Arrived \u2014 sortable by any of them, so you can group by sender or read down the ones that never became a task. Who emailed it in shows the person's name, not the address, including the shared ones like ap@ and purchasing@.",
     "An email can now be assigned to someone who hasn't signed up yet. Before this, only the four of you with accounts could be named on an inbound email \u2014 everybody else fell through and the task came back to the sender. That's why the AP aging email you sent with Jeff on the line landed as yours. It now holds against their address and waits for them, exactly like assigning it in the app, and sends them nothing until they sign in. Twelve people became reachable by email this way.",
@@ -1192,6 +1227,7 @@ function AllTasks(ctx){
   const {tasks,people,today,isMgr} = ctx;
   const [q,setQ] = useState(""); const [st,setSt] = useState("open");
   const [who,setWho] = useState([]); const [origin,setOrigin] = useState([]);
+  const [dept,setDept] = useState([]);
   const peopleOpts = [
     ...people.filter(p=>p.active).map(p=>({k:p.id, label:p.full_name})),
     ...((INVITEES||[]).length ? [{header:"Not signed up yet"}] : []),
@@ -1206,6 +1242,7 @@ function AllTasks(ctx){
     return true;
   };
   const list = tasks.filter(match)
+    .filter(t=>!dept.length || dept.includes(t.department))
     .filter(t=>!origin.length || origin.includes(startedAs(t)))
     .filter(t=>!who.length || who.some(w => String(w).startsWith("email:")
         ? String(t.assignee_email||"").toLowerCase() === String(w).slice(6)
@@ -1223,14 +1260,15 @@ function AllTasks(ctx){
         <option value="skipped">Skipped</option>
         <option value="all">Everything</option></select>
       {isMgr && <MultiPick allLabel="Everyone" value={who} onChange={setWho} options={peopleOpts}/>}
+      <MultiPick allLabel="Every department" value={dept} onChange={setDept} options={DEPTS.map(d=>({k:d,label:d}))}/>
       {isMgr && <MultiPick allLabel="However it started" value={origin} onChange={setOrigin} options={[
-        {k:"delegated", label:"I assigned it in the app"},
-        {k:"own",       label:"They set it themselves"},
         {k:"email",     label:"Emailed in to tasks@"},
-        {k:"bd",        label:"Sent over from Kathleen's Inbox"}]}/>}
+        {k:"bd",        label:"Sent over from Kathleen's Inbox"},
+        {k:"delegated", label:"I assigned it in the app"},
+        {k:"own",       label:"They set it themselves"}]}/>}
     </div>
     <TaskTable list={list} people={people} today={today} setOpen={ctx.opener(list)} isMgr={isMgr} empty="No tasks match."
-      cols={isMgr?["who","title","status","origin","entered","due","updated"]:["title","status","entered","due","updated"]}/>
+      cols={isMgr?["who","title","dept","status","origin","entered","due","updated"]:["title","dept","status","entered","due","updated"]}/>
   </>;
 }
 
@@ -1254,6 +1292,8 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
                {LINK_COUNTS[t.id] > 0 && <span className="pill" title="Linked to other tasks"
                  style={{marginLeft:6,background:"#eef3fd",color:"var(--navy)"}}>&#128279; {LINK_COUNTS[t.id]}</span>}
              </>},
+    dept:    {label:"Dept", cls:"deptcol hide-sm", val:t=>t.department||"zzz",
+              cell:t=>t.department ? <DeptPill d={t.department}/> : <span className="meta">{"\u2014"}</span>},
     origin:  {label:"Origin", cls:"muted hide-sm", val:t=>t.bd_task_id?"0":t.via_email?"1":DELEGATED(t)?"2":"3",
               cell:t=>t.bd_task_id ? "From Kathleen's Inbox"
                     : t.via_email ? "Emailed to tasks@"
@@ -1330,7 +1370,7 @@ function MyDay(ctx){
 // ---------- assign modal (manager) ----------
 function AssignModal(ctx){
   const {people,me,onClose,load,showToast,today,isMgr,parent,prefill,fromMention} = ctx;
-  const blank = {title:"",assignee_id:isMgr?"":me.id,due_date:"",priority:"normal",context:parent?parent.context:"",details:"",definition_of_done:"",standing_notes:"",recur_rule:"",recur_day:"",recur_cap:3};
+  const blank = {title:"",assignee_id:isMgr?"":me.id,due_date:"",priority:"normal",context:parent?parent.context:"",details:"",definition_of_done:"",standing_notes:"",recur_rule:"",recur_day:"",recur_cap:3,department:""};
   const [several,setSeveral] = useState([]);   // extra people to give a copy to
   const [steps,setSteps] = useState([]);      // checklist typed while writing the task
   const [stepText,setStepText] = useState("");
@@ -1358,7 +1398,7 @@ function AssignModal(ctx){
     setBusy(true);
     const byEmail = String(f.assignee_id||"").startsWith("email:") ? f.assignee_id.slice(6) : null;
     const row = {...f, created_by:me.id, assignee_id:byEmail?null:(f.assignee_id||null), assignee_email:byEmail, due_date:f.due_date||null, parent_id:parent?parent.id:null,
-                 recur_rule:f.recur_rule||null, recur_day:(!f.recur_rule||f.recur_rule==="daily"||f.recur_rule==="yearly")?null:(parseInt(f.recur_day)||null), recur_cap:parseInt(f.recur_cap)||3};
+                 recur_rule:f.recur_rule||null, recur_day:(!f.recur_rule||f.recur_rule==="daily"||f.recur_rule==="yearly")?null:(parseInt(f.recur_day)||null), recur_cap:parseInt(f.recur_cap)||3, department:f.department||null};
     const targets = several.length ? several : [byEmail ? "email:"+byEmail : row.assignee_id];
     const rows = targets.map(target => String(target||"").startsWith("email:")
       ? {...row, assignee_id:null, assignee_email:String(target).slice(6)}
@@ -1404,6 +1444,9 @@ function AssignModal(ctx){
           {pending.length>0 && <optgroup label="Invited — not signed up yet">{pending.map(p=><option key={p.email} value={"email:"+p.email}>{p.full_name||p.email}</option>)}</optgroup>}</select></label>
         <label>Due<input type="date" value={f.due_date} onChange={e=>setF({...f,due_date:e.target.value})}/></label>
         <label>Priority<select value={f.priority} onChange={e=>setF({...f,priority:e.target.value})}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></label>
+      </div>
+      <div className="three">
+        <label>Department<select value={f.department} onChange={e=>setF({...f,department:e.target.value})}><option value="">Not set</option>{DEPTS.map(d=><option key={d} value={d}>{d}</option>)}</select></label>
       </div>
       {isMgr && (staff.length+pending.length)>1 && <div>
         <div className="section-title" style={{marginTop:0}}>Or give the same task to several people</div>
@@ -1927,6 +1970,8 @@ function TaskModal(ctx){
             style={{padding:"0 4px",color:"var(--muted)"}} onClick={()=>dropLink(l.id)}>&times;</button>
         </span>)}</dd></>}
       <dt>Origin</dt><dd>{DELEGATED(t) ? `Delegated by ${nameOf(people,t.created_by)}` : t.assignee_id ? "Their own task" : "Not assigned yet"}{t.bd_task_id ? <span style={{marginLeft:8,fontSize:11,fontWeight:700,color:"#1f3a7a",background:"#e0ecff",padding:"1px 7px",borderRadius:7}}>{t.bd_status==="returned"?"returned to Kathleen's Inbox":"from Kathleen's Inbox"}</span> : null}</dd>
+      <dt>Department</dt><dd>{t.department ? <DeptPill d={t.department}/>
+        : <span style={{color:"var(--muted)"}}>Not set</span>}</dd>
       <dt>Assigned to</dt><dd>{t.assignee_id ? nameOf(people,t.assignee_id)
         : t.assignee_email ? `${(INVITEES.find(i=>i.email===String(t.assignee_email).toLowerCase())||{}).full_name || t.assignee_email} — waiting for them to sign up (${t.assignee_email})` : "Unassigned"}{t.assignee_id && t.created_by!==t.assignee_id ? ` · assigned by ${nameOf(people,t.created_by)}` : t.assignee_id ? " · self-assigned" : ""}</dd>
       <dt>Due</dt><dd>{fmtDate(t.due_date)}{t.expected_completion && t.expected_completion!==t.due_date ? ` (expected ${fmtDate(t.expected_completion)})` : ""}</dd>
@@ -2021,7 +2066,7 @@ function Recur({f,setF}){
 
 function EditForm({t,people,onCancel,onSave,isMgr,me}){
   const pending = isMgr ? INVITEES : [];
-  const [f,setF] = useState({title:t.title,assignee_id:t.assignee_id||(t.assignee_email?"email:"+t.assignee_email:""),due_date:t.due_date||"",priority:t.priority,context:t.context,details:t.details,definition_of_done:t.definition_of_done,standing_notes:t.standing_notes||"",recur_rule:t.recur_rule||"",recur_day:t.recur_day??"",recur_cap:t.recur_cap??3});
+  const [f,setF] = useState({title:t.title,assignee_id:t.assignee_id||(t.assignee_email?"email:"+t.assignee_email:""),due_date:t.due_date||"",priority:t.priority,context:t.context,details:t.details,definition_of_done:t.definition_of_done,standing_notes:t.standing_notes||"",recur_rule:t.recur_rule||"",recur_day:t.recur_day??"",recur_cap:t.recur_cap??3,department:t.department||""});
   return <div className="form card" style={{padding:14,marginBottom:12}}>
     <label>Task<input value={f.title} onChange={e=>setF({...f,title:e.target.value})}/></label>
     <div className="three">
@@ -2029,6 +2074,9 @@ function EditForm({t,people,onCancel,onSave,isMgr,me}){
       {pending.length>0 && <optgroup label="Invited — not signed up yet">{pending.map(i=><option key={i.email} value={"email:"+i.email}>{i.full_name||i.email}</option>)}</optgroup>}</select></label>
       <label>Due<input type="date" value={f.due_date} onChange={e=>setF({...f,due_date:e.target.value})}/></label>
       <label>Priority<select value={f.priority} onChange={e=>setF({...f,priority:e.target.value})}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></label>
+    </div>
+    <div className="three">
+      <label>Department<select value={f.department} onChange={e=>setF({...f,department:e.target.value})}><option value="">Not set</option>{DEPTS.map(d=><option key={d} value={d}>{d}</option>)}</select></label>
     </div>
     {f.context ? <label>Context
       <div style={{fontSize:13,color:"var(--muted)",fontWeight:400,marginBottom:4}}>No longer asked for on new tasks — clear it if it isn't telling you anything.</div>
@@ -2045,7 +2093,7 @@ function EditForm({t,people,onCancel,onSave,isMgr,me}){
     <div className="actions"><button className="btn" onClick={onCancel}>Cancel</button><button className="btn p" onClick={()=>onSave({...f,
       assignee_id:String(f.assignee_id).startsWith("email:")?null:(f.assignee_id||null),
       assignee_email:String(f.assignee_id).startsWith("email:")?f.assignee_id.slice(6):null,
-      due_date:f.due_date||null,recur_rule:f.recur_rule||null,recur_day:(f.recur_rule && f.recur_rule!=="daily" && f.recur_rule!=="yearly")?(parseInt(f.recur_day)||null):null,recur_cap:parseInt(f.recur_cap)||3})}>Save</button></div>
+      due_date:f.due_date||null,recur_rule:f.recur_rule||null,recur_day:(f.recur_rule && f.recur_rule!=="daily" && f.recur_rule!=="yearly")?(parseInt(f.recur_day)||null):null,recur_cap:parseInt(f.recur_cap)||3,department:f.department||null})}>Save</button></div>
   </div>;
 }
 
@@ -2599,6 +2647,7 @@ function Finished({tasks,people,today,setOpen,me,setMe,showToast,load}){
   const [who,setWho] = useState([]);
   const [range,setRange] = useState("month");
   const [origin,setOrigin] = useState([]);   // how the task started
+  const [dept,setDept] = useState([]);
   const [busy,setBusy] = useState(false);
   const seen = new Date(me.completions_seen_at || 0);
   const finishedAt = (t) => new Date(t.status==="skipped" ? t.updated_at : (t.completed_at || t.updated_at));
@@ -2610,6 +2659,7 @@ function Finished({tasks,people,today,setOpen,me,setMe,showToast,load}){
     return new Date(0);
   };
   const list = tasks.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id)
+    .filter(t=>!dept.length || dept.includes(t.department))
     .filter(t=>!origin.length || origin.includes(startedAs(t)))
     .filter(t=>!who.length || who.some(w => String(w).startsWith("email:")
         ? String(t.assignee_email||"").toLowerCase() === String(w).slice(6)
@@ -2659,23 +2709,24 @@ function Finished({tasks,people,today,setOpen,me,setMe,showToast,load}){
       <button className="btn p" disabled={busy} onClick={markSeen}>Mark all as seen</button>
     </div>}
     <div className="note" style={{marginBottom:10}}>Everything your team has closed out. Nothing emails you when a task is finished — it just collects here until you look.</div>
-    <div className="form three" style={{marginBottom:10}}>
+    <div className="form four" style={{marginBottom:10}}>
       <MultiPick allLabel="However it started" value={origin} onChange={setOrigin} options={[
         {k:"email",     label:"Emailed in to tasks@"},
-        {k:"delegated", label:"I assigned it in the app"},
         {k:"bd",        label:"Sent over from Kathleen's Inbox"},
+        {k:"delegated", label:"I assigned it in the app"},
         {k:"own",       label:"They set it themselves"}]}/>
       <MultiPick allLabel="Everyone" value={who} onChange={setWho} options={[
         ...people.filter(p=>p.id!==me.id).map(p=>({k:p.id, label:p.full_name})),
         ...((INVITEES||[]).length ? [{header:"Not signed up yet"}] : []),
         ...(INVITEES||[]).map(i=>({k:"email:"+i.email, label:i.full_name||i.email}))]}/>
+      <MultiPick allLabel="Every department" value={dept} onChange={setDept} options={DEPTS.map(d=>({k:d,label:d}))}/>
       <select value={range} onChange={e=>setRange(e.target.value)}>
         <option value="today">Finished today</option><option value="week">Last 7 days</option>
         <option value="month">Last 30 days</option><option value="all">Everything</option></select>
     </div>
     <TaskTable list={list.map(t=>({...t, __unread: unseen(t)}))} people={people} today={today}
       setOpen={(id)=>setOpen(id, list.map(x=>x.id))}
-      cols={["unread","who","title","status","origin","finished"]} empty="Nothing finished in this window."/>
+      cols={["unread","who","title","dept","status","origin","finished"]} empty="Nothing finished in this window."/>
   </>;
 }
 

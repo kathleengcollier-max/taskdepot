@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="9.4">
+<meta name="app-version" content="9.5">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -315,6 +315,14 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"9.5", d:"October 6, 2026", items:[
+    "A 1:1 agenda now leads with the work the two of you share. Overdue, Waiting on others and Still open show what you handed them; everything they set for themselves, and anything a third person gave them, folds into one block at the bottom. On Eli's agenda that is the difference between 23 items and 6 \u2014 Still open was fifteen tasks, not one of them yours.",
+    "Folded, never hidden. The block says what is in it before you open it \u2014 \"5 Eli set for themselves, 2 handed over by someone else \u2014 2 overdue, nothing waiting on you\" \u2014 so you can skip it knowing what you skipped. One click opens the lot.",
+    "Anything they are asking you about jumps the queue whatever its origin. A task they flagged for help, one they need a decision on, or one where they have asked to move the date stays in Waiting on you even if they wrote it themselves. Them asking you is the meeting.",
+    "Finished still shows everything they closed, with their own work marked rather than removed. Credit should be generous even where scrutiny is narrow.",
+    "Show everything flips any 1:1 back to the full list, and it is remembered per person \u2014 useful for someone new, where you do want to walk the whole thing together.",
+    "The same rule works a level down: when Eli opens her 1:1 with Alexis, her agenda is what she gave Alexis, and the tasks you gave Alexis directly sit in the folded block marked with your name, so she is aware without being handed your meeting.",
+  ]},
   {v:"9.4", d:"October 5, 2026", items:[
     "The blocks inside a drawer have depth now, the way Brain Dump's do: each sits on a soft shadow with a rounded corner and its own coloured edge \u2014 The task takes the department's colour, Steps amber, Linked tasks purple, and the comments and history block blue. You can find a section by its colour without reading the headings.",
   ]},
@@ -2513,6 +2521,15 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
   const other = pairWith || personId;
   const [days,setDays] = useState(14);
   const [a,setA] = useState(null);
+  // A 1:1 is about the work the two of you share, so the agenda leads with what you
+  // handed them. Their own list and anything a third person gave them folds away —
+  // folded, never hidden: if they are behind on your work, the reason is often in there.
+  const allKey = "td_1on1_all_" + personId;
+  const [showAll,setShowAll] = useState(false);
+  const [openTheirs,setOpenTheirs] = useState(false);
+  useEffect(()=>{ try{ setShowAll(localStorage.getItem("td_1on1_all_"+personId)==="1"); }
+                  catch(e){ setShowAll(false); } setOpenTheirs(false); },[personId]);
+  const setAll = (v) => { setShowAll(v); try{ localStorage.setItem(allKey, v?"1":"0"); }catch(e){} };
   useEffect(()=>{ let live=true;
     sb.rpc("one_on_one",{p_person:personId, since_days:days}).then(({data,error})=>{
       if(!live) return;
@@ -2526,10 +2543,12 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
     const L=[]; L.push(`1:1 — ${a.person} — ${new Date().toLocaleDateString()}`);
     const sec=(t,arr,fmtFn)=>{ if(!arr||!arr.length) return; L.push(""); L.push(t.toUpperCase()); arr.forEach(x=>L.push("  - "+fmtFn(x))); };
     if(mentions && mentions.items.length){ L.push(""); L.push("WORTH MENTIONING"); mentions.items.forEach(x=>L.push(`  - ${x.mentioned?"[said] ":""}${x.body}`)); }
-    sec("Overdue",a.overdue,x=>`${x.title} (due ${fmtDate(x.due)})`);
+    sec("Overdue",agenda(a.overdue),x=>`${x.title} (due ${fmtDate(x.due)})`);
     sec("Waiting on you",a.waiting_on_you,x=>`${x.title}${x.note?` — "${x.note}"`:""}`);
-    sec("Waiting on others",a.waiting_on_others,x=>`${x.title}${x.who?` — ${x.who}`:""}`);
-    sec("Still open",a.open,x=>`${x.title}${x.due?` (due ${fmtDate(x.due)})`:""}${x.next?` — next: ${x.next}`:""}`);
+    sec("Waiting on others",agenda(a.waiting_on_others),x=>`${x.title}${x.who?` — ${x.who}`:""}`);
+    sec("Still open",agenda(a.open),x=>`${x.title}${x.due?` (due ${fmtDate(x.due)})`:""}${x.next?` — next: ${x.next}`:""}`);
+    if(theirsLive.length){ L.push(""); L.push(`THEIR OWN LIST (${theirsLive.length}) \u2014 not walked through`);
+      theirsLive.forEach(x=>L.push(`  - ${x.title}${x.due?` (due ${fmtDate(x.due)})`:""}`)); }
     sec("They've asked you for",a.they_asked_you,x=>x.title);
     sec("Your private notes",a.notes,x=>`${x.title}: ${x.body}`);
     sec(`Finished in the last ${a.since_days} days`,a.completed,x=>x.title);
@@ -2594,6 +2613,23 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
   };
   // anything covered drops out of the live sections and collects at the bottom
   const live = (items) => (items||[]).filter(x=>!x.discussed);
+  // the shared agenda: what you gave them. Their own work and anything a third person
+  // handed them drops to the folded block, unless this is their own view of the meeting
+  // or you have asked to see everything with this particular person.
+  const mgrView = !!(a && !a.own_view);
+  const grouped = mgrView && !showAll;
+  const agenda = (items) => grouped ? (items||[]).filter(x=>x.origin==="mine") : (items||[]);
+  // Waiting on you is never folded whatever its origin: a flag, a plea for help or a
+  // request to move a date is them asking you, and that IS the meeting.
+  const theirsLive = grouped
+    ? [...(a.overdue||[]), ...(a.open||[]), ...(a.waiting_on_others||[])]
+        .filter(x=>x.origin!=="mine" && !x.discussed)
+    : [];
+  const theirsOverdue = grouped
+    ? (a.overdue||[]).filter(x=>x.origin!=="mine" && !x.discussed).length : 0;
+  const theirsSelf = theirsLive.filter(x=>x.origin==="self").length;
+  const theirsOther = theirsLive.length - theirsSelf;
+  const first = String((a&&a.person)||"they").split(" ")[0];
   const coveredItems = () => [...(a?.overdue||[]), ...(a?.waiting_on_you||[]), ...(a?.waiting_on_others||[]),
                               ...(a?.open||[]), ...(a?.they_asked_you||[])].filter(x=>x.discussed);
   const Sec = ({title,items,render}) => {
@@ -2615,6 +2651,9 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
       <div style={{display:"flex",gap:6}}>
         <select value={days} onChange={e=>setDays(parseInt(e.target.value))} style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}>
           <option value={7}>Last 7 days</option><option value={14}>Last 14 days</option><option value={30}>Last 30 days</option></select>
+        {mgrView && <button className="btn sm" onClick={()=>setAll(!showAll)}
+          title={showAll ? "Lead with the work you gave them" : "Walk the whole list together"}>
+          {showAll ? "Just our work" : "Show everything"}</button>}
         <button className="btn sm" onClick={copy}>Copy</button>
         <button className="btn sm" onClick={()=>window.print()}>Print</button>
         {a.covered_count>0 && <button className="btn sm" onClick={clearAll}>Start a fresh meeting</button>}
@@ -2653,13 +2692,37 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
       : <div className="empty">Nothing waiting. Add anything you want to remember to bring up.</div>}
     </div>
 
-    <Sec title="Overdue" items={a.overdue} render={x=><><b>{x.title}</b> <span className="meta">due {fmtDate(x.due)}</span></>}/>
+    <Sec title="Overdue" items={agenda(a.overdue)} render={x=><><b>{x.title}</b> <span className="meta">due {fmtDate(x.due)}</span>{x.origin==="other"&&x.by?<span className="meta"> · from {String(x.by).split(" ")[0]}</span>:null}</>}/>
     <Sec title="Waiting on you" items={a.waiting_on_you} render={x=><><b>{x.title}</b>
       {x.asked?<div className="meta">asked to move it to {fmtDate(x.asked)}</div>:null}
       {x.note?<div className="meta">"{x.note}"</div>:null}</>}/>
-    <Sec title="Waiting on others" items={a.waiting_on_others} render={x=><>{x.title} {x.who?<span className="meta">— {x.who}</span>:null}</>}/>
-    <Sec title="Still open" items={a.open} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:"no date"}{x.next?` · next: ${x.next}`:""}</span></>}/>
+    <Sec title="Waiting on others" items={agenda(a.waiting_on_others)} render={x=><>{x.title} {x.who?<span className="meta">— {x.who}</span>:null}</>}/>
+    <Sec title="Still open" items={agenda(a.open)} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:"no date"}{x.next?` · next: ${x.next}`:""}</span></>}/>
     <Sec title="They've asked you for" items={a.they_asked_you} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:""}</span></>}/>
+    {theirsLive.length>0 && <div className="panel tint">
+      <h3>{first}{"\u2019"}s own list ({theirsLive.length})</h3>
+      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{flex:1,fontSize:13,color:"var(--muted)"}}>
+          {theirsSelf>0 ? `${theirsSelf} ${first} set for themselves` : ""}
+          {theirsSelf>0 && theirsOther>0 ? ", " : ""}
+          {theirsOther>0 ? `${theirsOther} handed over by someone else` : ""}
+          {" \u2014 "}
+          {theirsOverdue>0 ? `${theirsOverdue} overdue` : "none overdue"}
+          {", nothing waiting on you."}
+          {" Not yours to run, but here if the answer is in it."}
+        </span>
+        <button className="btn sm" onClick={()=>setOpenTheirs(!openTheirs)}>{openTheirs?"Hide":"Show"}</button>
+      </div>
+      {openTheirs && <div className="ag" style={{marginTop:10}}><ul>{theirsLive.map((x,i)=>
+        <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+          <span style={{flex:1,cursor:x.id?"pointer":undefined}}
+            onClick={()=>open(x.id, theirsLive)} title={x.id?"Open the task":undefined}>
+            {x.title}
+            <span className="meta"> {"\u2014 "}{x.due?`due ${fmtDate(x.due)}`:"no date"}
+              {x.origin==="other" && x.by ? ` \u00b7 from ${String(x.by).split(" ")[0]}` : ""}</span>
+          </span>
+        </li>)}</ul></div>}
+    </div>}
     <Sec title="Your private notes" items={a.notes} render={x=><><b>{x.title}</b><div className="meta">{x.body}</div></>}/>
     {coveredItems().length>0 && <div className="panel" style={{background:"var(--paper,#f6f7f9)"}}>
       <h3>Covered in this meeting ({coveredItems().length})</h3>
@@ -2677,7 +2740,9 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
       <div className="ag"><ul>{a.completed.map((x,i)=>
         <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
           <span style={{flex:1,cursor:x.id?"pointer":undefined}}
-            onClick={()=>open(x.id, a.completed)} title={x.id?"Open the task":undefined}>{x.title}</span>
+            onClick={()=>open(x.id, a.completed)} title={x.id?"Open the task":undefined}>{x.title}
+            {mgrView && x.origin!=="mine" && <span className="meta">
+              {x.origin==="self" ? " \u00b7 their own" : x.by ? ` \u00b7 from ${String(x.by).split(" ")[0]}` : ""}</span>}</span>
           {(ALL_TASKS.find(t=>t.id===x.id)||{}).bd_status==="returned"
             ? <span className="meta" style={{whiteSpace:"nowrap"}}>back with Kathleen</span>
             : <button className="btn q" style={{padding:"0 6px",color:"var(--muted)",whiteSpace:"nowrap"}}
@@ -2686,7 +2751,8 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
       <div style={{fontSize:13,color:"var(--muted)",marginTop:6}}>Reopening keeps the due date and records who did it in the task's history.</div>
     </div>}
     {a.own_view && <div className="note">This is what your manager sees when they open your 1:1, minus any private notes they've written.</div>}
-    {!a.completed.length && !live(a.overdue).length && !live(a.open).length && !live(a.waiting_on_you).length &&
+    {!a.completed.length && !live(agenda(a.overdue)).length && !live(agenda(a.open)).length
+      && !live(a.waiting_on_you).length && !theirsLive.length &&
       <div className="card"><div className="empty">Nothing to talk about yet — no tasks in this window.</div></div>}
   </>;
 }

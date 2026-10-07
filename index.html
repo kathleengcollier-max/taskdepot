@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="11.0">
+<meta name="app-version" content="11.1">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -46,7 +46,10 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:22px 0 10px}
 .h h2{font-size:20px;font-weight:600}
 .h .sub{color:var(--muted);font-size:14px}
-.card{background:var(--white);border:1px solid var(--line);border-radius:var(--radius)}
+.card{background:var(--white);border:1px solid var(--line);border-radius:12px;
+  box-shadow:0 1px 2px rgba(20,26,40,.05), 0 10px 22px -16px rgba(20,26,40,.3)}
+/* a Home group carries the colour of why it needs you, set by its Fold */
+.edge-red>.card,.edge-warn>.card,.edge-navy>.card,.edge-ok>.card,.edge-purple>.card,.edge-grey>.card{border-left:4px solid var(--edge,#c3cbdb)}
 .attn{border-left:4px solid var(--red)}
 .row{display:grid;grid-template-columns:1fr auto;gap:8px 14px;padding:12px 14px;border-top:1px solid var(--line);cursor:pointer;align-items:center}
 .row:first-child{border-top:0}
@@ -271,6 +274,13 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .section-title.fold .caret{color:var(--muted);font-size:11px;width:10px}
 .section-title.fold .n{background:#e7ebf3;color:var(--muted);font-size:11px;font-weight:700;padding:1px 7px;border-radius:9px}
 .section-title.fold .hint{color:var(--muted);font-size:11px;font-weight:500;text-transform:none;letter-spacing:0}
+/* the watch eye sits in the task cell: faint until you look at the row, solid once on */
+.ttable .weye{background:none;border:0;cursor:pointer;font-size:14px;line-height:1;
+  padding:0;margin-right:7px;color:var(--muted);opacity:.3;vertical-align:baseline}
+.ttable tr:hover .weye{opacity:.75}
+.ttable .weye:hover{opacity:1;color:var(--navy)}
+.ttable .weye.on{opacity:1;color:var(--navy)}
+@media (hover:none){.ttable .weye{opacity:.5}}
 .ttable td.whycol,.ttable th.whycol{white-space:normal;min-width:140px}
 .ttable td.whycol .why{display:inline-block;font-size:12px;padding:2px 7px;border-radius:7px}
 @media(max-width:820px){.ttable .hide-sm{display:none}.ttable td.task{min-width:150px}}
@@ -323,12 +333,23 @@ const toneOf = (st) => STATUS_TONE[st] || STATUS_TONE.not_started;
 
 // They are asking you, not just working. This outranks who wrote the task down.
 const ASKING = (t) => !!(t.need_help || t.need_manager || t.status==="ready_for_review");
+// the colour each Home group wears, same meanings as the 1:1 agenda
+const GROUP_EDGE = {
+  "Waiting on a decision from you":"edge-red", "Ready for your review":"edge-navy",
+  "Asked you for help":"edge-red",             "Stuck waiting on someone else":"edge-warn",
+  "Due now, and gone quiet":"edge-warn",       "Overdue":"edge-red"};
 const CLOSED = (st) => st==="done" || st==="skipped";
 // Delegated = it belongs to someone other than whoever created it. Covers people
 // who haven't signed up yet, where the owner is held as an email address.
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"11.1", d:"October 7, 2026", items:[
+    "A private note is now the author's alone. It had been readable by the owner and by the note-writer's manager, while the only promise the checkbox ever made was \"emails nobody\" \u2014 so three notes Eli wrote, one of them her own 1:1 notes, were showing on Kathleen's agenda under the heading \"Your private notes\". Closed in all three places it leaked: the task drawer, search, and the agenda. Checked afterwards from every account: Eli sees her three, everyone else sees none.",
+    "The checkbox says what it does now \u2014 \"Private note (only you can see it)\" instead of \"Private manager note (emails nobody)\".",
+    "Watch a task straight from any list. The eye sits beside the title on every row: faint until you run your eye down the column, solid once it is on. Clicking it never opens the task. The one in the drawer stays for when you are already in there.",
+    "Every page has the dimension the 1:1 agenda got: blocks lift off the background on a soft shadow, and on Home each group wears the colour of why it needs you \u2014 red for a decision or a plea for help, amber for stuck or gone quiet, navy for ready to review. Week ahead colours Due today, Overdue and No date the same way.",
+  ]},
   {v:"11.0", d:"October 7, 2026", items:[
     "The 1:1 agenda has the same dimension as the drawers: each section lifted on a soft shadow with a coloured edge. The colour carries the meaning rather than decorating it \u2014 red for Needs you, amber for Not moving, navy for everything else in flight, grey for the two folded background blocks, green for what they finished, purple for Worth mentioning. You can find your place in the meeting by colour without reading a heading.",
     "The same treatment is now available to any section in the app, not just the ones inside a drawer.",
@@ -1140,7 +1161,7 @@ function Row({t,people,today,setOpen,showWho=true,why,extra=0}){
 
 // A section heading that folds. The choice is remembered per browser, so a group you
 // never act on stays shut and the ones you work from stay open.
-function Fold({label,count,storeKey,defaultOpen=true,children}){
+function Fold({label,count,storeKey,defaultOpen=true,edge,children}){
   const key = "td_fold_" + (storeKey||label);
   const [open,setOpen] = useState(()=>{
     try{ const v = localStorage.getItem(key); return v===null ? defaultOpen : v==="1"; }
@@ -1155,7 +1176,7 @@ function Fold({label,count,storeKey,defaultOpen=true,children}){
       <span className="n">{count}</span>
       {!open && <span className="hint">show</span>}
     </div>
-    {open ? children : null}
+    {open ? <div className={edge||""}>{children}</div> : null}
   </>;
 }
 
@@ -1199,7 +1220,7 @@ function ManagerHome(ctx){
           },{}))
           .sort((a,b)=>a[1][0].a.rank - b[1][0].a.rank)
           .map(([label,items])=>
-            <Fold key={label} label={label} count={items.length}>
+            <Fold key={label} label={label} count={items.length} edge={GROUP_EDGE[label]||"edge-navy"}>
               <TaskTable list={groupSeries(items.map(x=>x.t)).map(g=>g.t)} people={people} today={today}
                 setOpen={ctx.opener(flagged.map(x=>x.t))} cols={["who","title","status","due","updated","why"]}/>
             </Fold>)
@@ -1447,6 +1468,19 @@ function AllTasks(ctx){
 // right-hand cell of buttons; rows open the drawer unless `actions` says otherwise.
 function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
   const [sort,setSort] = useState(null);
+  // WATCHED is a plain Set shared across the app, so nudge React when it changes
+  const [,bump] = useState(0);
+  const canWatch = !!(ME && (ME.role==="owner" || ME.role==="manager"));
+  const toggleWatch = async (e,t) => {
+    e.stopPropagation();                       // the row opens the task; the eye must not
+    const on = !WATCHED.has(t.id);
+    if(on) WATCHED.add(t.id); else WATCHED.delete(t.id);
+    bump(x=>x+1);
+    const {error} = on
+      ? await sb.from("task_watchers").insert({task_id:t.id, user_id:ME.id})
+      : await sb.from("task_watchers").delete().eq("task_id",t.id).eq("user_id",ME.id);
+    if(error){ if(on) WATCHED.delete(t.id); else WATCHED.add(t.id); bump(x=>x+1); }
+  };
   const whoOf = (t) => ownerName(people, t);
   const finishedAt = (t) => new Date(t.status==="skipped" ? t.updated_at : (t.completed_at || t.updated_at));
   const ago = (d) => { const days=Math.round((Date.now()-d)/86400000);
@@ -1456,12 +1490,15 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
   const COLS = {
     who:     {label:"Person", cls:"who", val:t=>whoOf(t).toLowerCase(), cell:t=>whoOf(t)},
     title:   {label:"Task", cls:"task", val:t=>t.title.toLowerCase(), cell:t=><>
+               {canWatch && <button type="button" className={"weye"+(WATCHED.has(t.id)?" on":"")}
+                 onClick={(e)=>toggleWatch(e,t)}
+                 title={WATCHED.has(t.id) ? "Watching \u2014 press to stop"
+                                          : "Keep an eye on this one"}>
+                 {WATCHED.has(t.id) ? "\u25c9" : "\u25ce"}</button>}
                {t.title}
                {t.priority==="high" && <span className="pill high" style={{marginLeft:6}}>High</span>}
                {(t.need_manager||t.need_help) && <span className="pill" style={{marginLeft:6,background:"#fdecea",color:"var(--red)"}}>{t.need_help?"Needs help":"Needs you"}</span>}
                {t.bd_status==="returned" && <span className="pill" style={{marginLeft:6,background:"#e0ecff",color:"#1f3a7a"}}>Returned to Kathleen's Inbox</span>}
-               {WATCHED.has(t.id) && <span className="pill" title="You are keeping an eye on this one"
-                 style={{marginLeft:6,background:"#e6edfb",color:"var(--navy)"}}>{"\u25c9"} Watching</span>}
                {LINK_COUNTS[t.id] > 0 && <span className="pill" title="Linked to other tasks"
                  style={{marginLeft:6,background:"#eef3fd",color:"var(--navy)"}}>&#128279; {LINK_COUNTS[t.id]}</span>}
              </>},
@@ -2235,7 +2272,7 @@ function TaskModal(ctx){
       <div className="form" style={{marginTop:10}}>
         <textarea value={body} onChange={e=>setBody(e.target.value)} placeholder={priv?"Private note only you can see":"Add a comment"}/>
         <div className="actions" style={{justifyContent:"space-between"}}>
-          {isMgr ? <label style={{display:"flex",gap:6,alignItems:"center",fontSize:14}}><input type="checkbox" checked={priv} onChange={e=>setPriv(e.target.checked)} style={{width:"auto"}}/>Private manager note <span style={{color:"var(--muted)",fontSize:12}}>(emails nobody)</span></label> : <span/>}
+          {isMgr ? <label style={{display:"flex",gap:6,alignItems:"center",fontSize:14}}><input type="checkbox" checked={priv} onChange={e=>setPriv(e.target.checked)} style={{width:"auto"}}/>Private note <span style={{color:"var(--muted)",fontSize:12}}>(only you can see it)</span></label> : <span/>}
           <button className="btn p" onClick={addComment} disabled={!body.trim()}>Post</button>
         </div>
       </div>
@@ -2472,7 +2509,7 @@ function WeekAhead({tasks,people,today,setOpen,opener,me,isMgr}){
         return <span key={o}><i style={{background:colourOf(sample)}}/>{nameFor(sample)}</span>; })}
     </div>}
 
-    {dueToday.length>0 && <div className="panel" style={{borderLeftWidth:4,borderLeftColor:"var(--navy)"}}>
+    {dueToday.length>0 && <div className="panel edged edge-navy">
       <h3>Due today {"\u2014"} {dueToday.length}</h3>
       {dueToday.map(t=><Task key={t.id} t={t} list={dueToday}/>)}
     </div>}
@@ -2489,13 +2526,13 @@ function WeekAhead({tasks,people,today,setOpen,opener,me,isMgr}){
       })}
     </div>
 
-    {undated.length>0 && <div className="panel" style={{marginTop:12,borderStyle:"dashed"}}>
+    {undated.length>0 && <div className="panel edged edge-grey" style={{marginTop:12}}>
       <h3>No date {"\u2014"} {undated.length}</h3>
       <div style={{fontSize:13,color:"var(--muted)",marginBottom:6}}>Without a date these can never be overdue, so nobody is ever reminded.</div>
       {undated.map(t=><Task key={t.id} t={t} list={undated}/>)}
     </div>}
 
-    {overdue.length>0 && <div className="panel" style={{marginTop:12,borderColor:"#f0c7c7",background:"var(--red-soft)"}}>
+    {overdue.length>0 && <div className="panel edged edge-red" style={{marginTop:12,background:"var(--red-soft)"}}>
       <h3 style={{color:"var(--red)"}}>Overdue — {overdue.length}</h3>
       <div style={{fontSize:13,color:"var(--muted)",marginBottom:6}}>Already past their date, so they aren't on the calendar above.</div>
       {overdue.map(t=><Task key={t.id} t={t} list={overdue}/>)}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="10.4">
+<meta name="app-version" content="10.6">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -288,6 +288,8 @@ const coverIfInMeeting = (id) => {
 };
 let INVITEES = [];
 let LINK_COUNTS = {};   // task id -> how many live tasks it is linked to
+let WATCHED = new Set();  // tasks you have put an eye on, so their own work reaches you
+const WATCHING = (t) => WATCHED.has(t.id);
 
 const DOW = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const startedAs = (t) => DELEGATED(t) ? "delegated" : "own";
@@ -320,6 +322,16 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"10.6", d:"October 7, 2026", items:[
+    "Week ahead drops the 14 days option. The grid holds six columns, so a fortnight was always going to spill.",
+    "All tasks: Open, Blocked, Needs you, Skipped, Done, Everything \u2014 and Blocked and Needs you no longer overlap. Blocked used to mean \"waiting OR asking you for help\", and since asking for help now sets a task to Waiting, all three flagged tasks were appearing under both. Blocked is now waiting on someone else; anything asking YOU sits under Needs you, where you would look for it.",
+  ]},
+  {v:"10.5", d:"October 7, 2026", items:[
+    "You can put an eye on a task someone set for themselves. Open it and press Watch this: from then on it reaches your Home when it needs attention and leads your 1:1 agenda with them, instead of folding into \"their own list\". Everything built this week has been about getting their own work out of your way \u2014 this is the way back in for the handful you do want to follow.",
+    "Watching is yours alone and nobody is told. It changes what you see and nothing else: no email goes out, the owner's view is unchanged, and Eli watching one of Alexis's tasks does not put it in front of you. It is a reading aid, not a flag on somebody's work.",
+    "A watched task carries a quiet Watching tag wherever it is listed, and the 1:1 marks it so you know why it is on the agenda. Press the button again to stop.",
+    "SDEA is already being watched \u2014 it came up as the test case while I was proving this works. Press the eye on it to turn that off.",
+  ]},
   {v:"10.4", d:"October 7, 2026", items:[
     "\"However it started\" is two choices instead of four: someone assigned it to them, or they created it themselves. The old four mixed up who put it on the list with how it arrived, so an emailed task was both \"emailed in\" AND assigned \u2014 picking one quietly hid the other. These two cover every task between them. If you want to find something that arrived by email, Email intake is the place for that.",
     "The Origin column matches: You assigned, Eli assigned, or Their own.",
@@ -961,14 +973,15 @@ function Shell({me,setMe}){
   const loadedReal = useRef(false);
   const load = useCallback(async ()=>{
     const attempt = async () => {
-      const [pr,tr,inv,lc] = await Promise.all([
+      const [pr,tr,inv,lc,wa] = await Promise.all([
         sb.from("profiles").select("*").order("full_name"),
         sb.from("tasks").select("*").order("due_date",{ascending:true,nullsFirst:false}),
         sb.rpc("waiting_on_signup"),
-        sb.rpc("link_counts")
+        sb.rpc("link_counts"),
+        sb.rpc("my_watched")
       ]);
       if(pr.error || tr.error) throw new Error((tr.error||pr.error).message || "read failed");
-      return {p:pr.data||[], t:tr.data||[], inv:(inv&&inv.data)||[], lc:(lc&&lc.data)||{}};
+      return {p:pr.data||[], t:tr.data||[], inv:(inv&&inv.data)||[], lc:(lc&&lc.data)||{}, wa:(wa&&wa.data)||[]};
     };
     const waits = [0, 300, 900, 1800];
     let why = null;
@@ -979,7 +992,7 @@ function Shell({me,setMe}){
         // an empty answer, when this session has already seen real data, is far more
         // likely a hiccup than a team that deleted everything in the last minute
         if(got.t.length===0 && loadedReal.current && i < waits.length-1){ why = "came back empty"; continue; }
-        setPeople(got.p); setTasks(got.t); setInvitees(got.inv); LINK_COUNTS = got.lc;
+        setPeople(got.p); setTasks(got.t); setInvitees(got.inv); LINK_COUNTS = got.lc; WATCHED = new Set(got.wa||[]);
         if(got.t.length>0) loadedReal.current = true;
         setLoadState({ok:true});
         return true;
@@ -1015,7 +1028,7 @@ function Shell({me,setMe}){
   },[]);
   const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,opener,showToast,isMgr,isOwner,invitees,openTaskId:open,startTaskFromMention};
 
-  const attnCount = isMgr ? live.filter(t=>attention(t,today) && (DELEGATED(t) || ASKING(t) || t.assignee_id===me.id)).length : 0;
+  const attnCount = isMgr ? live.filter(t=>attention(t,today) && (DELEGATED(t) || ASKING(t) || WATCHING(t) || t.assignee_id===me.id)).length : 0;
   const freshDone = isMgr ? live.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id && !t.seen_at
       && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0)).length : 0;
   const nav = isMgr
@@ -1126,8 +1139,8 @@ function ManagerHome(ctx){
   const [showTheirs,setShowTheirs] = useState(false);
   const allFlagged = tasks.filter(t=>t.assignee_id!==ctx.me.id).map(t=>({t,a:attention(t,today)})).filter(x=>x.a)
     .sort((x,y)=>x.a.rank-y.a.rank || (x.t.due_date||"9").localeCompare(y.t.due_date||"9"));
-  const flagged = allFlagged.filter(x=>DELEGATED(x.t) || ASKING(x.t));
-  const theirOwn = allFlagged.filter(x=>!DELEGATED(x.t) && !ASKING(x.t));
+  const flagged = allFlagged.filter(x=>DELEGATED(x.t) || ASKING(x.t) || WATCHING(x.t));
+  const theirOwn = allFlagged.filter(x=>!DELEGATED(x.t) && !ASKING(x.t) && !WATCHING(x.t));
   const openT = tasks.filter(t=>!CLOSED(t.status) && t.assignee_id!==ctx.me.id && DELEGATED(t));
   const week = new Date(); week.setDate(week.getDate()+7); const weekISO = week.toISOString().slice(0,10);
   const buckets = {
@@ -1339,7 +1352,7 @@ function AllTasks(ctx){
   ];
   const match = (t) => {
     if(st==="open") return !CLOSED(t.status);
-    if(st==="blocked") return !CLOSED(t.status) && (t.status==="waiting" || t.need_help);
+    if(st==="blocked") return !CLOSED(t.status) && t.status==="waiting" && !t.need_help && !t.need_manager;
     if(st==="needsyou") return !CLOSED(t.status) && (t.need_manager || t.need_help || t.status==="ready_for_review");
     if(st==="done") return t.status==="done";
     if(st==="skipped") return t.status==="skipped";
@@ -1359,10 +1372,10 @@ function AllTasks(ctx){
       <input placeholder="Search" value={q} onChange={e=>setQ(e.target.value)}/>
       <select value={st} onChange={e=>setSt(e.target.value)}>
         <option value="open">Open</option>
-        <option value="blocked">Blocked — waiting or needs help</option>
+        <option value="blocked">Blocked — waiting on someone else</option>
         <option value="needsyou">Needs you</option>
-        <option value="done">Done</option>
         <option value="skipped">Skipped</option>
+        <option value="done">Done</option>
         <option value="all">Everything</option></select>
       {isMgr && <MultiPick allLabel="Everyone" value={who} onChange={setWho} options={peopleOpts}/>}
       {isMgr && <MultiPick allLabel="Assigned or their own" value={origin} onChange={setOrigin} options={ORIGIN_OPTS}/>}
@@ -1397,6 +1410,8 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
                {t.priority==="high" && <span className="pill high" style={{marginLeft:6}}>High</span>}
                {(t.need_manager||t.need_help) && <span className="pill" style={{marginLeft:6,background:"#fdecea",color:"var(--red)"}}>{t.need_help?"Needs help":"Needs you"}</span>}
                {t.bd_status==="returned" && <span className="pill" style={{marginLeft:6,background:"#e0ecff",color:"#1f3a7a"}}>Returned to Kathleen's Inbox</span>}
+               {WATCHED.has(t.id) && <span className="pill" title="You are keeping an eye on this one"
+                 style={{marginLeft:6,background:"#e6edfb",color:"var(--navy)"}}>{"\u25c9"} Watching</span>}
                {LINK_COUNTS[t.id] > 0 && <span className="pill" title="Linked to other tasks"
                  style={{marginLeft:6,background:"#eef3fd",color:"var(--navy)"}}>&#128279; {LINK_COUNTS[t.id]}</span>}
              </>},
@@ -1618,6 +1633,20 @@ function TaskModal(ctx){
   const [joinPick,setJoinPick] = useState([]);   // several at once when linking
   const [joinBusy,setJoinBusy] = useState(false);
   const [links,setLinks] = useState([]);
+  // Watching is personal and silent: nobody is told, and it only changes what YOU see.
+  const [watching,setWatching] = useState(()=>WATCHED.has(t.id));
+  useEffect(()=>{ setWatching(WATCHED.has(t.id)); },[t.id]);
+  const toggleWatch = async () => {
+    const on = !watching;
+    setWatching(on);                       // the button answers straight away
+    const {error} = on
+      ? await sb.from("task_watchers").insert({task_id:t.id, user_id:me.id})
+      : await sb.from("task_watchers").delete().eq("task_id",t.id).eq("user_id",me.id);
+    if(error){ setWatching(!on); showToast(error.message); return; }
+    if(on) WATCHED.add(t.id); else WATCHED.delete(t.id);
+    showToast(on ? "Watching \u2014 it'll reach your Home and your 1:1"
+                 : "No longer watching it");
+  };
   const loadLinks = useCallback(()=>{
     sb.rpc("linked_tasks",{p_task:t.id}).then(({data})=>setLinks(data||[]));
   },[t.id]);
@@ -2086,6 +2115,9 @@ function TaskModal(ctx){
       {(isMgr || iCreated) && CLOSED(t.status) && t.bd_status!=="returned" && <button className="btn" onClick={()=>quick({status:"working",skip_reason:null},"Reopened")}>Reopen</button>}
       {t.recur_rule && !CLOSED(t.status) && (isMgr || t.assignee_id===me.id) && <button className="btn" onClick={()=>setSkipping(true)}>Skip this one</button>}
       {isMgr && root && <button className="btn" onClick={()=>update(root.id,{recur_paused:!root.recur_paused}).then(ok=>ok&&showToast(root.recur_paused?"Series resumed":"Series paused — no new ones will be created"))}>{root.recur_paused?"Resume series":"Pause series"}</button>}
+      {isMgr && <button className="btn" title={watching ? "Stop watching this one" : "Keep an eye on this one — it will reach your Home and your 1:1 even though it is their own task"}
+        style={watching?{borderColor:"var(--navy)",color:"var(--navy)",fontWeight:600}:undefined}
+        onClick={toggleWatch}>{watching ? "\u25c9 Watching" : "\u25ce Watch this"}</button>}
       {canReshape && <button className="btn" onClick={()=>setEdit(true)}>{isMgr?"Edit / reassign":"Edit"}</button>}
       {!canReshape && t.assignee_id===me.id && !CLOSED(t.status) && !t.requested_due &&
         <button className="btn" onClick={()=>setDating(true)}>Need more time</button>}
@@ -2337,7 +2369,7 @@ function Trash({trashed,people,today,update,showToast,setOpen,load}){
 }
 
 function WeekAhead({tasks,people,today,setOpen,opener,me,isMgr}){
-  const [span,setSpan] = useState(7);
+  const span = 7;   // six days ahead, which is what the grid has room for
   const [who,setWho] = useState("");
   // a stable colour per person, so the same name is the same colour everywhere here
   const PALETTE = ["#1f3a7a","#c62828","#2e7d32","#5b3fa0","#b26a00","#1f6f63","#8a1c5c","#37474f"];
@@ -2379,8 +2411,7 @@ function WeekAhead({tasks,people,today,setOpen,opener,me,isMgr}){
           {(INVITEES||[]).length>0 && <optgroup label="Not signed up yet">
             {INVITEES.map(i=><option key={i.email} value={"email:"+i.email}>{i.full_name||i.email}</option>)}</optgroup>}
         </select>}
-        <button className={"btn sm"+(span===7?" p":"")} onClick={()=>setSpan(7)}>7 days</button>
-        <button className={"btn sm"+(span===14?" p":"")} onClick={()=>setSpan(14)}>14 days</button>
+
       </div></div>
 
     {isMgr && owners.length>1 && <div className="who-key">
@@ -2708,10 +2739,12 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
   const grouped = mgrView && !showAll;
   // "above" is work handed straight to them by someone you report to. It stays on the
   // agenda: if your own manager is not meeting them, nobody else is going to review it.
-  const ONAGENDA = (o) => o==="mine" || o==="above";
+  const ONAGENDA = (o) => o==="mine" || o==="above" || o==="watched";
   const agenda = (items) => grouped ? (items||[]).filter(x=>ONAGENDA(x.origin)) : (items||[]);
   const fromAbove = (x) => x.origin==="above" && x.by
-    ? <span className="meta"> {"\u00b7"} from {String(x.by).split(" ")[0]}</span> : null;
+    ? <span className="meta"> {"\u00b7"} from {String(x.by).split(" ")[0]}</span>
+    : x.origin==="watched"
+    ? <span className="meta"> {"\u00b7 \u25c9"} watching</span> : null;
   // Waiting on you is never folded whatever its origin: a flag, a plea for help or a
   // request to move a date is them asking you, and that IS the meeting.
   const theirsLive = grouped

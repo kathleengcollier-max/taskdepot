@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="10.9">
+<meta name="app-version" content="11.0">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -118,8 +118,10 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 /* Inside a drawer the blocks sit up off the page, each with its own coloured edge so
    the eye can find a section without reading the headings. The task block borrows the
    status colour the drawer is already wearing. */
-.modal .panel{border-left:4px solid var(--edge,#c3cbdb);border-radius:12px;
+.modal .panel,.panel.edged{border-left:4px solid var(--edge,#c3cbdb);border-radius:12px;
   box-shadow:0 1px 2px rgba(20,26,40,.06), 0 10px 22px -14px rgba(20,26,40,.35)}
+.edge-red{--edge:var(--red)} .edge-warn{--edge:#c9821f} .edge-navy{--edge:var(--navy)}
+.edge-ok{--edge:var(--ok)} .edge-purple{--edge:#5340a3} .edge-grey{--edge:#9aa3b2}
 .modal .panel.edge-main{--edge:var(--tab,var(--navy))}
 .modal .panel.edge-steps{--edge:#c9821f}
 .modal .panel.edge-linked{--edge:#5340a3}
@@ -327,6 +329,10 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"11.0", d:"October 7, 2026", items:[
+    "The 1:1 agenda has the same dimension as the drawers: each section lifted on a soft shadow with a coloured edge. The colour carries the meaning rather than decorating it \u2014 red for Needs you, amber for Not moving, navy for everything else in flight, grey for the two folded background blocks, green for what they finished, purple for Worth mentioning. You can find your place in the meeting by colour without reading a heading.",
+    "The same treatment is now available to any section in the app, not just the ones inside a drawer.",
+  ]},
   {v:"10.9", d:"October 7, 2026", items:[
     "The 1:1 agenda is three sections instead of six, in the order you would actually talk through them: Needs you, Not moving, Everything else on their plate.",
     "Overdue and Waiting on others have become one \u2014 Not moving \u2014 with the reason on each line, \"overdue since Oct 1\" or \"waiting on Jeff\". They were separate sections that overlapped, so a task that was both appeared twice and the agenda looked longer than the work. On Eli's agenda that was happening to the building and forklift oversight task. A task can now only be in one place.",
@@ -2816,10 +2822,10 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
   const [openHanded,setOpenHanded] = useState(false);
   const coveredItems = () => [...(a?.overdue||[]), ...(a?.waiting_on_you||[]), ...(a?.waiting_on_others||[]),
                               ...(a?.open||[]), ...(a?.they_asked_you||[])].filter(x=>x.discussed);
-  const Sec = ({title,items,render}) => {
+  const Sec = ({title,items,render,edge}) => {
     const rows = live(items);
     if(!rows.length) return null;
-    return <div className="panel"><h3>{title} ({rows.length})</h3>
+    return <div className={"panel edged "+(edge||"edge-navy")}><h3>{title} ({rows.length})</h3>
       <div className="ag"><ul>{rows.map((x,i)=>
         <li key={i} style={x.id?{cursor:"pointer",display:"flex",gap:8,alignItems:"flex-start"}:undefined}>
           {x.id && <button className="btn q" title="Covered — drop it off this agenda"
@@ -2843,7 +2849,7 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
         {a.covered_count>0 && <button className="btn sm" onClick={clearAll}>Start a fresh meeting</button>}
         <button className="btn sm" onClick={onBack}>Back</button>
       </div></div>
-    <div className="panel">
+    <div className="panel edged edge-purple">
       <h3>Worth mentioning {mentions && mentions.open_count>0 ? `(${mentions.open_count})` : ""}</h3>
       <div style={{fontSize:13,color:"var(--muted)",marginBottom:8}}>
         Things to raise when you talk — not tasks. Nobody is chased about these and no email goes out.
@@ -2876,13 +2882,13 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
       : <div className="empty">Nothing waiting. Add anything you want to remember to bring up.</div>}
     </div>
 
-    <Sec title="Needs you" items={a.waiting_on_you} render={x=><><b>{x.title}</b>
+    <Sec edge="edge-red" title="Needs you" items={a.waiting_on_you} render={x=><><b>{x.title}</b>
       {x.asked?<div className="meta">asked to move it to {fmtDate(x.asked)}</div>:null}
       {x.note?<div className="meta">"{x.note}"</div>:null}</>}/>
-    <Sec title="Not moving" items={stalled} render={x=><><b>{x.title}</b> <span className="meta">{x.__why}</span>{fromAbove(x)}</>}/>
-    <Sec title="Everything else on their plate" items={inFlight} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:"no date"}{x.next?` · next: ${x.next}`:""}</span>{fromAbove(x)}</>}/>
+    <Sec edge="edge-warn" title="Not moving" items={stalled} render={x=><><b>{x.title}</b> <span className="meta">{x.__why}</span>{fromAbove(x)}</>}/>
+    <Sec edge="edge-navy" title="Everything else on their plate" items={inFlight} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:"no date"}{x.next?` · next: ${x.next}`:""}</span>{fromAbove(x)}</>}/>
 
-    {live(a.they_asked_you).length>0 && <div className="panel tint">
+    {live(a.they_asked_you).length>0 && <div className="panel tint edged edge-grey">
       <h3>What {first} has handed to other people ({live(a.they_asked_you).length})</h3>
       <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{flex:1,fontSize:13,color:"var(--muted)"}}>
@@ -2895,7 +2901,7 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
             {x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:"no date"}</span></span>
         </li>)}</ul></div>}
     </div>}
-    {theirsLive.length>0 && <div className="panel tint">
+    {theirsLive.length>0 && <div className="panel tint edged edge-grey">
       <h3>{first}{"\u2019"}s own list ({theirsLive.length})</h3>
       <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{flex:1,fontSize:13,color:"var(--muted)"}}>
@@ -2919,8 +2925,8 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
           </span>
         </li>)}</ul></div>}
     </div>}
-    <Sec title="Your private notes" items={a.notes} render={x=><><b>{x.title}</b><div className="meta">{x.body}</div></>}/>
-    {coveredItems().length>0 && <div className="panel" style={{background:"var(--paper,#f6f7f9)"}}>
+    <Sec edge="edge-purple" title="Your private notes" items={a.notes} render={x=><><b>{x.title}</b><div className="meta">{x.body}</div></>}/>
+    {coveredItems().length>0 && <div className="panel edged edge-grey" style={{background:"var(--paper,#f6f7f9)"}}>
       <h3>Covered in this meeting ({coveredItems().length})</h3>
       <div className="ag"><ul>{coveredItems().map((x,i)=>
         <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start",color:"var(--muted)"}}>
@@ -2931,7 +2937,7 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
         </li>)}</ul></div>
       <div style={{fontSize:13,color:"var(--muted)",marginTop:6}}>These stay off the agenda for the rest of the day, however their dates or status change.</div>
     </div>}
-    {a.completed && a.completed.length>0 && <div className="panel">
+    {a.completed && a.completed.length>0 && <div className="panel edged edge-ok">
       <h3>Finished in the last {a.since_days} days ({a.completed.length})</h3>
       <div className="ag"><ul>{a.completed.map((x,i)=>
         <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}>

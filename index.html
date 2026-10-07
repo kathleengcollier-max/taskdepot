@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="11.1">
+<meta name="app-version" content="11.2">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -274,6 +274,12 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .section-title.fold .caret{color:var(--muted);font-size:11px;width:10px}
 .section-title.fold .n{background:#e7ebf3;color:var(--muted);font-size:11px;font-weight:700;padding:1px 7px;border-radius:9px}
 .section-title.fold .hint{color:var(--muted);font-size:11px;font-weight:500;text-transform:none;letter-spacing:0}
+/* Two rows out of seventy earn a mark, so they can afford to be loud. Asking you wins
+   over watching, and only asking gets a tint \u2014 the solid eye already says watching. */
+.ttable tr.r-asking>td:first-child{box-shadow:inset 3px 0 0 var(--red)}
+.ttable tr.r-asking>td{background:#fdf6f6}
+.ttable tr.r-asking:hover>td{background:#fbeeee}
+.ttable tr.r-watching>td:first-child{box-shadow:inset 3px 0 0 var(--navy)}
 /* the watch eye sits in the task cell: faint until you look at the row, solid once on */
 .ttable .weye{background:none;border:0;cursor:pointer;font-size:14px;line-height:1;
   padding:0;margin-right:7px;color:var(--muted);opacity:.3;vertical-align:baseline}
@@ -344,6 +350,11 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"11.2", d:"October 7, 2026", items:[
+    "Rows that want something from you stand out. A task asking you for help, a decision, or a review gets a red edge and a faint warm tint; one you are watching gets a navy edge. Four rows out of seventy-one are red and two are navy right now, which is the point \u2014 if half the list lit up it would mean nothing.",
+    "A row that is both asking and watched shows red. Asking wins, and the solid eye already says you are watching it.",
+    "Home has a Watching section, collapsible like the rest, sitting just above Overdue. It holds what you are keeping an eye on that nothing else has already claimed \u2014 so a watched task that needs a decision stays under Waiting on a decision rather than appearing twice. It shows watched work even when nothing is wrong with it, which is the whole reason you put an eye on it.",
+  ]},
   {v:"11.1", d:"October 7, 2026", items:[
     "A private note is now the author's alone. It had been readable by the owner and by the note-writer's manager, while the only promise the checkbox ever made was \"emails nobody\" \u2014 so three notes Eli wrote, one of them her own 1:1 notes, were showing on Kathleen's agenda under the heading \"Your private notes\". Closed in all three places it leaked: the task drawer, search, and the agenda. Checked afterwards from every account: Eli sees her three, everyone else sees none.",
     "The checkbox says what it does now \u2014 \"Private note (only you can see it)\" instead of \"Private manager note (emails nobody)\".",
@@ -1214,16 +1225,32 @@ function ManagerHome(ctx){
       setOpen={ctx.opener(theirOwn.map(x=>x.t))} cols={["who","title","status","due","why"]}/>}
     <div className="h"><h2>Needs attention</h2><span className="sub">{flagged.length ? `${flagged.length} item${flagged.length>1?"s":""}` : "Nothing — enjoy it"}</span></div>
     {flagged.length
-      ? Object.entries(flagged.reduce((acc,x)=>{
-            const g = x.a.group || "Needs a look";
-            (acc[g] = acc[g] || []).push(x); return acc;
-          },{}))
-          .sort((a,b)=>a[1][0].a.rank - b[1][0].a.rank)
-          .map(([label,items])=>
+      ? (() => {
+          const groups = Object.entries(flagged.reduce((acc,x)=>{
+              const g = x.a.group || "Needs a look";
+              (acc[g] = acc[g] || []).push(x); return acc;
+            },{})).sort((a,b)=>a[1][0].a.rank - b[1][0].a.rank);
+          const block = ([label,items]) =>
             <Fold key={label} label={label} count={items.length} edge={GROUP_EDGE[label]||"edge-navy"}>
               <TaskTable list={groupSeries(items.map(x=>x.t)).map(g=>g.t)} people={people} today={today}
                 setOpen={ctx.opener(flagged.map(x=>x.t))} cols={["who","title","status","due","updated","why"]}/>
-            </Fold>)
+            </Fold>;
+          // anything you are watching that no other group has already claimed, so a
+          // watched task that needs a decision stays under the decision heading
+          const claimed = new Set(flagged.map(x=>x.t.id));
+          const watchlist = tasks.filter(t=>!CLOSED(t.status) && WATCHED.has(t.id)
+                                            && t.assignee_id!==ctx.me.id && !claimed.has(t.id));
+          const watchBlock = watchlist.length
+            ? <Fold key="__watching" label="Watching" count={watchlist.length} storeKey="watching" edge="edge-navy">
+                <TaskTable list={watchlist} people={people} today={today}
+                  setOpen={ctx.opener(watchlist)} cols={["who","title","status","due","updated"]}/>
+              </Fold>
+            : null;
+          const at = groups.findIndex(([label])=>label==="Overdue");
+          const out = groups.map(block);
+          if(watchBlock) out.splice(at<0 ? out.length : at, 0, watchBlock);
+          return out;
+        })()
       : <div className="card"><div className="empty">
           Everything you've delegated is on track. The other {openT.length} open tasks are fine without you.
         </div></div>}
@@ -1543,7 +1570,8 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
         {COLS[k].label}{sort && sort.k===k ? <span className="sortmark">{sort.dir===1?"\u25B4":"\u25BE"}</span> : null}</th>)}
       {actions && <th className="num"></th>}
     </tr></thead><tbody>
-      {rows.map(t=><tr key={t.id} onClick={()=>setOpen && setOpen(t.id)} style={setOpen?undefined:{cursor:"default"}}>
+      {rows.map(t=><tr key={t.id} onClick={()=>setOpen && setOpen(t.id)} style={setOpen?undefined:{cursor:"default"}}
+        className={ASKING(t) ? "r-asking" : WATCHED.has(t.id) ? "r-watching" : ""}>
         {keys.map(k=><td key={k} className={[COLS[k].cls||"",COLS[k].cellCls?COLS[k].cellCls(t):""].join(" ").trim()}>{COLS[k].cell(t)}</td>)}
         {actions && <td className="num" onClick={e=>e.stopPropagation()}>{actions(t)}</td>}
       </tr>)}

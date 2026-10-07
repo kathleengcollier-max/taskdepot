@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="10.0">
+<meta name="app-version" content="10.1">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -314,6 +314,10 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"10.1", d:"October 7, 2026", items:[
+    "Week ahead is six columns and they are all days ahead of you. Today comes off the grid and sits in its own band above it, where something due today belongs anyway, and No date moves below the calendar instead of taking one of the six slots. Nothing is lost \u2014 the grid just stops overflowing.",
+    "Related-task suggestions stop treating a shared label as shared work. \"EOM Task:\" is a filing convention, not a description, and comparing whole titles made every month-end task look like a duplicate of every other one \u2014 five of the fifteen suggestions in the system were EOM siblings matching on a prefix added two days ago. Comparison now ignores a leading label. Five false alarms gone, two real matches found (1050 Bank Rec with EOM Task: Bank recs, and the two voucher tasks), every true match kept.",
+  ]},
   {v:"10.0", d:"October 7, 2026", items:[
     "Asking for help now reaches the person who can actually help. It was routed off whoever OWNS the task, on the assumption that the owner is always the one raising their hand \u2014 true when work is handed down, backwards when somebody creates a task, assigns it upward and then flags it. On the Santa Ana trash sign the app decided Kathleen was the one asking and would have emailed Eli. It now follows whoever pressed the button, up their reporting line.",
     "Nobody but the owner can hand a task upward any more. You can give work to yourself or to someone who reports to you; names above you are no longer in the list, and the database refuses it even if something else tries. To put something on your manager's plate, open the task and use Need help, or add it to your 1:1 under Worth mentioning \u2014 both keep it attached to the work it came from instead of starting a new task on their list. Tasks already assigned upward stay where they are and can still be edited.",
@@ -2313,11 +2317,12 @@ function WeekAhead({tasks,people,today,setOpen,opener,me,isMgr}){
       ? String(t.assignee_email||"").toLowerCase()===who.slice(6) : t.assignee_id===who);
 
   const days = [];
-  for(let i=0;i<span;i++){
+  for(let i=1;i<span;i++){
     const d = new Date(today+"T00:00:00"); d.setDate(d.getDate()+i);
     const iso = d.toISOString().slice(0,10);
     days.push({iso, d, list: mine.filter(t=>t.due_date===iso)});
   }
+  const dueToday = mine.filter(t=>t.due_date===today);
   const overdue = mine.filter(t=>t.due_date && t.due_date < today)
     .sort((a,b)=>(a.due_date||"").localeCompare(b.due_date||""));
   const undated = mine.filter(t=>!t.due_date);
@@ -2348,6 +2353,11 @@ function WeekAhead({tasks,people,today,setOpen,opener,me,isMgr}){
         return <span key={o}><i style={{background:colourOf(sample)}}/>{nameFor(sample)}</span>; })}
     </div>}
 
+    {dueToday.length>0 && <div className="panel" style={{borderLeftWidth:4,borderLeftColor:"var(--navy)"}}>
+      <h3>Due today {"\u2014"} {dueToday.length}</h3>
+      {dueToday.map(t=><Task key={t.id} t={t} list={dueToday}/>)}
+    </div>}
+
     <div className="week">
       {days.map(({iso,d,list})=>{
         const weekend = d.getDay()===0 || d.getDay()===6;
@@ -2358,11 +2368,13 @@ function WeekAhead({tasks,people,today,setOpen,opener,me,isMgr}){
             : <div style={{fontSize:13,color:"var(--muted)"}}>—</div>}
         </div>;
       })}
-      {undated.length>0 && <div className="day" style={{borderStyle:"dashed"}}>
-        <h4><b>No date</b><span>{undated.length}</span></h4>
-        {undated.map(t=><Task key={t.id} t={t} list={undated}/>)}
-      </div>}
     </div>
+
+    {undated.length>0 && <div className="panel" style={{marginTop:12,borderStyle:"dashed"}}>
+      <h3>No date {"\u2014"} {undated.length}</h3>
+      <div style={{fontSize:13,color:"var(--muted)",marginBottom:6}}>Without a date these can never be overdue, so nobody is ever reminded.</div>
+      {undated.map(t=><Task key={t.id} t={t} list={undated}/>)}
+    </div>}
 
     {overdue.length>0 && <div className="panel" style={{marginTop:12,borderColor:"#f0c7c7",background:"var(--red-soft)"}}>
       <h3 style={{color:"var(--red)"}}>Overdue — {overdue.length}</h3>
@@ -2372,7 +2384,7 @@ function WeekAhead({tasks,people,today,setOpen,opener,me,isMgr}){
 
     {later.length>0 && <div style={{marginTop:12,fontSize:14,color:"var(--muted)"}}>
       {later.length} more due after {fmtDate(days[days.length-1].iso)}.</div>}
-    {!overdue.length && !undated.length && days.every(d=>!d.list.length) &&
+    {!overdue.length && !undated.length && !dueToday.length && days.every(d=>!d.list.length) &&
       <div className="card" style={{marginTop:12}}><div className="empty">Nothing due in this window.</div></div>}
   </>;
 }

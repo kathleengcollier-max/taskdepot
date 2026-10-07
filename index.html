@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="10.2">
+<meta name="app-version" content="10.4">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -290,7 +290,11 @@ let INVITEES = [];
 let LINK_COUNTS = {};   // task id -> how many live tasks it is linked to
 
 const DOW = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-const startedAs = (t) => t.bd_task_id ? "bd" : t.via_email ? "email" : DELEGATED(t) ? "delegated" : "own";
+const startedAs = (t) => DELEGATED(t) ? "delegated" : "own";
+const ORIGIN_OPTS = [{k:"delegated", label:"Someone assigned it to them"},
+                     {k:"own",       label:"They created it themselves"}];
+// a saved filter from the old four-way version would match nothing; drop what is gone
+const cleanOrigin = (v) => (v||[]).filter(k=>k==="delegated"||k==="own");
 const recurLabel = (t) => !t.recur_rule ? "" : t.recur_rule==="daily" ? "Repeats daily"
   : t.recur_rule==="weekly" ? `Repeats ${DOW[t.recur_day??0]}s`
   : t.recur_rule==="yearly" ? "Repeats yearly"
@@ -316,6 +320,17 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"10.4", d:"October 7, 2026", items:[
+    "\"However it started\" is two choices instead of four: someone assigned it to them, or they created it themselves. The old four mixed up who put it on the list with how it arrived, so an emailed task was both \"emailed in\" AND assigned \u2014 picking one quietly hid the other. These two cover every task between them. If you want to find something that arrived by email, Email intake is the place for that.",
+    "The Origin column matches: You assigned, Eli assigned, or Their own.",
+    "Asking for help puts a task into Waiting, on the person being asked. SDEA and the Santa Ana trash sign both read Working while nobody was working on them \u2014 both were sitting on an unanswered question. Clearing the flag hands it back to Working and clears the waiting note, so nobody has to set the status twice.",
+    "A task already waiting on something real keeps that \u2014 flag one that is waiting on Goodman and it still says Goodman, not your manager. And a flagged task still appears under \"Asked you for help\" on Home rather than sinking into \"Stuck waiting on someone else\".",
+  ]},
+  {v:"10.3", d:"October 7, 2026", items:[
+    "A task moves itself to Working the moment somebody actually engages with it \u2014 a person comments, a step is added or ticked, somebody asks for help or a decision, or somebody asks for more time. Circle Backs had seven comments and still read Not started; the SDEA renewal was flagged for help while claiming nobody had touched it. Ten tasks were sitting in that state and have been moved.",
+    "The comment an emailed task is born with does not count. Those chain summaries land within seconds of arrival, so anything in a task's first two minutes is treated as part of its arrival rather than as work \u2014 otherwise every forwarded email would have started itself before anyone read it. One rule, and it covers email intake, the Brain Dump bridge and copied tasks together.",
+    "Reassigning a task on its own does NOT start it, which is the one place this differs from what was asked. Handing work to somebody new does not mean they have begun it, and Not started is the only thing on the screen that says nobody has picked this up yet. Every other kind of touch starts it, including the flags that made SDEA look wrong.",
+  ]},
   {v:"10.2", d:"October 7, 2026", items:[
     "Asking for help reaches Home whoever wrote the task down. Home only ever showed delegated work, so a task someone set for themselves and then flagged Need help never appeared \u2014 it folded into the \"their own list\" line. That is why the Santa Ana trash sign and the SDEA renewal were nowhere to be seen. Anything flagged for help, needing a decision, or ready for your review now sits in Needs attention no matter who created it.",
     "Claude now judges the related-task suggestions. The wording test stays as a cheap wide net, pulling up to six candidates; Claude decides which are actually the same job and writes the reason in plain English \u2014 \"both are putting clipboards up at the branches\" rather than \"wording is 22% the same\". It catches matches the wording test cannot see, and rules out month-end tasks that only share a label.",
@@ -1313,7 +1328,7 @@ function AllTasks(ctx){
   const [who,setWho] = useState(saved ? (saved.who||[]) : []);
   // First visit for a manager opens on the work they handed out, which is the question
   // this screen usually answers. Everything else is one tick away and the banner says so.
-  const [origin,setOrigin] = useState(saved ? (saved.origin||[]) : (isMgr ? ["delegated"] : []));
+  const [origin,setOrigin] = useState(saved ? cleanOrigin(saved.origin) : (isMgr ? ["delegated"] : []));
   useEffect(()=>{ try{ localStorage.setItem(KEY, JSON.stringify({st,who,origin})); }catch(e){} },[KEY,st,who,origin]);
   const filtered = st!=="open" || who.length>0 || origin.length>0;
   const clearAll = () => { setSt("open"); setWho([]); setOrigin([]); setQ(""); };
@@ -1350,11 +1365,7 @@ function AllTasks(ctx){
         <option value="skipped">Skipped</option>
         <option value="all">Everything</option></select>
       {isMgr && <MultiPick allLabel="Everyone" value={who} onChange={setWho} options={peopleOpts}/>}
-      {isMgr && <MultiPick allLabel="However it started" value={origin} onChange={setOrigin} options={[
-        {k:"email",     label:"Emailed in to tasks@"},
-        {k:"bd",        label:"Sent over from Kathleen's Inbox"},
-        {k:"delegated", label:"I assigned it in the app"},
-        {k:"own",       label:"They set it themselves"}]}/>}
+      {isMgr && <MultiPick allLabel="Assigned or their own" value={origin} onChange={setOrigin} options={ORIGIN_OPTS}/>}
       {filtered && <button className="btn sm" onClick={clearAll}>Clear filters</button>}
     </div>
     {filtered && <div className="note" style={{marginBottom:10,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
@@ -1389,10 +1400,9 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
                {LINK_COUNTS[t.id] > 0 && <span className="pill" title="Linked to other tasks"
                  style={{marginLeft:6,background:"#eef3fd",color:"var(--navy)"}}>&#128279; {LINK_COUNTS[t.id]}</span>}
              </>},
-    origin:  {label:"Origin", cls:"muted hide-sm", val:t=>t.bd_task_id?"0":t.via_email?"1":DELEGATED(t)?"2":"3",
-              cell:t=>t.bd_task_id ? "From Kathleen's Inbox"
-                    : t.via_email ? "Emailed to tasks@"
-                    : DELEGATED(t) ? (t.created_by===(ME&&ME.id) ? "You assigned" : "From "+String(nameOf(people,t.created_by)).split(" ")[0])
+    origin:  {label:"Origin", cls:"muted hide-sm", val:t=>DELEGATED(t)?"0":"1",
+              cell:t=>DELEGATED(t)
+                    ? (t.created_by===(ME&&ME.id) ? "You assigned" : String(nameOf(people,t.created_by)).split(" ")[0]+" assigned")
                     : t.assignee_id ? (t.assignee_id===(ME&&ME.id) ? "Your own" : "Their own") : "—"},
     status:  {label:"Status", val:t=>(STATUS[t.status]||"").toLowerCase(),
               cell:t=><><span className={"pill "+t.status}>{STATUS[t.status]}</span>
@@ -2905,11 +2915,7 @@ function Finished({tasks,people,today,setOpen,me,setMe,showToast,load}){
     </div>}
     <div className="note" style={{marginBottom:10}}>Everything your team has closed out. Nothing emails you when a task is finished — it just collects here until you look.</div>
     <div className="form three" style={{marginBottom:10}}>
-      <MultiPick allLabel="However it started" value={origin} onChange={setOrigin} options={[
-        {k:"email",     label:"Emailed in to tasks@"},
-        {k:"bd",        label:"Sent over from Kathleen's Inbox"},
-        {k:"delegated", label:"I assigned it in the app"},
-        {k:"own",       label:"They set it themselves"}]}/>
+      <MultiPick allLabel="Assigned or their own" value={origin} onChange={setOrigin} options={ORIGIN_OPTS}/>
       <MultiPick allLabel="Everyone" value={who} onChange={setWho} options={[
         ...people.filter(p=>p.id!==me.id).map(p=>({k:p.id, label:p.full_name})),
         ...((INVITEES||[]).length ? [{header:"Not signed up yet"}] : []),

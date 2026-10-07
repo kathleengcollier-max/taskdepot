@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="11.5">
+<meta name="app-version" content="11.7">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -110,8 +110,10 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .modal .spine .spine-sub{font-weight:600;letter-spacing:.3px;text-transform:none;
   font-size:12px;color:var(--muted)}
 /* the watch toggle lives in the band so it sits in the same place on every drawer */
-.modal .spine .eye{background:none;border:0;cursor:pointer;font-size:17px;line-height:1;
-  padding:2px 5px;border-radius:6px;color:var(--muted)}
+.modal .spine .eye{background:none;border:0;cursor:pointer;line-height:0;
+  padding:3px 5px;border-radius:6px;color:var(--muted);
+  display:inline-flex;align-items:center}
+.modal .spine .eye svg{display:block}
 .modal .spine .eye:hover{background:rgba(20,26,40,.08);color:var(--tab,var(--navy))}
 .modal .spine .eye.on{color:var(--tab,var(--navy))}
 @keyframes slidein{from{transform:translateX(100%)}to{transform:translateX(0)}}
@@ -281,11 +283,16 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .ttable tr.r-asking:hover>td{background:#fbeeee}
 .ttable tr.r-watching>td:first-child{box-shadow:inset 3px 0 0 var(--navy)}
 /* the watch eye sits in the task cell: faint until you look at the row, solid once on */
-.ttable .weye{background:none;border:0;cursor:pointer;font-size:14px;line-height:1;
-  padding:0;margin-right:7px;color:var(--muted);opacity:.3;vertical-align:baseline}
+.ttable .weye{background:none;border:0;cursor:pointer;line-height:0;
+  padding:0;margin-right:7px;color:var(--muted);opacity:.4;
+  display:inline-flex;align-items:center;vertical-align:-3px}
+.ttable .weye svg{display:block}
 .ttable tr:hover .weye{opacity:.75}
 .ttable .weye:hover{opacity:1;color:var(--navy)}
 .ttable .weye.on{opacity:1;color:var(--navy)}
+/* someone else has an eye on it: solid, but not in your colour */
+.ttable .weye.others{opacity:.9;color:#8b93a4}
+.modal .spine .eye.others{color:rgba(20,26,40,.45)}
 @media (hover:none){.ttable .weye{opacity:.5}}
 .ttable td.whycol,.ttable th.whycol{white-space:normal;min-width:140px}
 .ttable td.whycol .why{display:inline-block;font-size:12px;padding:2px 7px;border-radius:7px}
@@ -312,6 +319,28 @@ const coverIfInMeeting = (id) => {
 let INVITEES = [];
 let LINK_COUNTS = {};   // task id -> how many live tasks it is linked to
 let WATCHED = new Set();  // tasks you have put an eye on, so their own work reaches you
+// Watching is on the record: everyone who can see a task can see who is following it,
+// the person doing the work included. { taskId: [{id,name}] }
+let WATCHERS = {};
+const watchersOf = (t) => WATCHERS[t.id] || [];
+const otherWatchers = (t) => watchersOf(t).filter(w => !ME || w.id !== ME.id);
+const watcherNames = (ws) => ws.map(w => String(w.name).split(" ")[0]).join(", ");
+// An eye with lashes, drawn here rather than borrowed from the symbol font, because
+// \u25c9 reads as a radio button. A solid pupil means somebody has an eye on it; the
+// colour says whether that somebody is you.
+const Eye = ({on, size=15}) =>
+  <svg width={size} height={size} viewBox="0 0 18 18" fill="none" stroke="currentColor"
+       strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M1.3 10.3c2.3-3.5 5.1-5.2 7.7-5.2s5.4 1.7 7.7 5.2c-2.3 3.1-5.1 4.7-7.7 4.7s-5.4-1.6-7.7-4.7Z"/>
+    <circle cx="9" cy="10.3" r="2.5" fill={on ? "currentColor" : "none"} stroke={on ? "none" : "currentColor"}/>
+    <path d="M9 4.6V2.2M3.9 5.9 2.5 3.9M14.1 5.9l1.4-2"/>
+  </svg>;
+// keep the shared map honest the instant someone clicks, without waiting for a reload
+const noteWatch = (t, on, who) => {
+  const ws = (WATCHERS[t.id] || []).filter(w => w.id !== who.id);
+  WATCHERS[t.id] = on ? ws.concat([{id:who.id, name:who.full_name || "You"}]) : ws;
+  if(!WATCHERS[t.id].length) delete WATCHERS[t.id];
+};
 const WATCHING = (t) => WATCHED.has(t.id);
 
 const DOW = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -350,6 +379,23 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"11.6", d:"October 7, 2026", items:[
+    "The eye is an eye now, lashes and all, instead of \u25c9 \u2014 which was really a radio button wearing a disguise. Hollow pupil means nobody is watching, solid means somebody is, and the colour says whether that somebody is you. Same drawing everywhere it appears: the lists, the task itself, and the 1:1 agenda.",
+    "The 1:1 agenda has a Watching section, sitting after Needs you and Not moving and before everything else. A watched task that is overdue or asking you for something stays under those headings \u2014 they outrank the eye, same rule as Home \u2014 so this holds the ones that are simply ticking along, which would otherwise disappear into a catch-all of fourteen.",
+    "Watching is no longer private. It used to be a silent eye that only changed what you saw; now anyone who can see a task can see who is following it \u2014 including the person doing the work. The eye in a list goes solid in grey when somebody else is watching and navy when you are, and hovering it names them. The task itself says it in words at the top.",
+    "You can still only see watchers on tasks you can already see. Checked from Alexis's account: she sees Eliseth watching her own task, and nothing at all about tasks that are not hers.",
+    "\"Split off a linked task\" is parked. It made a brand-new task for someone else hung off this one, and it never sat right \u2014 it was being used to get eyes on a piece of work, which is what the eye is for now. Tasks already split stay exactly as they are, still showing \"Part of\" on both sides, and \"Link to another task\" still relates two tasks that already exist.",
+  ]},
+  {v:"11.5", d:"October 7, 2026", items:[
+    "A 1:1 is a meeting you hold, not a line on the org chart. You can add someone who reports elsewhere \u2014 Alexis reports to Eliseth, but you review the work you have given her together, so she now sits on your 1:1s with a Remove button and an agenda of her own.",
+    "The app offers it before you ask: anyone you have live delegated work with and no meeting to review it in shows under \"Worth adding\" with the count, and one press adds them.",
+    "A pin can never point upward. A manager pinning their own boss would have been able to read their whole list, so the rule that stops you assigning work upward now covers this too \u2014 enforced when the pin is written and re-checked every time it is read, so a stale one grants nothing.",
+    "The other side of the meeting sees it. Their page is now headed \"Your own list\" and says who reviews it \u2014 one list labelled by who asked, rather than two near-identical pages.",
+  ]},
+  {v:"11.3", d:"October 7, 2026", items:[
+    "A task you are watching now always appears under Watching, unless it is actually asking you for something. It used to stand aside for any other group that claimed it, so \"Transfer labels\" \u2014 overdue by a day \u2014 was filed inside a collapsed pile of 33 overdue tasks. The one being watched most closely was the one it hid best.",
+    "Watching rows carry a reason, so an overdue one reads \"overdue since Oct 6\" where it sits.",
+  ]},
   {v:"11.2", d:"October 7, 2026", items:[
     "Rows that want something from you stand out. A task asking you for help, a decision, or a review gets a red edge and a faint warm tint; one you are watching gets a navy edge. Four rows out of seventy-one are red and two are navy right now, which is the point \u2014 if half the list lit up it would mean nothing.",
     "A row that is both asking and watched shows red. Asking wins, and the solid eye already says you are watching it.",
@@ -1033,15 +1079,16 @@ function Shell({me,setMe}){
   const loadedReal = useRef(false);
   const load = useCallback(async ()=>{
     const attempt = async () => {
-      const [pr,tr,inv,lc,wa] = await Promise.all([
+      const [pr,tr,inv,lc,wa,wb] = await Promise.all([
         sb.from("profiles").select("*").order("full_name"),
         sb.from("tasks").select("*").order("due_date",{ascending:true,nullsFirst:false}),
         sb.rpc("waiting_on_signup"),
         sb.rpc("link_counts"),
-        sb.rpc("my_watched")
+        sb.rpc("my_watched"),
+        sb.rpc("watchers_by_task")
       ]);
       if(pr.error || tr.error) throw new Error((tr.error||pr.error).message || "read failed");
-      return {p:pr.data||[], t:tr.data||[], inv:(inv&&inv.data)||[], lc:(lc&&lc.data)||{}, wa:(wa&&wa.data)||[]};
+      return {p:pr.data||[], t:tr.data||[], inv:(inv&&inv.data)||[], lc:(lc&&lc.data)||{}, wa:(wa&&wa.data)||[], wb:(wb&&wb.data)||{}};
     };
     const waits = [0, 300, 900, 1800];
     let why = null;
@@ -1053,6 +1100,7 @@ function Shell({me,setMe}){
         // likely a hiccup than a team that deleted everything in the last minute
         if(got.t.length===0 && loadedReal.current && i < waits.length-1){ why = "came back empty"; continue; }
         setPeople(got.p); setTasks(got.t); setInvitees(got.inv); LINK_COUNTS = got.lc; WATCHED = new Set(got.wa||[]);
+        WATCHERS = got.wb || {};
         if(got.t.length>0) loadedReal.current = true;
         setLoadState({ok:true});
         return true;
@@ -1507,11 +1555,12 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
     e.stopPropagation();                       // the row opens the task; the eye must not
     const on = !WATCHED.has(t.id);
     if(on) WATCHED.add(t.id); else WATCHED.delete(t.id);
+    noteWatch(t, on, ME);
     bump(x=>x+1);
     const {error} = on
       ? await sb.from("task_watchers").insert({task_id:t.id, user_id:ME.id})
       : await sb.from("task_watchers").delete().eq("task_id",t.id).eq("user_id",ME.id);
-    if(error){ if(on) WATCHED.delete(t.id); else WATCHED.add(t.id); bump(x=>x+1); }
+    if(error){ if(on) WATCHED.delete(t.id); else WATCHED.add(t.id); noteWatch(t, !on, ME); bump(x=>x+1); }
   };
   const whoOf = (t) => ownerName(people, t);
   const finishedAt = (t) => new Date(t.status==="skipped" ? t.updated_at : (t.completed_at || t.updated_at));
@@ -1522,11 +1571,19 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
   const COLS = {
     who:     {label:"Person", cls:"who", val:t=>whoOf(t).toLowerCase(), cell:t=>whoOf(t)},
     title:   {label:"Task", cls:"task", val:t=>t.title.toLowerCase(), cell:t=><>
-               {canWatch && <button type="button" className={"weye"+(WATCHED.has(t.id)?" on":"")}
-                 onClick={(e)=>toggleWatch(e,t)}
-                 title={WATCHED.has(t.id) ? "Watching \u2014 press to stop"
-                                          : "Keep an eye on this one"}>
-                 {WATCHED.has(t.id) ? "\u25c9" : "\u25ce"}</button>}
+               {canWatch && (() => {
+                 const mine = WATCHED.has(t.id), others = otherWatchers(t);
+                 const also = others.length ? watcherNames(others) : "";
+                 return <button type="button"
+                   className={"weye"+(mine?" on":others.length?" others":"")}
+                   onClick={(e)=>toggleWatch(e,t)}
+                   title={mine
+                     ? (others.length ? `Watching \u2014 so ${also} ${others.length>1?"are":"is"} too. Press to stop`
+                                      : "Watching \u2014 press to stop")
+                     : (others.length ? `${also} ${others.length>1?"are":"is"} watching this. Press to watch it too`
+                                      : "Keep an eye on this one")}>
+                   <Eye on={mine || others.length>0}/></button>;
+               })()}
                {t.title}
                {t.priority==="high" && <span className="pill high" style={{marginLeft:6}}>High</span>}
                {(t.need_manager||t.need_help) && <span className="pill" style={{marginLeft:6,background:"#fdecea",color:"var(--red)"}}>{t.need_help?"Needs help":"Needs you"}</span>}
@@ -1753,8 +1810,9 @@ function TaskModal(ctx){
   const [joinPick,setJoinPick] = useState([]);   // several at once when linking
   const [joinBusy,setJoinBusy] = useState(false);
   const [links,setLinks] = useState([]);
-  // Watching is personal and silent: nobody is told, and it only changes what YOU see.
+  // Watching is on the record: whoever can see the task can see you are following it.
   const [watching,setWatching] = useState(()=>WATCHED.has(t.id));
+  const [, bumpW] = useState(0);
   useEffect(()=>{ setWatching(WATCHED.has(t.id)); },[t.id]);
   const toggleWatch = async () => {
     const on = !watching;
@@ -1764,7 +1822,8 @@ function TaskModal(ctx){
       : await sb.from("task_watchers").delete().eq("task_id",t.id).eq("user_id",me.id);
     if(error){ setWatching(!on); showToast(error.message); return; }
     if(on) WATCHED.add(t.id); else WATCHED.delete(t.id);
-    showToast(on ? "Watching \u2014 it'll reach your Home and your 1:1"
+    noteWatch(t, on, me); bumpW(x=>x+1);
+    showToast(on ? "Watching \u2014 it'll reach your Home and your 1:1, and shows on the task"
                  : "No longer watching it");
   };
   const loadLinks = useCallback(()=>{
@@ -2028,10 +2087,18 @@ function TaskModal(ctx){
       <span>{STATUS[t.status]}</span>
       <span style={{display:"flex",alignItems:"center",gap:10}}>
         <span className="spine-sub">{ownerName(people,t,{plain:true})}</span>
-        {isMgr && <button type="button" className={"eye"+(watching?" on":"")} onClick={toggleWatch}
-          title={watching ? "Watching this one \u2014 press to stop"
-                          : "Keep an eye on this one: it reaches your Home and your 1:1 even though it is their own task"}>
-          {watching ? "\u25c9" : "\u25ce"}</button>}
+        {isMgr && (() => {
+          const others = otherWatchers(t);
+          const also = others.length ? watcherNames(others) : "";
+          return <button type="button" className={"eye"+(watching?" on":others.length?" others":"")}
+            onClick={toggleWatch}
+            title={watching
+              ? (others.length ? `Watching this one \u2014 so ${also} ${others.length>1?"are":"is"} too. Press to stop`
+                               : "Watching this one \u2014 press to stop")
+              : (others.length ? `${also} ${others.length>1?"are":"is"} watching this. Press to watch it too`
+                               : "Keep an eye on this one: it reaches your Home and your 1:1 even though it is their own task")}>
+            <Eye on={watching || others.length>0} size={17}/></button>;
+        })()}
       </span>
     </div>
     {queue.length>1 && at>=0 && <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
@@ -2040,6 +2107,15 @@ function TaskModal(ctx){
       <button className="btn sm" disabled={at>=queue.length-1} onClick={()=>go(1)} aria-label="Next task">→</button>
     </div>}
     <h2>{t.title}</h2>
+    {watchersOf(t).length>0 && <div className="note" style={{marginBottom:10,display:"flex",gap:8,alignItems:"center"}}>
+      <span style={{color:"var(--navy)",display:"inline-flex",flex:"0 0 auto"}}><Eye on={true} size={16}/></span>
+      <span>{(() => {
+        const ws = watchersOf(t), mine = ws.some(w=>w.id===me.id), others = ws.filter(w=>w.id!==me.id);
+        if(mine && !others.length) return "You are watching this task. Whoever can see it can see that.";
+        if(mine) return `You and ${watcherNames(others)} are watching this task.`;
+        return `${watcherNames(others)} ${others.length>1?"are":"is"} watching this task.`;
+      })()}</span>
+    </div>}
     <div style={{marginBottom:10}}>
       <span className={"pill "+t.status}>{STATUS[t.status]}</span>{" "}
       {t.priority==="high" && <span className="pill high">High priority</span>}{" "}
@@ -2244,7 +2320,7 @@ function TaskModal(ctx){
       {canReshape && <button className="btn" onClick={()=>setEdit(true)}>{isMgr?"Edit / reassign":"Edit"}</button>}
       {!canReshape && t.assignee_id===me.id && !CLOSED(t.status) && !t.requested_due &&
         <button className="btn" onClick={()=>setDating(true)}>Need more time</button>}
-      <button className="btn" onClick={addSub}>Split off a linked task</button>
+
       {!CLOSED(t.status) && <button className="btn" onClick={()=>{setJoining("link");setJoinPick([]);setJoinQ("");}}>Link to another task</button>}
       {(isMgr || iCreated) && !CLOSED(t.status) && <button className="btn" onClick={()=>{setJoining("merge");setJoinPick([]);setJoinQ("");}}>Merge another in</button>}
       {isMgr && (people.filter(p=>p.active && p.id!==t.assignee_id).length + (INVITEES||[]).length)>0 &&
@@ -2909,7 +2985,8 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
   const fromAbove = (x) => x.origin==="above" && x.by
     ? <span className="meta"> {"\u00b7"} from {String(x.by).split(" ")[0]}</span>
     : x.origin==="watched"
-    ? <span className="meta"> {"\u00b7 \u25c9"} watching</span> : null;
+    ? <span className="meta" style={{display:"inline-flex",alignItems:"center",gap:4}}>
+        {"\u00b7"} <Eye on={true} size={12}/> watching</span> : null;
   // Waiting on you is never folded whatever its origin: a flag, a plea for help or a
   // request to move a date is them asking you, and that IS the meeting.
   const theirsLive = grouped
@@ -2931,7 +3008,12 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
     ...bucket(agenda(a.overdue), x=>`overdue since ${fmtDate(x.due)}`),
     ...bucket(agenda(a.waiting_on_others), x=>x.who ? `waiting on ${x.who}` : "waiting on someone else"),
   ] : [];
-  const inFlight = a ? bucket(agenda(a.open), x=>"") : [];
+  const inFlightAll = a ? bucket(agenda(a.open), x=>"") : [];
+  // Same rule as Home: a task you are watching gets its own heading, unless it is
+  // already asking you or has stalled — those outrank the eye and keep it. Without
+  // this, a watched task that is simply ticking along vanishes into the catch-all.
+  const watchedFine = inFlightAll.filter(x=>x.origin==="watched");
+  const inFlight    = inFlightAll.filter(x=>x.origin!=="watched");
   const [openHanded,setOpenHanded] = useState(false);
   const coveredItems = () => [...(a?.overdue||[]), ...(a?.waiting_on_you||[]), ...(a?.waiting_on_others||[]),
                               ...(a?.open||[]), ...(a?.they_asked_you||[])].filter(x=>x.discussed);
@@ -2999,6 +3081,8 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
       {x.asked?<div className="meta">asked to move it to {fmtDate(x.asked)}</div>:null}
       {x.note?<div className="meta">"{x.note}"</div>:null}</>}/>
     <Sec edge="edge-warn" title="Not moving" items={stalled} render={x=><><b>{x.title}</b> <span className="meta">{x.__why}</span>{fromAbove(x)}</>}/>
+    <Sec edge="edge-navy" title="Watching" items={watchedFine} render={x=><>{x.title} <span className="meta">
+      {x.due?`due ${fmtDate(x.due)}`:"no date"}{x.next?` \u00b7 next: ${x.next}`:""} {"\u00b7"} nothing wrong with it, you just asked to follow it</span></>}/>
     <Sec edge="edge-navy" title="Everything else on their plate" items={inFlight} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:"no date"}{x.next?` · next: ${x.next}`:""}</span>{fromAbove(x)}</>}/>
 
     {live(a.they_asked_you).length>0 && <div className="panel tint edged edge-grey">

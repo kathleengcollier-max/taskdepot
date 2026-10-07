@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="11.7">
+<meta name="app-version" content="11.9">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -287,6 +287,10 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
   padding:0;margin-right:7px;color:var(--muted);opacity:.4;
   display:inline-flex;align-items:center;vertical-align:-3px}
 .ttable .weye svg{display:block}
+/* how far through the steps a task is, sitting quietly beside its name */
+.ttable .steps-n{color:var(--muted);font-weight:600;font-size:12.5px;white-space:nowrap}
+/* a confirm card inside the drawer wears an edge like every other block does */
+.modal .form.card.edged{border-left:4px solid var(--edge,#c3cbdb)}
 .ttable tr:hover .weye{opacity:.75}
 .ttable .weye:hover{opacity:1;color:var(--navy)}
 .ttable .weye.on{opacity:1;color:var(--navy)}
@@ -318,6 +322,7 @@ const coverIfInMeeting = (id) => {
 };
 let INVITEES = [];
 let LINK_COUNTS = {};   // task id -> how many live tasks it is linked to
+let STEP_COUNTS = {};   // task id -> [ticked, total], so a list can show progress
 let WATCHED = new Set();  // tasks you have put an eye on, so their own work reaches you
 // Watching is on the record: everyone who can see a task can see who is following it,
 // the person doing the work included. { taskId: [{id,name}] }
@@ -380,6 +385,10 @@ const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
   {v:"11.6", d:"October 7, 2026", items:[
+    "Finishing a task with steps still unticked now asks first. It names how many and lists them, then gives three ways out: tick them all and finish, finish anyway and leave them unticked as an honest record, or cancel. It does not block you \u2014 a checklist is a plan, and plans change \u2014 it stops it happening without you noticing.",
+    "Done means has moved into Details on the 25 open tasks that had one, so criteria your team was given are still in front of them. Closed tasks were left alone and the original text is still stored, so this can be undone.",
+    "A task's name carries its step count in every list \u2014 \"15th Corp Statements (4/5)\" \u2014 turning green when the last one is ticked. Eleven tasks have steps and you could not tell from any list which were nearly finished.",
+    "Definition of done is gone from the new-task form, the edit form and the task itself. Forty live tasks still have the text saved against them; nothing was deleted, it is just no longer shown, so say the word if you want it folded into Details rather than left sitting there.",
     "The eye is an eye now, lashes and all, instead of \u25c9 \u2014 which was really a radio button wearing a disguise. Hollow pupil means nobody is watching, solid means somebody is, and the colour says whether that somebody is you. Same drawing everywhere it appears: the lists, the task itself, and the 1:1 agenda.",
     "The 1:1 agenda has a Watching section, sitting after Needs you and Not moving and before everything else. A watched task that is overdue or asking you for something stays under those headings \u2014 they outrank the eye, same rule as Home \u2014 so this holds the ones that are simply ticking along, which would otherwise disappear into a catch-all of fourteen.",
     "Watching is no longer private. It used to be a silent eye that only changed what you saw; now anyone who can see a task can see who is following it \u2014 including the person doing the work. The eye in a list goes solid in grey when somebody else is watching and navy when you are, and hovering it names them. The task itself says it in words at the top.",
@@ -1079,16 +1088,17 @@ function Shell({me,setMe}){
   const loadedReal = useRef(false);
   const load = useCallback(async ()=>{
     const attempt = async () => {
-      const [pr,tr,inv,lc,wa,wb] = await Promise.all([
+      const [pr,tr,inv,lc,wa,wb,sc] = await Promise.all([
         sb.from("profiles").select("*").order("full_name"),
         sb.from("tasks").select("*").order("due_date",{ascending:true,nullsFirst:false}),
         sb.rpc("waiting_on_signup"),
         sb.rpc("link_counts"),
         sb.rpc("my_watched"),
-        sb.rpc("watchers_by_task")
+        sb.rpc("watchers_by_task"),
+        sb.rpc("step_counts")
       ]);
       if(pr.error || tr.error) throw new Error((tr.error||pr.error).message || "read failed");
-      return {p:pr.data||[], t:tr.data||[], inv:(inv&&inv.data)||[], lc:(lc&&lc.data)||{}, wa:(wa&&wa.data)||[], wb:(wb&&wb.data)||{}};
+      return {p:pr.data||[], t:tr.data||[], inv:(inv&&inv.data)||[], lc:(lc&&lc.data)||{}, wa:(wa&&wa.data)||[], wb:(wb&&wb.data)||{}, sc:(sc&&sc.data)||{}};
     };
     const waits = [0, 300, 900, 1800];
     let why = null;
@@ -1100,7 +1110,7 @@ function Shell({me,setMe}){
         // likely a hiccup than a team that deleted everything in the last minute
         if(got.t.length===0 && loadedReal.current && i < waits.length-1){ why = "came back empty"; continue; }
         setPeople(got.p); setTasks(got.t); setInvitees(got.inv); LINK_COUNTS = got.lc; WATCHED = new Set(got.wa||[]);
-        WATCHERS = got.wb || {};
+        WATCHERS = got.wb || {}; STEP_COUNTS = got.sc || {};
         if(got.t.length>0) loadedReal.current = true;
         setLoadState({ok:true});
         return true;
@@ -1585,6 +1595,13 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
                    <Eye on={mine || others.length>0}/></button>;
                })()}
                {t.title}
+               {(() => {
+                 const c = STEP_COUNTS[t.id];
+                 if(!c || !c[1]) return null;
+                 const [done,total] = c, all = done===total;
+                 return <span className="steps-n" title={`${done} of ${total} step${total>1?"s":""} ticked off`}
+                   style={all?{color:"var(--ok)"}:null}>{` (${done}/${total})`}</span>;
+               })()}
                {t.priority==="high" && <span className="pill high" style={{marginLeft:6}}>High</span>}
                {(t.need_manager||t.need_help) && <span className="pill" style={{marginLeft:6,background:"#fdecea",color:"var(--red)"}}>{t.need_help?"Needs help":"Needs you"}</span>}
                {t.bd_status==="returned" && <span className="pill" style={{marginLeft:6,background:"#e0ecff",color:"#1f3a7a"}}>Returned to Kathleen's Inbox</span>}
@@ -1761,7 +1778,6 @@ function AssignModal(ctx){
         {several.length>0 && <div style={{fontSize:13,color:"var(--muted)",marginTop:4}}>Each person gets their own copy with its own progress and due date, and the copies are linked to each other so you can see them together. Tap a name again to remove them.</div>}
       </div>}
       <label>Details<textarea value={f.details} onChange={e=>setF({...f,details:e.target.value})}/></label>
-      <label>Definition of done<input value={f.definition_of_done} onChange={e=>setF({...f,definition_of_done:e.target.value})} placeholder="Quote attached + PO updated"/></label>
       <div>
         <div className="section-title" style={{marginTop:0}}>Steps {steps.length?`(${steps.length})`:""}</div>
         <div style={{fontSize:13,color:"var(--muted)",marginBottom:6}}>A checklist inside the task — no separate cards, no separate owner. Paste a list and each line becomes a step.</div>
@@ -2060,6 +2076,24 @@ function TaskModal(ctx){
     if(error){ showToast(error.message); return; } window.open(data.signedUrl,"_blank");
   };
   const quick = (patch, msg) => update(t.id,patch).then(ok=>ok&&showToast(msg));
+  // Finishing with steps still open is allowed — a checklist is a plan, and plans
+  // change — but it should never happen by accident, so say so and make it a choice.
+  const [finishing,setFinishing] = useState(null);
+  const openSteps = steps.filter(x=>!x.done);
+  const finish = (patch, msg) => {
+    if(openSteps.length) setFinishing({patch,msg}); else quick(patch,msg);
+  };
+  const finishNow = async (tickRest) => {
+    const f = finishing; setFinishing(null);
+    if(!f) return;
+    if(tickRest && openSteps.length){
+      const {error} = await sb.from("task_steps").update({done:true, done_by:me.id, done_at:new Date().toISOString()})
+        .in("id", openSteps.map(x=>x.id));
+      if(error){ showToast(error.message); return; }
+      loadSteps();
+    }
+    quick(f.patch, f.msg);
+  };
   const histText = (h) => {
     const who = nameOf(people,h.actor_id);
     switch(h.action){
@@ -2146,7 +2180,6 @@ function TaskModal(ctx){
     </div>}
     {parent && <div className="note" style={{marginBottom:10}}>Part of <a href="#" onClick={e=>{e.preventDefault();setOpen(parent.id);}}>{parent.title}</a></div>}
 
-    {!isMgr && !upd && t.assignee_id===me.id && t.definition_of_done && !CLOSED(t.status) && <div className="note" style={{marginBottom:6}}><b>Done means:</b> {t.definition_of_done}</div>}
     {asking && <div className="form card" style={{padding:14,marginBottom:12}}>
       <div><b>What do you need?</b>
         <div style={{fontSize:13,color:"var(--muted)"}}>This goes straight to your manager by email, along with the task. Leave it blank if you just need them to take a look.</div></div>
@@ -2154,12 +2187,24 @@ function TaskModal(ctx){
       <div className="actions"><button className="btn" onClick={()=>{setAsking(false);setAskNote("");}}>Cancel</button>
         <button className="btn r" onClick={doAsk}>Send to your manager</button></div>
     </div>}
+    {finishing && <div className="form card edged edge-warn" style={{padding:14,marginBottom:12}}>
+      <b>{openSteps.length} of {steps.length} step{steps.length>1?"s":""} {openSteps.length>1?"are":"is"} still unticked.</b>
+      <ul style={{margin:"6px 0 10px 18px",padding:0,color:"var(--muted)",fontSize:13.5}}>
+        {openSteps.slice(0,4).map(x=><li key={x.id}>{x.body}</li>)}
+        {openSteps.length>4 && <li>{"\u2026 and "}{openSteps.length-4} more</li>}
+      </ul>
+      <div className="actions">
+        <button className="btn" onClick={()=>setFinishing(null)}>Cancel</button>
+        <button className="btn" onClick={()=>finishNow(false)}>Finish anyway, leave them</button>
+        <button className="btn p" onClick={()=>finishNow(true)}>Tick them all and finish</button>
+      </div>
+    </div>}
     {skipping && <div className="form card" style={{padding:14,marginBottom:12}}>
       <label>Why are you skipping this one?<input autoFocus value={skipWhy} onChange={e=>setSkipWhy(e.target.value)} placeholder="Holiday, branch closed, not applicable this month…"/></label>
       <div className="actions"><button className="btn" onClick={()=>setSkipping(false)}>Cancel</button><button className="btn p" onClick={doSkip}>Skip this one</button></div>
     </div>}
-    {!upd && !skipping && !asking && t.assignee_id===me.id && !CLOSED(t.status) && <div className="big">
-      <button className="done" onClick={()=>quick({status:"done",need_help:false,need_manager:false},"Marked done")}>Done</button>
+    {!upd && !skipping && !asking && !finishing && t.assignee_id===me.id && !CLOSED(t.status) && <div className="big">
+      <button className="done" onClick={()=>finish({status:"done",need_help:false,need_manager:false},"Marked done")}>Done</button>
       <button className="upd" onClick={()=>setUpd({status:t.status==="not_started"?"working":t.status,waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Update</button>
       <button className="blk" onClick={()=>setUpd({mode:"blocked",status:"waiting",waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Blocked</button>
       <button className="help" onClick={()=>setAsking(true)}>Need help</button>
@@ -2310,10 +2355,10 @@ function TaskModal(ctx){
     })()}
     {!edit && !skipping && !asking && !replying && !copying && !returning && !joining && (isMgr || iCreated || t.assignee_id===me.id) &&
      <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
-      {isMgr && t.status==="ready_for_review" && <button className="btn p" onClick={()=>quick({status:"done",need_manager:false},"Approved and closed")}>Approve — mark done</button>}
+      {isMgr && t.status==="ready_for_review" && <button className="btn p" onClick={()=>finish({status:"done",need_manager:false},"Approved and closed")}>Approve — mark done</button>}
       {isMgr && t.status==="ready_for_review" && <button className="btn" onClick={()=>quick({status:"working"},"Sent back")}>Send back</button>}
       {isMgr && (t.need_manager||t.need_help) && <button className="btn r" onClick={()=>setReplying(true)}>Reply &amp; clear flag</button>}
-      {!CLOSED(t.status) && t.assignee_id!==me.id && <button className="btn" onClick={()=>quick({status:"done"},"Marked done")}>Mark done</button>}
+      {!CLOSED(t.status) && t.assignee_id!==me.id && <button className="btn" onClick={()=>finish({status:"done"},"Marked done")}>Mark done</button>}
       {(isMgr || iCreated) && CLOSED(t.status) && t.bd_status!=="returned" && <button className="btn" onClick={()=>quick({status:"working",skip_reason:null},"Reopened")}>Reopen</button>}
       {t.recur_rule && !CLOSED(t.status) && (isMgr || t.assignee_id===me.id) && <button className="btn" onClick={()=>setSkipping(true)}>Skip this one</button>}
       {isMgr && root && <button className="btn" onClick={()=>update(root.id,{recur_paused:!root.recur_paused}).then(ok=>ok&&showToast(root.recur_paused?"Series resumed":"Series paused — no new ones will be created"))}>{root.recur_paused?"Resume series":"Pause series"}</button>}
@@ -2349,7 +2394,6 @@ function TaskModal(ctx){
       {t.next_action && <><dt>Next action</dt><dd>{t.next_action}</dd></>}
       {t.context && <><dt>Context</dt><dd>{t.context}</dd></>}
       {t.details && <><dt>Details</dt><dd style={{whiteSpace:"pre-wrap"}}>{t.details}</dd></>}
-      {t.definition_of_done && <><dt>Done means</dt><dd>{t.definition_of_done}</dd></>}
       {t.standing_notes && <><dt>Standing notes</dt><dd style={{whiteSpace:"pre-wrap"}}>{t.standing_notes}{t.recur_rule?<div style={{fontSize:13,color:"var(--muted)"}}>Carried to every occurrence of this recurring task.</div>:null}</dd></>}
       {t.status==="skipped" && t.skip_reason && <><dt>Skipped because</dt><dd>{t.skip_reason}</dd></>}
       {root && root.recur_paused && <><dt>Series</dt><dd>Paused — no new occurrences are being created</dd></>}
@@ -2449,7 +2493,6 @@ function EditForm({t,people,onCancel,onSave,isMgr,me}){
       <div style={{fontSize:13,color:"var(--muted)",fontWeight:400,marginBottom:4}}>No longer asked for on new tasks — clear it if it isn't telling you anything.</div>
       <input value={f.context} onChange={e=>setF({...f,context:e.target.value})}/></label> : null}
     <label>Details<textarea value={f.details} onChange={e=>setF({...f,details:e.target.value})}/></label>
-    <label>Definition of done<input value={f.definition_of_done} onChange={e=>setF({...f,definition_of_done:e.target.value})}/></label>
     {(f.recur_rule || f.standing_notes) && <label>Standing notes
       <div style={{fontSize:13,color:"var(--muted)",fontWeight:400,marginBottom:4}}>
         {f.recur_rule ? "Carried to every occurrence, and included in the email each time."

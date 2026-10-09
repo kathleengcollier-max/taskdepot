@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="11.9">
+<meta name="app-version" content="12.0">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -289,6 +289,9 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .ttable .weye svg{display:block}
 /* how far through the steps a task is, sitting quietly beside its name */
 .ttable .steps-n{color:var(--muted);font-weight:600;font-size:12.5px;white-space:nowrap}
+/* the idea button sits beside + Assign, present but never shouting */
+.btn.idea{border-color:#d9d2f2;color:#5340a3;background:#faf8ff}
+.btn.idea:hover{background:#f1eefb;border-color:#b9abe6}
 /* a confirm card inside the drawer wears an edge like every other block does */
 .modal .form.card.edged{border-left:4px solid var(--edge,#c3cbdb)}
 .ttable tr:hover .weye{opacity:.75}
@@ -310,6 +313,19 @@ const SUPABASE_URL = "https://ikauupqthnwxohhumzlv.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlrYXV1cHF0aG53eG9oaHVtemx2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkxODczMzMsImV4cCI6MjEwNDc2MzMzM30.NisxCBnDtkSlHWyVorckxzlCiA8UwPMtnOvD8PB3Dcs";
 const APP_VERSION = document.querySelector('meta[name="app-version"]').content;
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// The cross-app idea board lives in the App Catalog project. This key can execute one
+// function and nothing else: submit_idea inserts a note and cannot read, change or
+// delete anything back, so publishing it in the page costs nothing. Task Depot is
+// registered there as TD815, which is the badge an idea arrives wearing.
+const CATALOG_URL = "https://kyzzaywlmoohudzynnzq.supabase.co";
+const CATALOG_KEY = "sb_publishable_mEF5yDGFo-GhwIW1olpyfg_NVDaBIvU";
+const APP_TAG = "TD815";
+const catalogSb = window.supabase.createClient(CATALOG_URL, CATALOG_KEY, {
+  db: { schema: "catalog" },
+  // never let this second client touch the sign-in that runs the app
+  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+});
 const APP_NAME = "Task Depot";
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 let ALL_TASKS = [];
@@ -385,6 +401,8 @@ const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
   {v:"11.6", d:"October 7, 2026", items:[
+    "A \ud83d\udca1 Idea button sits beside + Assign on every screen, for anyone \u2014 a feature, a rough edge, anything that would make Task Depot better. It goes straight to the idea board that collects ideas from every one of your apps, badged Task Depot, so it is not lost in a chat. The key it uses can only add a note: it cannot read the board, change it, or delete from it.",
+    "The daily \"what needs you today\" email is no longer a wall of grey. Each group is a card in the colour it wears on Home \u2014 red for a decision or a plea for help, amber for stuck or gone quiet, navy for yours \u2014 with its own count, and three big numbers across the top. Long groups stop at eight with \"and 25 more\", because thirty-three overdue tasks is a scroll, not a digest.",
     "Finishing a task with steps still unticked now asks first. It names how many and lists them, then gives three ways out: tick them all and finish, finish anyway and leave them unticked as an honest record, or cancel. It does not block you \u2014 a checklist is a plan, and plans change \u2014 it stops it happening without you noticing.",
     "Done means has moved into Details on the 25 open tasks that had one, so criteria your team was given are still in front of them. Closed tasks were left alone and the original text is still stored, so this can be undone.",
     "A task's name carries its step count in every list \u2014 \"15th Corp Statements (4/5)\" \u2014 turning green when the last one is ticked. Eleven tasks have steps and you could not tell from any list which were nearly finished.",
@@ -1074,6 +1092,7 @@ function Shell({me,setMe}){
     return (id) => setOpen(id, ids);
   },[setOpen]);
   const [assign,setAssign] = useState(null); // {parent} when open
+  const [idea,setIdea] = useState(false);    // the idea board, one click from any screen
   const [toast,setToast] = useState(null);
   const today = todayISO();
 
@@ -1167,7 +1186,11 @@ function Shell({me,setMe}){
         {loadState.why ? <div style={{fontSize:13,color:"var(--muted)",marginTop:4}}>({loadState.why})</div> : null}
         <div style={{marginTop:8}}><button className="btn sm" onClick={()=>load()}>Try now</button></div>
       </div>}
-      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:-8}}><button className="btn p" onClick={()=>setAssign({parent:null})}>{isMgr?"+ Assign":"+ Add task"}</button></div>
+      <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginBottom:-8}}>
+        <button className="btn idea" title="Tell Kathleen what would make Task Depot better"
+          onClick={()=>setIdea(true)}>{"\ud83d\udca1"} Idea</button>
+        <button className="btn p" onClick={()=>setAssign({parent:null})}>{isMgr?"+ Assign":"+ Add task"}</button>
+      </div>
       {view==="home" && <ManagerHome {...ctx}/>}
       {view==="people" && isOwner && <People {...ctx} setMe={setMe}/>}
       {view==="ones" && <OneOnOnes {...ctx}/>}
@@ -1184,8 +1207,49 @@ function Shell({me,setMe}){
     </main>
     {openTask && <TaskModal {...ctx} task={openTask} queueIds={openList} onClose={()=>setOpenId(null)} addSub={()=>setAssign({parent:openTask})}/>}
     {assign && <AssignModal {...ctx} parent={assign.parent} prefill={assign.prefill} fromMention={assign.fromMention} onClose={()=>setAssign(null)}/>}
+    {idea && <IdeaModal me={me} showToast={showToast} onClose={()=>setIdea(false)}/>}
     {toast && <div className="toast">{toast.text}{toast.undo && <button onClick={()=>{toast.undo();setToast(null);}}>Undo</button>}</div>}
   </>;
+}
+
+// An idea about Task Depot itself \u2014 a feature, a rough edge, anything that would make
+// it work better. It goes to the board that collects ideas from every one of her apps,
+// so they are in one place rather than scattered across thirty chats.
+function IdeaModal({me, onClose, showToast}){
+  const [text,setText] = useState("");
+  const [busy,setBusy] = useState(false);
+  const n = text.trim().length;
+  const send = async () => {
+    if(n < 3){ showToast("Say a little more than that"); return; }
+    setBusy(true);
+    const {error} = await catalogSb.rpc("submit_idea", {
+      p_app_tag: APP_TAG, p_body: text.trim(), p_submitted_by: (me && me.full_name) || null });
+    setBusy(false);
+    if(error){ showToast(error.message || "Couldn't send that \u2014 try again"); return; }
+    onClose(); showToast("Thanks \u2014 it's on the idea board");
+  };
+  return <div className="modalbg" style={{zIndex:60}} onClick={onClose}>
+    <div className="modal" style={{"--tab":"#5340a3","--tabwash":"#f1eefb"}} onClick={e=>e.stopPropagation()}>
+      <div className="spine">
+        <span>Idea</span><span className="spine-sub">Task Depot</span>
+      </div>
+      <h2>What would make this better?</h2>
+      <div className="note" style={{marginBottom:10}}>
+        A feature, something awkward, anything at all. It lands on the idea board you keep
+        across all your apps, tagged Task Depot, so it is not lost in a chat.
+      </div>
+      <div className="form">
+        <label>Your idea<textarea autoFocus rows={5} value={text} maxLength={4000}
+          onChange={e=>setText(e.target.value)}
+          placeholder="The week ahead should start on Monday…"/></label>
+      </div>
+      <div className="actions">
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn p" disabled={busy || n<3} onClick={send}>
+          {busy ? "Sending\u2026" : "Send it"}</button>
+      </div>
+    </div>
+  </div>;
 }
 
 // Collapse a list so each recurring series shows as one line (the oldest open instance)

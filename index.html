@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="12.1">
+<meta name="app-version" content="12.2">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -406,7 +406,12 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
-  {v:"11.6", d:"October 7, 2026", items:[
+  {v:"12.2", d:"October 10, 2026", items:[
+    "The task drawer agrees with it. Its Origin line is Assigned by too, and it now reads an ask \u2014 it used to call a task Eliseth wrote down for you \"Their own task\", which is how the column and the drawer could disagree about the same task.",
+    "Assigned by is a column on My day, All my tasks and the Assigned to you list on Home — so you can tell at a glance what somebody handed you from what you set yourself. It reads \"Kathleen assigned\", \"Eliseth asked for it\" or \"Your own\". It was already on All tasks and Finished, under the vaguer heading Origin; it is called Assigned by everywhere now, and it no longer disappears on a phone.",
+  ]},
+  {v:"12.1", d:"October 10, 2026", items:[
+    "The numbers below had fallen behind the badge at the top of the screen. This entry and the ones before it were labelled 11.6 and down while the app itself was already past 12 — the changelog was being numbered by hand and the version by the build. One number now, taken from the build.",
     "\"Who asked for this?\" on a task you write for yourself. Most of what your team types in is your ask captured by whoever had the keyboard \u2014 30 of Eliseth's 42 tasks are ones she entered herself \u2014 and until now every one of those folded away on your agenda. Name the person who asked and it reaches them as theirs to follow, while the task still honestly records who wrote it down. You can only name yourself or someone you report to.",
     "Update now offers Working and Waiting, and nothing else. It used to list all six statuses, which quietly duplicated the Done button and hid Ready for review in a dropdown \u2014 which is how Eliseth found it. Done has its own button, Skip belongs to repeating tasks.",
     "Ready for review is a button of its own now, and only appears when somebody is actually waiting on the outcome \u2014 work handed to you, or work someone asked for. On a task you set for yourself with nobody asking, there is nobody to review it.",
@@ -1351,7 +1356,7 @@ function ManagerHome(ctx){
   return <>
     {mineToDo.length>0 && <><div className="h"><h2>Assigned to you</h2><span className="sub">{mineToDo.length} — things your team handed up</span></div>
       <TaskTable list={mineToDo} people={people} today={today} setOpen={ctx.opener(mineToDo)} isMgr={false}
-        cols={["title","status","due","updated","why"]}
+        cols={["title","status","origin","due","updated","why"]}
         why={t=>attention(t,today)||(t.created_by!==ctx.me.id?{why:`${nameOf(people,t.created_by)} is waiting on you`,tone:"warn",rank:5}:null)}/></>}
     {theirOwn.length>0 && <div className="note" style={{marginTop:10,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
       <span style={{flex:1}}>{theirOwn.length} task{theirOwn.length===1?"":"s"} your team set for themselves {theirOwn.length===1?"is":"are"} overdue or stuck. Their list, not yours — but here if you want it.</span>
@@ -1625,7 +1630,7 @@ function AllTasks(ctx){
     <TaskTable list={list} people={people} today={today} setOpen={ctx.opener(list)} isMgr={isMgr} empty="No tasks match."
       cols={searching
         ? (isMgr?["who","title","matched","snippet","status","due"]:["title","matched","snippet","status","due"])
-        : (isMgr?["who","title","status","origin","entered","due","updated"]:["title","status","entered","due","updated"])}/>
+        : (isMgr?["who","title","status","origin","entered","due","updated"]:["title","status","origin","entered","due","updated"])}/>
   </>;
 }
 
@@ -1683,7 +1688,7 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
                {LINK_COUNTS[t.id] > 0 && <span className="pill" title="Linked to other tasks"
                  style={{marginLeft:6,background:"#eef3fd",color:"var(--navy)"}}>&#128279; {LINK_COUNTS[t.id]}</span>}
              </>},
-    origin:  {label:"Origin", cls:"muted hide-sm", val:t=>DELEGATED(t)?"0":t.asked_by?"1":"2",
+    origin:  {label:"Assigned by", cls:"muted", val:t=>DELEGATED(t)?"0":t.asked_by?"1":"2",
               cell:t=>DELEGATED(t)
                     ? (t.created_by===(ME&&ME.id) ? "You assigned" : String(nameOf(people,t.created_by)).split(" ")[0]+" assigned")
                     : t.asked_by
@@ -1754,7 +1759,7 @@ function MyDay(ctx){
       <div className="section-title">{l} ({list.length})</div>
       {l==="Waiting on your manager" && <div style={{fontSize:13,color:"var(--muted)",margin:"-2px 0 6px"}}>You've asked for help on these. They'll move back once you get a reply — nothing to do in the meantime.</div>}
       <TaskTable list={groupSeries(list).map(g=>g.t)} people={people} today={today} setOpen={ctx.opener(list)}
-        isMgr={false} cols={["title","status","entered","due","updated"]}/></React.Fragment> : null)}
+        isMgr={false} cols={["title","status","origin","entered","due","updated"]}/></React.Fragment> : null)}
   </>;
 }
 
@@ -2484,7 +2489,7 @@ function TaskModal(ctx){
           <button className="btn q" title="Unlink these two"
             style={{padding:"0 4px",color:"var(--muted)"}} onClick={()=>dropLink(l.id)}>&times;</button>
         </span>)}</dd></>}
-      <dt>Origin</dt><dd>{DELEGATED(t) ? `Delegated by ${nameOf(people,t.created_by)}` : t.assignee_id ? "Their own task" : "Not assigned yet"}{t.bd_task_id ? <span style={{marginLeft:8,fontSize:11,fontWeight:700,color:"#1f3a7a",background:"#e0ecff",padding:"1px 7px",borderRadius:7}}>{t.bd_status==="returned"?"returned to Kathleen's Inbox":"from Kathleen's Inbox"}</span> : null}</dd>
+      <dt>Assigned by</dt><dd>{DELEGATED(t) ? `${nameOf(people,t.created_by)} assigned it` : t.asked_by ? `${nameOf(people,t.asked_by)} asked for it` : t.assignee_id ? "Their own task" : "Not assigned yet"}{t.bd_task_id ? <span style={{marginLeft:8,fontSize:11,fontWeight:700,color:"#1f3a7a",background:"#e0ecff",padding:"1px 7px",borderRadius:7}}>{t.bd_status==="returned"?"returned to Kathleen's Inbox":"from Kathleen's Inbox"}</span> : null}</dd>
       <dt>Assigned to</dt><dd>{t.assignee_id ? nameOf(people,t.assignee_id)
         : t.assignee_email ? `${(INVITEES.find(i=>i.email===String(t.assignee_email).toLowerCase())||{}).full_name || t.assignee_email} — waiting for them to sign up (${t.assignee_email})` : "Unassigned"}{t.assignee_id && t.created_by!==t.assignee_id ? ` · assigned by ${nameOf(people,t.created_by)}` : t.assignee_id ? " · self-assigned" : ""}</dd>
       <dt>Due</dt><dd>{fmtDate(t.due_date)}{t.expected_completion && t.expected_completion!==t.due_date ? ` (expected ${fmtDate(t.expected_completion)})` : ""}</dd>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="12.2">
+<meta name="app-version" content="12.5">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -289,6 +289,14 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
   display:inline-flex;align-items:center;vertical-align:-3px}
 .ttable .weye svg{display:block}
 /* how far through the steps a task is, sitting quietly beside its name */
+.steprow{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.steprow.dragging{opacity:.6;background:#eef3fd;border-radius:8px;border-top-color:transparent}
+.grip{background:none;border:0;padding:2px;margin-top:1px;flex-shrink:0;border-radius:6px;
+      color:#aeb6c6;font-size:15px;line-height:1;cursor:grab;touch-action:none;user-select:none}
+.grip:hover{color:var(--navy)}
+.grip:active{cursor:grabbing;color:var(--navy)}
+.grip:focus-visible{outline:2px solid var(--navy);outline-offset:1px;color:var(--navy)}
+@media (hover:none){.grip{color:#9aa3b5;font-size:17px;padding:4px 2px}}
 .ttable .steps-n{color:var(--muted);font-weight:600;font-size:12.5px;white-space:nowrap}
 /* the idea button sits beside + Assign, present but never shouting */
 .btn.idea{border-color:#d9d2f2;color:#5340a3;background:#faf8ff}
@@ -337,6 +345,8 @@ const coverIfInMeeting = (id) => {
   if(!COVERING_FOR || !id) return;
   sb.rpc("mark_discussed",{p_task:id, p_on:true}).then(()=>{});
 };
+let PEOPLE = [];       // the roster, so a helper can resolve who somebody reports to
+const managerOf = (id) => (PEOPLE.find(p=>p.id===id)||{}).manager_id || null;
 let INVITEES = [];
 let LINK_COUNTS = {};   // task id -> how many live tasks it is linked to
 let STEP_COUNTS = {};   // task id -> [ticked, total], so a list can show progress
@@ -388,11 +398,25 @@ const STATUS_TONE = {
 };
 const toneOf = (st) => STATUS_TONE[st] || STATUS_TONE.not_started;
 
-// They are asking you, not just working. This outranks who wrote the task down.
-const ASKING = (t) => !!(t.need_help || t.need_manager || t.status==="ready_for_review");
+// Is anyone being asked at all? Needed where the question is about the task, not about you.
+const ASKING_ANY = (t) => !!(t.need_help || t.need_manager || t.status==="ready_for_review");
+// Who is being asked. "Need help" and "Needs you" mean "I need my manager", so they
+// point at whoever the assignee reports to — not at every manager who can see the task.
+// A review goes to whoever is actually waiting on the outcome: the person who asked for
+// it, else the person who handed it over, else the assignee's manager.
+const ASKEE = (t) => {
+  if(!ASKING_ANY(t)) return null;
+  if(t.need_help || t.need_manager) return managerOf(t.assignee_id);
+  return t.asked_by || (DELEGATED(t) ? t.created_by : managerOf(t.assignee_id));
+};
+// They are asking YOU, not just working. This outranks who wrote the task down.
+const ASKING = (t) => !!(ME && ASKEE(t) === ME.id);
 // They typed it in, but you are the one who wanted it. Most of what your team enters in
 // a 1:1 is your ask captured by whoever had the keyboard; this is how it reaches you.
 const ASKEDBYME = (t) => !!(ME && t.asked_by === ME.id);
+// You handed this out. DELEGATED alone only says somebody did, which put work Eliseth
+// gave Alexis on Kathleen's Home as though she had handed it out herself.
+const DELEGATEDBYME = (t) => !!(ME && t.created_by === ME.id && DELEGATED(t));
 // Somebody is waiting on the outcome, so "Ready for review" means something
 const HASAUDIENCE = (t) => !!(t.asked_by || (t.created_by && t.assignee_id && t.created_by !== t.assignee_id));
 // the colour each Home group wears, same meanings as the 1:1 agenda
@@ -406,6 +430,28 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"12.5", d:"October 10, 2026", items:[
+    "Steps can be put in order. Grab the handle to the left of a step and drag it where it belongs; the rest part around it and the order saves itself. It works with a finger as well as a mouse \u2014 built on pointer events rather than the usual browser drag-and-drop, which does not exist on a touch screen at all.",
+    "It also works without either. Tab to a handle and the up and down arrows move that step, so the list can be ordered from the keyboard.",
+    "A dead zone of six pixels before a drag begins. A handle sits about level with the middle of its own row, so without one a small wobble while pressing would have swapped two steps and saved it.",
+    "Handles only appear where the move would be allowed. Steps someone else wrote on your task stay theirs to word and order \u2014 the same rule that already governed editing them \u2014 so you are never offered a drag that the server would refuse.",
+    "Tidying a checklist no longer starts the task. Any change to a step flipped a not-started task to Working, which was right for ticking one off and wrong for moving one. Ticking still starts it.",
+    "Positions are renumbered 0 upwards on every task. Some had ties \u2014 \"Set up Vehicle Dashboard\" had two steps claiming the same slot \u2014 which left their order down to chance.",
+  ]},
+  {v:"12.4", d:"October 10, 2026", items:[
+    "A 1:1 with a manager now shows what their own people are waiting on them for, folded away under the sections about their work. Eliseth's agenda carries Alexis's four open asks \u2014 who is waiting, what for, how long it has sat, and the last thing said on it \u2014 so you can offer to unblock one in the meeting rather than hearing about it a fortnight later. It is amber, not red: it is not yours to answer, it is hers.",
+    "The section is collapsed until you press Show, and does not appear at all for someone with nobody reporting to them. It reads what you are allowed to see and nothing more \u2014 checked from all three accounts, and every row returned was one that account could already open.",
+    "Copy agenda includes it.",
+  ]},
+  {v:"12.3", d:"October 10, 2026", items:[
+    "An ask now knows who it is pointed at. Need help and Needs you were plain yes/no switches \u2014 they recorded that somebody was asking, but not who they were asking \u2014 so every manager who could see the task read them as theirs to answer. Four of Alexis's tasks had been sitting on Kathleen's Home since Oct 8 under \"Waiting on a decision from you\", and all four were Alexis asking Eliseth. They point at the assignee's manager now. A review goes to whoever is actually waiting: the person who asked for it, else the person who handed it over.",
+    "Nothing is hidden by the change. Those four move into the collapsed \"their list, not yours \u2014 but here if you want it\" fold on Home, which is where work you have no part in belongs. The Home tab badge had been counting them too, and stops.",
+    "The 1:1 agenda splits the same way. An ask pointed at someone else still belongs in the meeting \u2014 it is their open work \u2014 so it stays, under \"Asked Eliseth, not you\" instead of \"Needs you\". The copied text matches.",
+    "A row's red Needs you chip reads \"Needs Eliseth\" to anyone who is not the one being asked, in grey. It used to say \"Needs you\" to everybody.",
+    "Reply & clear flag, Approve and Send back now belong to the person the ask points at, so you cannot clear a flag that was meant for somebody else. If an ask has nobody above to answer it, the owner still picks it up \u2014 a flag can never get stranded.",
+    "Week ahead stops saying \u00b7 needs you on a task that needs someone else, and the Needs you filter on All tasks means asking you, or your own task that is asking somebody.",
+    "Delegated meant delegated by anybody. On your Home it has to mean by you \u2014 an overdue task Eliseth handed Alexis was reading as though you had handed it out yourself.",
+  ]},
   {v:"12.2", d:"October 10, 2026", items:[
     "The task drawer agrees with it. Its Origin line is Assigned by too, and it now reads an ask \u2014 it used to call a task Eliseth wrote down for you \"Their own task\", which is how the column and the drawer could disagree about the same task.",
     "Assigned by is a column on My day, All my tasks and the Assigned to you list on Home — so you can tell at a glance what somebody handed you from what you set yourself. It reads \"Kathleen assigned\", \"Eliseth asked for it\" or \"Your own\". It was already on All tasks and Finished, under the vaguer heading Origin; it is called Assigned by everywhere now, and it no longer disappears on a phone.",
@@ -1013,9 +1059,12 @@ function attention(t, today) {
   const due = t.due_date;
   const overdue = due && due < today ? daysBetween(due, today) : 0;
   const stale = hoursSince(t.last_update_at) / 24;
-  if (t.need_manager) return {why:"Needs you", tone:"", rank:0, group:"Waiting on a decision from you"};
-  if (t.status === "ready_for_review") return {why:"Ready for your review", tone:"navy", rank:1, group:"Ready for your review"};
-  if (t.need_help) return {why:"Asked for help", tone:"", rank:1.5, group:"Asked you for help"};
+  // Only the person actually being asked gets told they are being asked. Everyone else
+  // falls through to the plain facts below — overdue, stuck — or to nothing at all.
+  const asked = ASKING_ANY(t) && ME && ASKEE(t) === ME.id;
+  if (asked && t.need_manager) return {why:"Needs you", tone:"", rank:0, group:"Waiting on a decision from you"};
+  if (asked && t.status === "ready_for_review") return {why:"Ready for your review", tone:"navy", rank:1, group:"Ready for your review"};
+  if (asked && t.need_help) return {why:"Asked for help", tone:"", rank:1.5, group:"Asked you for help"};
   if (overdue) return {why:`Overdue ${overdue} day${overdue>1?"s":""}`, tone:"", rank:5, group:"Overdue"};
   if (t.status === "waiting" && stale >= 3) return {why:`Waiting on ${t.waiting_on||"someone"} ${Math.floor(stale)} days`, tone:"warn", rank:2, group:"Stuck waiting on someone else"};
   if (due && daysBetween(today, due) <= 1 && stale >= 2) return {why: due===today ? "Due today, no update" : "Due tomorrow, no update", tone:"warn", rank:3, group:"Due now, and gone quiet"};
@@ -1168,7 +1217,7 @@ function Shell({me,setMe}){
     }
   };
 
-  const live = tasks.filter(t=>!t.deleted_at); ALL_TASKS = live; INVITEES = invitees; ME = me;
+  const live = tasks.filter(t=>!t.deleted_at); ALL_TASKS = live; INVITEES = invitees; ME = me; PEOPLE = people;
   // Search keeps its own results, so it needs to know what has been trashed since
   const trashedIds = tasks.filter(t=>t.deleted_at).map(t=>t.id);
   const openTask = tasks.find(t=>t.id===open);
@@ -1179,7 +1228,7 @@ function Shell({me,setMe}){
   },[]);
   const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,opener,showToast,isMgr,isOwner,invitees,openTaskId:open,startTaskFromMention};
 
-  const attnCount = isMgr ? live.filter(t=>attention(t,today) && (DELEGATED(t) || ASKING(t) || WATCHING(t) || t.assignee_id===me.id)).length : 0;
+  const attnCount = isMgr ? live.filter(t=>attention(t,today) && (DELEGATEDBYME(t) || ASKEDBYME(t) || ASKING(t) || WATCHING(t) || t.assignee_id===me.id)).length : 0;
   const freshDone = isMgr ? live.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id && !t.seen_at
       && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0)).length : 0;
   const nav = isMgr
@@ -1339,9 +1388,10 @@ function ManagerHome(ctx){
   // You press the eye so a task comes to you. So a watched task belongs under Watching
   // and nowhere else \u2014 unless it is actually asking you for something, which outranks the eye.
   const pulled = (x) => WATCHING(x.t) && !ASKING(x.t);
-  const flagged = allFlagged.filter(x=>(DELEGATED(x.t) || ASKEDBYME(x.t) || ASKING(x.t) || WATCHING(x.t)) && !pulled(x));
-  const theirOwn = allFlagged.filter(x=>!DELEGATED(x.t) && !ASKEDBYME(x.t) && !ASKING(x.t) && !WATCHING(x.t));
-  const openT = tasks.filter(t=>!CLOSED(t.status) && t.assignee_id!==ctx.me.id && (DELEGATED(t) || ASKEDBYME(t)));
+  const yours = (t) => DELEGATEDBYME(t) || ASKEDBYME(t) || ASKING(t) || WATCHING(t);
+  const flagged = allFlagged.filter(x=>yours(x.t) && !pulled(x));
+  const theirOwn = allFlagged.filter(x=>!yours(x.t));
+  const openT = tasks.filter(t=>!CLOSED(t.status) && t.assignee_id!==ctx.me.id && (DELEGATEDBYME(t) || ASKEDBYME(t)));
   const week = new Date(); week.setDate(week.getDate()+7); const weekISO = week.toISOString().slice(0,10);
   const buckets = {
     track: openT.filter(t=>!attention(t,today) && t.status!=="waiting" && (t.assignee_id||t.assignee_email) && t.due_date),
@@ -1588,7 +1638,8 @@ function AllTasks(ctx){
   const match = (t) => {
     if(st==="open") return !CLOSED(t.status);
     if(st==="blocked") return !CLOSED(t.status) && t.status==="waiting" && !t.need_help && !t.need_manager;
-    if(st==="needsyou") return !CLOSED(t.status) && (t.need_manager || t.need_help || t.status==="ready_for_review");
+    if(st==="needsyou") return !CLOSED(t.status) && ASKING_ANY(t)
+                                && (ASKING(t) || t.assignee_id===(ME&&ME.id));
     if(st==="done") return t.status==="done";
     if(st==="skipped") return t.status==="skipped";
     return true;
@@ -1683,7 +1734,12 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
                    style={all?{color:"var(--ok)"}:null}>{` (${done}/${total})`}</span>;
                })()}
                {t.priority==="high" && <span className="pill high" style={{marginLeft:6}}>High</span>}
-               {(t.need_manager||t.need_help) && <span className="pill" style={{marginLeft:6,background:"#fdecea",color:"var(--red)"}}>{t.need_help?"Needs help":"Needs you"}</span>}
+               {(t.need_manager||t.need_help) && (() => {
+                 const at = ASKEE(t), mine = !!(ME && at === ME.id);
+                 const who = mine ? "you" : (at ? String(nameOf(people,at)).split(" ")[0] : "a manager");
+                 return <span className="pill" style={{marginLeft:6,background:mine?"#fdecea":"#f1f3f7",color:mine?"var(--red)":"var(--muted)"}}>
+                   {mine ? (t.need_help ? "Needs help" : "Needs you") : `Needs ${who}`}</span>;
+               })()}
                {t.bd_status==="returned" && <span className="pill" style={{marginLeft:6,background:"#e0ecff",color:"#1f3a7a"}}>Returned to Kathleen's Inbox</span>}
                {LINK_COUNTS[t.id] > 0 && <span className="pill" title="Linked to other tasks"
                  style={{marginLeft:6,background:"#eef3fd",color:"var(--navy)"}}>&#128279; {LINK_COUNTS[t.id]}</span>}
@@ -1905,6 +1961,9 @@ function TaskModal(ctx){
   const at = queue.indexOf(t.id);
   const go = (delta) => { const n = queue[at+delta]; if(n){ setOpen(n, queue); coverIfInMeeting(n); } };
   const iCreated = t.created_by===me.id;
+  // Answering an ask belongs to the person it points at. The owner also picks up an ask
+  // with nobody above to answer it, so a flag can never get stranded.
+  const mayAnswer = isMgr && (ASKING(t) || !ASKEE(t));
   // you may reshape a task (dates, owner, title, trash) only if it's yours to reshape:
   // you created it, you're the owner, or it came up from someone who reports to you
   const creatorProfile = people.find(p=>p.id===t.created_by);
@@ -2041,6 +2100,60 @@ function TaskModal(ctx){
   const removeStep = async (st) => {
     const {error} = await sb.from("task_steps").delete().eq("id",st.id);
     if(error){ showToast(error.message); return; } loadSteps();
+  };
+  // Reordering. Pointer events rather than HTML5 drag-and-drop, which does not exist on
+  // a touch screen \u2014 this one works with a finger, a mouse or the arrow keys.
+  const stepEls = useRef({});
+  const [dragId,setDragId]       = useState(null);
+  const [dragOrder,setDragOrder] = useState(null);
+  const commit = async (order) => {
+    if(order.join() === steps.map(x=>x.id).join()) return;
+    setSteps(order.map(id=>steps.find(x=>x.id===id)).filter(Boolean));   // show it at once
+    const {error} = await sb.rpc("reorder_steps",{p_task:t.id, p_ids:order});
+    if(error) showToast(error.message);
+    loadSteps();                                                        // then trust the server
+  };
+  // The live order lives in a ref, not in state: a quick flick can land the first move in
+  // the same frame as the press, and state would not have been committed yet.
+  const dragRef = useRef(null);
+  const startDrag = (e, st) => {
+    e.preventDefault();
+    try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(err){}
+    dragRef.current = {id:st.id, order:steps.map(x=>x.id), y0:e.clientY, armed:false};
+    setDragOrder(steps.map(x=>x.id));
+  };
+  const moveDrag = (e) => {
+    const d = dragRef.current; if(!d) return;
+    // A grip sits about level with the middle of its own row, so without a dead zone a
+    // three-pixel wobble while pressing would swap two steps.
+    if(!d.armed){
+      if(Math.abs(e.clientY - d.y0) < 6) return;
+      d.armed = true; setDragId(d.id);
+    }
+    const from = d.order.indexOf(d.id); if(from<0) return;
+    let target = d.order.length - 1;
+    for(let i=0;i<d.order.length;i++){
+      const el = stepEls.current[d.order[i]]; if(!el) continue;
+      const r = el.getBoundingClientRect();
+      if(e.clientY < r.top + r.height/2){ target = i; break; }
+    }
+    if(target === from) return;
+    const next = d.order.slice();
+    next.splice(target, 0, next.splice(from,1)[0]);
+    d.order = next; setDragOrder(next);
+  };
+  const endDrag = () => {
+    const d = dragRef.current; dragRef.current = null;
+    setDragId(null); setDragOrder(null);
+    if(d && d.armed) commit(d.order);
+  };
+  // the same move, without a pointer
+  const nudge = (st, delta) => {
+    const order = steps.map(x=>x.id);
+    const from = order.indexOf(st.id), to = from + delta;
+    if(from<0 || to<0 || to>=order.length) return;
+    order.splice(to, 0, order.splice(from,1)[0]);
+    commit(order);
   };
   const [replying,setReplying] = useState(false);
   const [asking,setAsking] = useState(false);
@@ -2458,9 +2571,9 @@ function TaskModal(ctx){
     })()}
     {!edit && !skipping && !asking && !replying && !copying && !returning && !joining && (isMgr || iCreated || t.assignee_id===me.id) &&
      <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
-      {isMgr && t.status==="ready_for_review" && <button className="btn p" onClick={()=>finish({status:"done",need_manager:false},"Approved and closed")}>Approve — mark done</button>}
-      {isMgr && t.status==="ready_for_review" && <button className="btn" onClick={()=>quick({status:"working"},"Sent back")}>Send back</button>}
-      {isMgr && (t.need_manager||t.need_help) && <button className="btn r" onClick={()=>setReplying(true)}>Reply &amp; clear flag</button>}
+      {mayAnswer && t.status==="ready_for_review" && <button className="btn p" onClick={()=>finish({status:"done",need_manager:false},"Approved and closed")}>Approve — mark done</button>}
+      {mayAnswer && t.status==="ready_for_review" && <button className="btn" onClick={()=>quick({status:"working"},"Sent back")}>Send back</button>}
+      {mayAnswer && (t.need_manager||t.need_help) && <button className="btn r" onClick={()=>setReplying(true)}>Reply &amp; clear flag</button>}
       {!CLOSED(t.status) && t.assignee_id!==me.id && <button className="btn" onClick={()=>finish({status:"done"},"Marked done")}>Mark done</button>}
       {(isMgr || iCreated) && CLOSED(t.status) && t.bd_status!=="returned" && <button className="btn" onClick={()=>quick({status:"working",skip_reason:null},"Reopened")}>Reopen</button>}
       {t.recur_rule && !CLOSED(t.status) && (isMgr || t.assignee_id===me.id) && <button className="btn" onClick={()=>setSkipping(true)}>Skip this one</button>}
@@ -2504,11 +2617,25 @@ function TaskModal(ctx){
     </dl></div>
 
     <div className="panel edge-steps"><h3>Steps{steps.length?` — ${steps.filter(x=>x.done).length} of ${steps.length} done`:""}</h3>
-      {steps.map(st=><div key={st.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"8px 0",borderTop:"1px solid var(--line)"}}>
-        <input type="checkbox" checked={st.done} onChange={()=>toggleStep(st)} style={{width:18,height:18,marginTop:2,flexShrink:0}}/>
-        <span style={{flex:1,textDecoration:st.done?"line-through":"none",color:st.done?"var(--muted)":"inherit"}}>{st.body}</span>
-        {(canReshape || st.created_by===me.id) && <button className="btn q" style={{padding:"0 4px",color:"var(--muted)"}} title="Remove this step" onClick={()=>removeStep(st)}>×</button>}
-      </div>)}
+      {(() => {
+        // You may only move steps you are allowed to move. A mixed list would fail
+        // halfway on the server, so offer it only when every step is yours to shift.
+        const mayOrder = steps.length>1 && (canReshape || steps.every(x=>x.created_by===me.id));
+        const shown = dragOrder ? dragOrder.map(id=>steps.find(x=>x.id===id)).filter(Boolean) : steps;
+        return shown.map((st,i)=><div key={st.id} ref={el=>{ stepEls.current[st.id]=el; }}
+          className={"steprow"+(dragId===st.id?" dragging":"")}>
+          {mayOrder && <button className="grip" aria-label={`Move step ${i+1}, ${st.body}`}
+            title="Drag to reorder \u2014 or focus this and use the arrow keys"
+            onPointerDown={e=>startDrag(e,st)} onPointerMove={moveDrag}
+            onPointerUp={endDrag} onPointerCancel={endDrag}
+            onKeyDown={e=>{ if(e.key==="ArrowUp"){ e.preventDefault(); nudge(st,-1); }
+                            if(e.key==="ArrowDown"){ e.preventDefault(); nudge(st,1); } }}>
+            {"\u283F"}</button>}
+          <input type="checkbox" checked={st.done} onChange={()=>toggleStep(st)} style={{width:18,height:18,marginTop:2,flexShrink:0}}/>
+          <span style={{flex:1,textDecoration:st.done?"line-through":"none",color:st.done?"var(--muted)":"inherit"}}>{st.body}</span>
+          {(canReshape || st.created_by===me.id) && <button className="btn q" style={{padding:"0 4px",color:"var(--muted)"}} title="Remove this step" onClick={()=>removeStep(st)}>×</button>}
+        </div>);
+      })()}
       {!steps.length && <div style={{color:"var(--muted)",fontSize:14,padding:"8px 0"}}>No steps yet. Break the task into a checklist if that helps — these stay inside this task and never show up as separate cards.</div>}
       <div style={{display:"flex",gap:8,marginTop:8}}>
         <input value={newStep} onChange={e=>setNewStep(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addStep()}
@@ -2744,7 +2871,9 @@ function WeekAhead({tasks,people,today,setOpen,opener,me,isMgr}){
       onClick={()=>setOpen(t.id, list.map(x=>x.id))}>
       <span className="who" style={{color:colourOf(t)}}>{nameFor(t).split(" ")[0]}</span>
       {t.title}
-      {t.need_help||t.need_manager ? <span style={{color:"var(--red)",fontWeight:700}}> · needs you</span> : null}
+      {t.need_help||t.need_manager ? (ASKING(t)
+        ? <span style={{color:"var(--red)",fontWeight:700}}> · needs you</span>
+        : <span style={{color:"var(--muted)",fontWeight:600}}> · needs {ASKEE(t) ? String(nameOf(people,ASKEE(t))).split(" ")[0] : "a manager"}</span>) : null}
     </button>;
 
   return <>
@@ -3050,12 +3179,16 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
     const L=[]; L.push(`1:1 — ${a.person} — ${new Date().toLocaleDateString()}`);
     const sec=(t,arr,fmtFn)=>{ if(!arr||!arr.length) return; L.push(""); L.push(t.toUpperCase()); arr.forEach(x=>L.push("  - "+fmtFn(x))); };
     if(mentions && mentions.items.length){ L.push(""); L.push("WORTH MENTIONING"); mentions.items.forEach(x=>L.push(`  - ${x.mentioned?"[said] ":""}${x.body}`)); }
-    sec("Needs you",a.waiting_on_you,x=>`${x.title}${x.note?` — "${x.note}"`:""}`);
+    sec("Needs you",asksMe,x=>`${x.title}${x.note?` — "${x.note}"`:""}`);
+    sec(askedWho?`Asked ${askedWho}, not you`:"Asked someone else",asksOther,
+        x=>`${x.title}${x.note?` — "${x.note}"`:""}`);
     sec("Not moving",stalled,x=>`${x.title} — ${x.__why}`);
     sec("Everything else on their plate",inFlight,x=>`${x.title}${x.due?` (due ${fmtDate(x.due)})`:""}${x.next?` — next: ${x.next}`:""}`);
     if(theirsLive.length){ L.push(""); L.push(`THEIR OWN LIST (${theirsLive.length}) \u2014 not walked through`);
       theirsLive.forEach(x=>L.push(`  - ${x.title}${x.due?` (due ${fmtDate(x.due)})`:""}`)); }
     sec(`What ${first} has handed to other people`,a.they_asked_you,x=>x.title);
+    sec(`What ${first}\u2019s own people are waiting on them for`,downstream,
+        x=>`${x.who} \u2014 ${x.title} (${x.flag})${x.note?` \u2014 "${x.note}"`:""}`);
     sec("Your private notes",a.notes,x=>`${x.title}: ${x.body}`);
     sec(`Finished in the last ${a.since_days} days`,a.completed,x=>x.title);
     return L.join("\n");
@@ -3064,6 +3197,16 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
     try{ await navigator.clipboard.writeText(asText()); showToast("Copied — paste it anywhere"); }
     catch(e){ showToast("Couldn't copy on this device"); }
   };
+  // What this person's own people are waiting on THEM for. A manager's 1:1 is where you
+  // can offer to unblock it; otherwise you hear about it a fortnight later.
+  const [downstream,setDownstream] = useState([]);
+  const [openDown,setOpenDown] = useState(false);
+  useEffect(()=>{ let live=true;
+    sb.rpc("reports_waiting_on",{p_person:personId}).then(({data,error})=>{
+      if(!live || error) return; setDownstream(Array.isArray(data)?data:[]);
+    });
+    return ()=>{live=false;};
+  },[personId,openTaskId]);
   const [mentions,setMentions] = useState(null);
   const [newMention,setNewMention] = useState("");
   const loadMentions = useCallback(()=>{
@@ -3154,6 +3297,13 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
     ...bucket(agenda(a.overdue), x=>`overdue since ${fmtDate(x.due)}`),
     ...bucket(agenda(a.waiting_on_others), x=>x.who ? `waiting on ${x.who}` : "waiting on someone else"),
   ] : [];
+  // An ask has an address now. One pointed at somebody else still belongs in the meeting
+  // — it is their open work — but not under a heading that says it is waiting on you.
+  const asks     = a ? (a.waiting_on_you||[]) : [];
+  const asksMe   = asks.filter(x=>!x.askee || (ME && x.askee===ME.id));
+  const asksOther= asks.filter(x=>x.askee && !(ME && x.askee===ME.id));
+  const askedWho = asksOther.length
+    ? String(nameOf(people, asksOther[0].askee)).split(" ")[0] : "";
   const inFlightAll = a ? bucket(agenda(a.open), x=>"") : [];
   // Same rule as Home: a task you are watching gets its own heading, unless it is
   // already asking you or has stalled — those outrank the eye and keep it. Without
@@ -3223,7 +3373,11 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
       : <div className="empty">Nothing waiting. Add anything you want to remember to bring up.</div>}
     </div>
 
-    <Sec edge="edge-red" title="Needs you" items={a.waiting_on_you} render={x=><><b>{x.title}</b>
+    <Sec edge="edge-red" title="Needs you" items={asksMe} render={x=><><b>{x.title}</b>
+      {x.asked?<div className="meta">asked to move it to {fmtDate(x.asked)}</div>:null}
+      {x.note?<div className="meta">"{x.note}"</div>:null}</>}/>
+    <Sec edge="edge-grey" title={askedWho ? `Asked ${askedWho}, not you` : "Asked someone else"}
+      items={asksOther} render={x=><><b>{x.title}</b>
       {x.asked?<div className="meta">asked to move it to {fmtDate(x.asked)}</div>:null}
       {x.note?<div className="meta">"{x.note}"</div>:null}</>}/>
     <Sec edge="edge-warn" title="Not moving" items={stalled} render={x=><><b>{x.title}</b> <span className="meta">{x.__why}</span>{fromAbove(x)}</>}/>
@@ -3242,6 +3396,21 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
         <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
           <span style={{flex:1,cursor:x.id?"pointer":undefined}} onClick={()=>open(x.id, live(a.they_asked_you))}>
             {x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:"no date"}</span></span>
+        </li>)}</ul></div>}
+    </div>}
+    {downstream.length>0 && <div className="panel tint edged edge-warn">
+      <h3>What {first}{"\u2019"}s own people are waiting on ({downstream.length})</h3>
+      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{flex:1,fontSize:13,color:"var(--muted)"}}>
+          Not yours to answer {"\u2014"} {first}{"\u2019"}s. Worth a look in case you can unblock one of them.</span>
+        <button className="btn sm" onClick={()=>setOpenDown(!openDown)}>{openDown?"Hide":"Show"}</button>
+      </div>
+      {openDown && <div className="ag" style={{marginTop:10}}><ul>{downstream.map((x,i)=>
+        <li key={i}>
+          <span style={{cursor:x.id?"pointer":undefined}} onClick={()=>open(x.id, downstream)}>
+            <b>{x.who}</b>{" \u2014 "}{x.title}</span>
+          <div className="meta">{x.flag}{x.due?` \u00b7 due ${fmtDate(x.due)}`:""}{x.since?` \u00b7 last moved ${fmtWhen(x.since)}`:""}</div>
+          {x.note?<div className="meta">"{x.note}"</div>:null}
         </li>)}</ul></div>}
     </div>}
     {theirsLive.length>0 && <div className="panel tint edged edge-grey">

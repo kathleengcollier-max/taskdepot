@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="12.6">
+<meta name="app-version" content="12.7">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -437,6 +437,12 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"12.7", d:"October 10, 2026", items:[
+    "A watched task that gets finished now has its own heading on the 1:1 \u2014 \"Finished, and you were watching\" \u2014 sitting above the general finished list. It was already in that list, mixed in with everything else they closed and marked in no way at all, which is the same as not being there.",
+    "Each one carries a Done looking button. Press it and the eye comes off and the task drops into the finished list with everything else, so you can clear them as you satisfy yourself rather than opening each task to find the eye.",
+    "Watching a task has always survived it being finished \u2014 nothing clears the eye when work closes. What changed is that you can now see which finished tasks those were. Two of yours had been in that state since Oct 6 and 7.",
+    "The Watching section on Home still only holds open work; a finished one belongs on the 1:1 where you review it, not on the list of what needs you.",
+  ]},
   {v:"12.6", d:"October 10, 2026", items:[
     "Reword a step where it sits. Click the text and it becomes a box; Enter or clicking away saves it, Escape throws the change away. No drawer, no edit form.",
     "Saving a blank step does nothing rather than wiping the wording \u2014 removing a step is still the \u00d7.",
@@ -3233,7 +3239,8 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
     sec(`What ${first}\u2019s own people are waiting on them for`,downstream,
         x=>`${x.who} \u2014 ${x.title} (${x.flag})${x.note?` \u2014 "${x.note}"`:""}`);
     sec("Your private notes",a.notes,x=>`${x.title}: ${x.body}`);
-    sec(`Finished in the last ${a.since_days} days`,a.completed,x=>x.title);
+    sec("Finished, and you were watching",doneWatched,x=>x.title);
+    sec(`Finished in the last ${a.since_days} days`,doneRest,x=>x.title);
     return L.join("\n");
   };
   const copy = async () => {
@@ -3278,6 +3285,18 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
   };
   const reload = () => sb.rpc("one_on_one",{p_person:personId, since_days:days})
     .then(({data,error})=>{ if(error){ showToast(error.message); return; } setA(data); });
+  // A watched task that gets finished used to vanish into the general finished list,
+  // indistinguishable from everything else they closed. It is the one you asked to
+  // follow, so it gets its own heading and a way to let go of it once you are satisfied.
+  const doneWatched = a ? (a.completed||[]).filter(x=>x.origin==="watched") : [];
+  const doneRest    = a ? (a.completed||[]).filter(x=>x.origin!=="watched") : [];
+  const stopWatching = async (id, title) => {
+    const {error} = await sb.from("task_watchers").delete().eq("task_id",id).eq("user_id",ME.id);
+    if(error){ showToast(error.message); return; }
+    WATCHED.delete(id);
+    showToast(`Stopped watching \u201c${title}\u201d`);
+    reload();
+  };
   const cover = async (id, on) => {
     if(!id) return;
     const {error} = await sb.rpc("mark_discussed",{p_task:id, p_on:on});
@@ -3492,12 +3511,27 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
         </li>)}</ul></div>
       <div style={{fontSize:13,color:"var(--muted)",marginTop:6}}>These stay off the agenda for the rest of the day, however their dates or status change.</div>
     </div>}
-    {a.completed && a.completed.length>0 && <div className="panel edged edge-ok">
-      <h3>Finished in the last {a.since_days} days ({a.completed.length})</h3>
-      <div className="ag"><ul>{a.completed.map((x,i)=>
+    {doneWatched.length>0 && <div className="panel edged edge-navy">
+      <h3>Finished, and you were watching ({doneWatched.length})</h3>
+      <div style={{fontSize:13,color:"var(--muted)",margin:"-2px 0 8px"}}>
+        You asked to follow these and they are closed. Have a look, then drop the eye and it
+        moves down into the finished list with everything else.</div>
+      <div className="ag"><ul>{doneWatched.map((x,i)=>
         <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
           <span style={{flex:1,cursor:x.id?"pointer":undefined}}
-            onClick={()=>open(x.id, a.completed)} title={x.id?"Open the task":undefined}>{x.title}
+            onClick={()=>open(x.id, doneWatched)} title={x.id?"Open the task":undefined}>
+            {x.title}{x.at?<span className="meta">{" \u00b7 "}{fmtWhen(x.at)}</span>:null}</span>
+          <button className="btn sm" style={{whiteSpace:"nowrap"}}
+            title="Take the eye off it — it drops out of this list"
+            onClick={(e)=>{e.stopPropagation(); stopWatching(x.id, x.title);}}>Done looking</button>
+        </li>)}</ul></div>
+    </div>}
+    {doneRest.length>0 && <div className="panel edged edge-ok">
+      <h3>Finished in the last {a.since_days} days ({doneRest.length})</h3>
+      <div className="ag"><ul>{doneRest.map((x,i)=>
+        <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+          <span style={{flex:1,cursor:x.id?"pointer":undefined}}
+            onClick={()=>open(x.id, doneRest)} title={x.id?"Open the task":undefined}>{x.title}
             {mgrView && x.origin!=="mine" && <span className="meta">
               {x.origin==="self" ? " \u00b7 their own" : x.by ? ` \u00b7 from ${String(x.by).split(" ")[0]}` : ""}</span>}</span>
           {(ALL_TASKS.find(t=>t.id===x.id)||{}).bd_status==="returned"

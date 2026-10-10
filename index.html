@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="12.0">
+<meta name="app-version" content="12.1">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -77,9 +77,10 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .btn.q{background:transparent;border-color:transparent;color:var(--navy)}
 .btn:disabled{opacity:.5;cursor:default}
 .btn.sm{padding:5px 10px;font-size:13px}
-.big{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:8px 0 4px}
+.big{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin:8px 0 4px}
 .big button{border:0;border-radius:var(--radius);padding:16px 6px;font-weight:700;font-size:15px;cursor:pointer;color:#fff}
 .big .done{background:var(--ok)} .big .upd{background:var(--navy)} .big .blk{background:var(--warn)} .big .help{background:var(--red)}
+.big .rev{background:#5b3fa0}
 .form{display:grid;gap:12px}
 .form label{display:grid;gap:5px;font-size:13px;color:var(--muted);font-weight:500}
 .form input,.form select,.form textarea{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#fff;width:100%}
@@ -389,6 +390,11 @@ const toneOf = (st) => STATUS_TONE[st] || STATUS_TONE.not_started;
 
 // They are asking you, not just working. This outranks who wrote the task down.
 const ASKING = (t) => !!(t.need_help || t.need_manager || t.status==="ready_for_review");
+// They typed it in, but you are the one who wanted it. Most of what your team enters in
+// a 1:1 is your ask captured by whoever had the keyboard; this is how it reaches you.
+const ASKEDBYME = (t) => !!(ME && t.asked_by === ME.id);
+// Somebody is waiting on the outcome, so "Ready for review" means something
+const HASAUDIENCE = (t) => !!(t.asked_by || (t.created_by && t.assignee_id && t.created_by !== t.assignee_id));
 // the colour each Home group wears, same meanings as the 1:1 agenda
 const GROUP_EDGE = {
   "Waiting on a decision from you":"edge-red", "Ready for your review":"edge-navy",
@@ -401,6 +407,9 @@ const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
   {v:"11.6", d:"October 7, 2026", items:[
+    "\"Who asked for this?\" on a task you write for yourself. Most of what your team types in is your ask captured by whoever had the keyboard \u2014 30 of Eliseth's 42 tasks are ones she entered herself \u2014 and until now every one of those folded away on your agenda. Name the person who asked and it reaches them as theirs to follow, while the task still honestly records who wrote it down. You can only name yourself or someone you report to.",
+    "Update now offers Working and Waiting, and nothing else. It used to list all six statuses, which quietly duplicated the Done button and hid Ready for review in a dropdown \u2014 which is how Eliseth found it. Done has its own button, Skip belongs to repeating tasks.",
+    "Ready for review is a button of its own now, and only appears when somebody is actually waiting on the outcome \u2014 work handed to you, or work someone asked for. On a task you set for yourself with nobody asking, there is nobody to review it.",
     "A \ud83d\udca1 Idea button sits beside + Assign on every screen, for anyone \u2014 a feature, a rough edge, anything that would make Task Depot better. It goes straight to the idea board that collects ideas from every one of your apps, badged Task Depot, so it is not lost in a chat. The key it uses can only add a note: it cannot read the board, change it, or delete from it.",
     "The daily \"what needs you today\" email is no longer a wall of grey. Each group is a card in the colour it wears on Home \u2014 red for a decision or a plea for help, amber for stuck or gone quiet, navy for yours \u2014 with its own count, and three big numbers across the top. Long groups stop at eight with \"and 25 more\", because thirty-three overdue tasks is a scroll, not a digest.",
     "Finishing a task with steps still unticked now asks first. It names how many and lists them, then gives three ways out: tick them all and finish, finish anyway and leave them unticked as an honest record, or cancel. It does not block you \u2014 a checklist is a plan, and plans change \u2014 it stops it happening without you noticing.",
@@ -1275,6 +1284,8 @@ function Row({t,people,today,setOpen,showWho=true,why,extra=0}){
         <span className={"pill "+t.status}>{STATUS[t.status]}</span>{" "}
         {DELEGATED(t)
           ? <><span className="pill origin">{t.created_by===(ME&&ME.id) ? "You assigned" : "From "+nameOf(people,t.created_by).split(" ")[0]}</span>{" "}</>
+          : t.asked_by
+            ? <><span className="pill origin">{ASKEDBYME(t) ? "You asked for it" : nameOf(people,t.asked_by).split(" ")[0]+" asked for it"}</span>{" "}</>
           : t.assignee_id
             ? <><span className="pill origin own">{t.assignee_id===(ME&&ME.id) ? "Your own" : "Their own"}</span>{" "}</>
             : null}
@@ -1323,9 +1334,9 @@ function ManagerHome(ctx){
   // You press the eye so a task comes to you. So a watched task belongs under Watching
   // and nowhere else \u2014 unless it is actually asking you for something, which outranks the eye.
   const pulled = (x) => WATCHING(x.t) && !ASKING(x.t);
-  const flagged = allFlagged.filter(x=>(DELEGATED(x.t) || ASKING(x.t) || WATCHING(x.t)) && !pulled(x));
-  const theirOwn = allFlagged.filter(x=>!DELEGATED(x.t) && !ASKING(x.t) && !WATCHING(x.t));
-  const openT = tasks.filter(t=>!CLOSED(t.status) && t.assignee_id!==ctx.me.id && DELEGATED(t));
+  const flagged = allFlagged.filter(x=>(DELEGATED(x.t) || ASKEDBYME(x.t) || ASKING(x.t) || WATCHING(x.t)) && !pulled(x));
+  const theirOwn = allFlagged.filter(x=>!DELEGATED(x.t) && !ASKEDBYME(x.t) && !ASKING(x.t) && !WATCHING(x.t));
+  const openT = tasks.filter(t=>!CLOSED(t.status) && t.assignee_id!==ctx.me.id && (DELEGATED(t) || ASKEDBYME(t)));
   const week = new Date(); week.setDate(week.getDate()+7); const weekISO = week.toISOString().slice(0,10);
   const buckets = {
     track: openT.filter(t=>!attention(t,today) && t.status!=="waiting" && (t.assignee_id||t.assignee_email) && t.due_date),
@@ -1672,9 +1683,11 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
                {LINK_COUNTS[t.id] > 0 && <span className="pill" title="Linked to other tasks"
                  style={{marginLeft:6,background:"#eef3fd",color:"var(--navy)"}}>&#128279; {LINK_COUNTS[t.id]}</span>}
              </>},
-    origin:  {label:"Origin", cls:"muted hide-sm", val:t=>DELEGATED(t)?"0":"1",
+    origin:  {label:"Origin", cls:"muted hide-sm", val:t=>DELEGATED(t)?"0":t.asked_by?"1":"2",
               cell:t=>DELEGATED(t)
                     ? (t.created_by===(ME&&ME.id) ? "You assigned" : String(nameOf(people,t.created_by)).split(" ")[0]+" assigned")
+                    : t.asked_by
+                      ? (ASKEDBYME(t) ? "You asked for it" : String(nameOf(people,t.asked_by)).split(" ")[0]+" asked for it")
                     : t.assignee_id ? (t.assignee_id===(ME&&ME.id) ? "Your own" : "Their own") : "—"},
     status:  {label:"Status", val:t=>(STATUS[t.status]||"").toLowerCase(),
               cell:t=><><span className={"pill "+t.status}>{STATUS[t.status]}</span>
@@ -1748,8 +1761,11 @@ function MyDay(ctx){
 // ---------- assign modal (manager) ----------
 function AssignModal(ctx){
   const {people,me,onClose,load,showToast,today,isMgr,parent,prefill,fromMention} = ctx;
-  const blank = {title:"",assignee_id:isMgr?"":me.id,due_date:"",priority:"normal",context:parent?parent.context:"",details:"",definition_of_done:"",standing_notes:"",recur_rule:"",recur_day:"",recur_cap:3};
+  const blank = {title:"",assignee_id:isMgr?"":me.id,due_date:"",priority:"normal",context:parent?parent.context:"",details:"",definition_of_done:"",standing_notes:"",recur_rule:"",recur_day:"",recur_cap:3,asked_by:""};
   const [several,setSeveral] = useState([]);   // extra people to give a copy to
+  // Only someone above you can have asked: you cannot put work on a colleague this way.
+  const askers = (people||[]).filter(p=>p.active && p.id!==me.id &&
+    (p.role==="owner" || p.id===me.manager_id));
   const [steps,setSteps] = useState([]);      // checklist typed while writing the task
   const [stepText,setStepText] = useState("");
   const addStep = () => {
@@ -1779,7 +1795,8 @@ function AssignModal(ctx){
     if(!f.due_date) { setErr("Set a due date. Without one it can never be overdue, so nobody is ever reminded."); return; }
     setBusy(true);
     const byEmail = String(f.assignee_id||"").startsWith("email:") ? f.assignee_id.slice(6) : null;
-    const row = {...f, created_by:me.id, assignee_id:byEmail?null:(f.assignee_id||null), assignee_email:byEmail, due_date:f.due_date||null, parent_id:parent?parent.id:null,
+    const row = {...f, created_by:me.id, asked_by:(f.assignee_id===me.id && f.asked_by) ? f.asked_by : null,
+                 assignee_id:byEmail?null:(f.assignee_id||null), assignee_email:byEmail, due_date:f.due_date||null, parent_id:parent?parent.id:null,
                  recur_rule:f.recur_rule||null, recur_day:(!f.recur_rule||f.recur_rule==="daily"||f.recur_rule==="yearly")?null:(parseInt(f.recur_day)||null), recur_cap:Math.max(2, parseInt(f.recur_cap)||3)};
     const targets = several.length ? several : [byEmail ? "email:"+byEmail : row.assignee_id];
     const rows = targets.map(target => String(target||"").startsWith("email:")
@@ -1833,6 +1850,17 @@ function AssignModal(ctx){
         <label>Due<input type="date" value={f.due_date} onChange={e=>setF({...f,due_date:e.target.value})}/></label>
         <label>Priority<select value={f.priority} onChange={e=>setF({...f,priority:e.target.value})}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></label>
       </div>
+      {/* Writing down your own task? Say if someone asked for it, and it reaches them too. */}
+      {!several.length && f.assignee_id === me.id && askers.length>0 &&
+        <label>Who asked for this?
+          <select value={f.asked_by} onChange={e=>setF({...f,asked_by:e.target.value})}>
+            <option value="">Nobody {"\u2014"} it's my own</option>
+            {askers.map(a=><option key={a.id} value={a.id}>{a.full_name}</option>)}
+          </select>
+          <div style={{fontSize:13,color:"var(--muted)",marginTop:4}}>
+            Say so and it shows on their list as something they asked for, not as your own work.
+          </div>
+        </label>}
       {isMgr && (staff.length+pending.length)>1 && <div>
         <div className="section-title" style={{marginTop:0}}>Or give the same task to several people</div>
         <div>{[...staff.map(p=>({k:p.id, label:p.full_name})),
@@ -2271,6 +2299,9 @@ function TaskModal(ctx){
       <button className="done" onClick={()=>finish({status:"done",need_help:false,need_manager:false},"Marked done")}>Done</button>
       <button className="upd" onClick={()=>setUpd({status:t.status==="not_started"?"working":t.status,waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Update</button>
       <button className="blk" onClick={()=>setUpd({mode:"blocked",status:"waiting",waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Blocked</button>
+      {HASAUDIENCE(t) && t.status!=="ready_for_review" &&
+        <button className="rev" title="Hand it back for a check before it counts as done"
+          onClick={()=>quick({status:"ready_for_review"},"Sent for review")}>Ready for review</button>}
       <button className="help" onClick={()=>setAsking(true)}>Need help</button>
     </div>}
     {upd && <div className="form card" style={{padding:14,marginBottom:12}}>
@@ -2280,7 +2311,10 @@ function TaskModal(ctx){
               <span className="pill waiting">Waiting</span>
               <span style={{fontSize:13,color:"var(--muted)"}}>Cancel and use Update for anything else.</span>
             </div></label>
-          : <label>Status<select value={upd.status} onChange={e=>setUpd({...upd,status:e.target.value})}>{Object.entries(STATUS).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label>}
+          : <label>Status<select value={upd.status} onChange={e=>setUpd({...upd,status:e.target.value})}>
+              <option value="working">Working</option>
+              <option value="waiting">Waiting</option>
+            </select></label>}
         <label>Expected completion<input type="date" value={upd.expected_completion} onChange={e=>setUpd({...upd,expected_completion:e.target.value})}/></label>
       </div>
       {upd.status==="waiting" && <label>Waiting on<input autoFocus={upd.mode==="blocked"} value={upd.waiting_on} onChange={e=>setUpd({...upd,waiting_on:e.target.value})} placeholder="Vendor, customer, a coworker, Kathleen…"/></label>}

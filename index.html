@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="12.5">
+<meta name="app-version" content="12.6">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -297,6 +297,13 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .grip:active{cursor:grabbing;color:var(--navy)}
 .grip:focus-visible{outline:2px solid var(--navy);outline-offset:1px;color:var(--navy)}
 @media (hover:none){.grip{color:#9aa3b5;font-size:17px;padding:4px 2px}}
+.steptext{flex:1;cursor:text;border-radius:5px;padding:0 3px;margin:0 -3px;
+           border-bottom:1px dashed transparent;transition:border-color .12s}
+.steprow:hover .steptext{border-bottom-color:#c9d2e2}
+.steptext:focus-visible{outline:2px solid var(--navy);outline-offset:1px;border-bottom-color:transparent}
+.stepedit{flex:1;font:inherit;color:inherit;border:1px solid var(--navy);border-radius:6px;
+          padding:2px 7px;margin:-3px 0;background:#fff;min-width:0}
+.stepedit:focus{outline:none;box-shadow:0 0 0 3px rgba(31,58,122,.13)}
 .ttable .steps-n{color:var(--muted);font-weight:600;font-size:12.5px;white-space:nowrap}
 /* the idea button sits beside + Assign, present but never shouting */
 .btn.idea{border-color:#d9d2f2;color:#5340a3;background:#faf8ff}
@@ -430,6 +437,12 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"12.6", d:"October 10, 2026", items:[
+    "Reword a step where it sits. Click the text and it becomes a box; Enter or clicking away saves it, Escape throws the change away. No drawer, no edit form.",
+    "Saving a blank step does nothing rather than wiping the wording \u2014 removing a step is still the \u00d7.",
+    "The text is only clickable where the edit would be allowed, the same rule that governs the \u00d7 and the drag handle. Steps someone else wrote on your task stay theirs to word; you can still tick them off.",
+    "Rewording a step no longer starts the task either. Only ticking one off does \u2014 not adding, not moving, not rewording, and not un-ticking.",
+  ]},
   {v:"12.5", d:"October 10, 2026", items:[
     "Steps can be put in order. Grab the handle to the left of a step and drag it where it belongs; the rest part around it and the order saves itself. It works with a finger as well as a mouse \u2014 built on pointer events rather than the usual browser drag-and-drop, which does not exist on a touch screen at all.",
     "It also works without either. Tab to a handle and the up and down arrows move that step, so the list can be ordered from the keyboard.",
@@ -2101,6 +2114,22 @@ function TaskModal(ctx){
     const {error} = await sb.from("task_steps").delete().eq("id",st.id);
     if(error){ showToast(error.message); return; } loadSteps();
   };
+  // Inline editing. Escape has to beat the save-on-blur, so a ref carries the intent
+  // across the blur that unmounting the input fires.
+  const [editId,setEditId]     = useState(null);
+  const [editText,setEditText] = useState("");
+  const editCancel = useRef(false);
+  const beginEdit = (st) => { editCancel.current=false; setEditId(st.id); setEditText(st.body); };
+  const saveEdit = async (st) => {
+    if(editCancel.current){ editCancel.current=false; return; }
+    const body = editText.trim();
+    setEditId(null); setEditText("");
+    if(!body || body === st.body) return;          // blank is not a delete; that is the x
+    setSteps(steps.map(x=>x.id===st.id?{...x,body}:x));
+    const {error} = await sb.from("task_steps").update({body}).eq("id",st.id);
+    if(error) showToast(error.message);
+    loadSteps();
+  };
   // Reordering. Pointer events rather than HTML5 drag-and-drop, which does not exist on
   // a touch screen \u2014 this one works with a finger, a mouse or the arrow keys.
   const stepEls = useRef({});
@@ -2632,7 +2661,21 @@ function TaskModal(ctx){
                             if(e.key==="ArrowDown"){ e.preventDefault(); nudge(st,1); } }}>
             {"\u283F"}</button>}
           <input type="checkbox" checked={st.done} onChange={()=>toggleStep(st)} style={{width:18,height:18,marginTop:2,flexShrink:0}}/>
-          <span style={{flex:1,textDecoration:st.done?"line-through":"none",color:st.done?"var(--muted)":"inherit"}}>{st.body}</span>
+          {editId===st.id
+            ? <input className="stepedit" autoFocus value={editText}
+                onChange={e=>setEditText(e.target.value)}
+                onBlur={()=>saveEdit(st)}
+                onKeyDown={e=>{
+                  if(e.key==="Enter"){ e.preventDefault(); e.currentTarget.blur(); }
+                  if(e.key==="Escape"){ e.preventDefault(); editCancel.current=true; setEditId(null); }
+                }}/>
+            : (canReshape || st.created_by===me.id)
+              ? <span className="steptext" tabIndex={0} role="button"
+                  title="Click to reword this step"
+                  onClick={()=>beginEdit(st)}
+                  onKeyDown={e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); beginEdit(st); } }}
+                  style={{textDecoration:st.done?"line-through":"none",color:st.done?"var(--muted)":"inherit"}}>{st.body}</span>
+              : <span style={{flex:1,textDecoration:st.done?"line-through":"none",color:st.done?"var(--muted)":"inherit"}}>{st.body}</span>}
           {(canReshape || st.created_by===me.id) && <button className="btn q" style={{padding:"0 4px",color:"var(--muted)"}} title="Remove this step" onClick={()=>removeStep(st)}>×</button>}
         </div>);
       })()}

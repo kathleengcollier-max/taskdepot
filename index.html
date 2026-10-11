@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="12.7">
+<meta name="app-version" content="12.9">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -289,6 +289,20 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
   display:inline-flex;align-items:center;vertical-align:-3px}
 .ttable .weye svg{display:block}
 /* how far through the steps a task is, sitting quietly beside its name */
+.duppair{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:start;margin-top:8px}
+.dupvs{color:var(--muted);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding-top:6px}
+.dupside{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.duptitle{display:block;text-align:left;background:none;border:0;padding:0;font:inherit;font-weight:700;
+          color:var(--navy);cursor:pointer;line-height:1.35}
+.duptitle:hover{text-decoration:underline}
+.dupside .meta{margin-top:3px}
+.dupside .btn.sm{margin-top:9px}
+.dupdetail{margin-top:7px;font-size:13px;color:var(--muted);line-height:1.45;
+           max-height:62px;overflow:hidden}
+.dupwhy{font-size:13.5px;color:#7a5200;background:#fff6e5;border-radius:8px;padding:6px 10px;margin-top:2px}
+.dupbar{height:7px;border-radius:5px;background:#e7ebf3;overflow:hidden}
+.dupbar i{display:block;height:100%;background:var(--navy);transition:width .25s}
+@media(max-width:760px){.duppair{grid-template-columns:1fr}.dupvs{padding:0}}
 .steprow{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
 .steprow.dragging{opacity:.6;background:#eef3fd;border-radius:8px;border-top-color:transparent}
 .grip{background:none;border:0;padding:2px;margin-top:1px;flex-shrink:0;border-radius:6px;
@@ -424,6 +438,20 @@ const ASKEDBYME = (t) => !!(ME && t.asked_by === ME.id);
 // You handed this out. DELEGATED alone only says somebody did, which put work Eliseth
 // gave Alexis on Kathleen's Home as though she had handed it out herself.
 const DELEGATEDBYME = (t) => !!(ME && t.created_by === ME.id && DELEGATED(t));
+// Watched work that has closed. No window on purpose: a watched task stays in front of
+// you until you say you are done looking, however long ago it was finished. Covers
+// skipped as well as done, so nothing you follow can slip away unnoticed.
+const WATCHED_DONE = (tasks, forPerson) => (tasks||[])
+  .filter(t => !t.deleted_at && CLOSED(t.status) && WATCHED.has(t.id)
+               && (!forPerson || t.assignee_id === forPerson))
+  .sort((a,b)=>String(b.completed_at||b.updated_at||"")
+                 .localeCompare(String(a.completed_at||a.updated_at||"")));
+const UNWATCH = async (id) => {
+  if(!ME) return {error:{message:"Not signed in"}};
+  const r = await sb.from("task_watchers").delete().eq("task_id",id).eq("user_id",ME.id);
+  if(!r.error) WATCHED.delete(id);
+  return r;
+};
 // Somebody is waiting on the outcome, so "Ready for review" means something
 const HASAUDIENCE = (t) => !!(t.asked_by || (t.created_by && t.assignee_id && t.created_by !== t.assignee_id));
 // the colour each Home group wears, same meanings as the 1:1 agenda
@@ -437,6 +465,20 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"12.9", d:"October 11, 2026", items:[
+    "A Duplicates tab. The app has been judging whether two tasks are the same work since September, but only ever when somebody opened a task drawer, and the verdicts had nowhere to be seen. Press Run the check and it reads every task nobody has compared yet, showing how far along it is; each answer is kept for good, so the second run has almost nothing left to do.",
+    "Each suggestion shows both tasks side by side \u2014 owner, status, due date, who wrote it, when it was added, and whether anything has been done on it \u2014 with the reason it was flagged. The one carrying the comments is usually the one to keep, and now you can see that without opening either.",
+    "Four things you can do without leaving the page: trash either one (with an undo), keep both and link them, say they are not the same so the pair never comes back, or click a title to open it.",
+    "A count sits on the tab, and the list defaults to work you have a part in \u2014 created, asked for, or watched \u2014 with Everyone\u2019s as the other option.",
+    "It only shows pairs where both tasks are still open and neither has been linked or dismissed already, so the list is always things you can actually decide.",
+    "It reads only what you are allowed to see. Checked from all three accounts: the same sweep returns 2 pairs to Kathleen, 1 to Eliseth and none to Alexis.",
+  ]},
+  {v:"12.8", d:"October 10, 2026", items:[
+    "No window on watched work any more. A watched task that closed stays in front of you however long ago it was finished \u2014 the 1:1 section was reading the agenda's last-14-days bucket, so anything older had already slipped away. Both screens now read the full list, and nothing leaves until you press Done looking.",
+    "Home has the same section, sitting below Watching and above Overdue, with the same Done looking button on each row.",
+    "Skipped counts as closed. A watched task that got skipped used to vanish with no way to clear the eye short of hunting down the task; it is in the list now, marked skipped.",
+    "One definition of \"watched and closed\" feeds both screens, so Home and the 1:1 cannot drift apart on what belongs there.",
+  ]},
   {v:"12.7", d:"October 10, 2026", items:[
     "A watched task that gets finished now has its own heading on the 1:1 \u2014 \"Finished, and you were watching\" \u2014 sitting above the general finished list. It was already in that list, mixed in with everything else they closed and marked in no way at all, which is the same as not being there.",
     "Each one carries a Done looking button. Press it and the eye comes off and the task drops into the finished list with everything else, so you can clear them as you satisfy yourself rather than opening each task to find the eye.",
@@ -1247,11 +1289,17 @@ function Shell({me,setMe}){
   },[]);
   const ctx = {me,people,tasks:live,today,update,trash,load,setOpen,opener,showToast,isMgr,isOwner,invitees,openTaskId:open,startTaskFromMention};
 
+  const [dupeCount,setDupeCount] = useState(0);
+  useEffect(()=>{ if(!isMgr) return; let on=true;
+    sb.rpc("duplicate_pairs",{p_mine:true}).then(({data,error})=>{
+      if(on && !error) setDupeCount(Array.isArray(data)?data.length:0); });
+    return ()=>{on=false;};
+  },[isMgr,tasks]);
   const attnCount = isMgr ? live.filter(t=>attention(t,today) && (DELEGATEDBYME(t) || ASKEDBYME(t) || ASKING(t) || WATCHING(t) || t.assignee_id===me.id)).length : 0;
   const freshDone = isMgr ? live.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id && !t.seen_at
       && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0)).length : 0;
   const nav = isMgr
-    ? [["home","Home",attnCount],["week","Week ahead"],["all","All tasks"],["repeating","Repeating"],["finished","Finished",freshDone],["reports","Reports"],["ones","1:1s"],["people","People"],["intake","Email intake"],["settings","Settings"],["trash","Trash"]]
+    ? [["home","Home",attnCount],["week","Week ahead"],["all","All tasks"],["dupes","Duplicates",dupeCount],["repeating","Repeating"],["finished","Finished",freshDone],["reports","Reports"],["ones","1:1s"],["people","People"],["intake","Email intake"],["settings","Settings"],["trash","Trash"]]
     : [["myday","My day"],["week","Week ahead"],["all","All my tasks"],["ones","1:1s"],["settings","Settings"]];
 
   return <>
@@ -1277,6 +1325,7 @@ function Shell({me,setMe}){
       {view==="people" && isOwner && <People {...ctx} setMe={setMe}/>}
       {view==="ones" && <OneOnOnes {...ctx}/>}
       {view==="all" && <AllTasks {...ctx}/>}
+      {view==="dupes" && isMgr && <Duplicates {...ctx} onCount={setDupeCount}/>}
       {view==="trash" && <Trash {...ctx} trashed={tasks.filter(t=>t.deleted_at)}/>}
       {view==="myday" && <MyDay {...ctx}/>}
       {view==="week" && <WeekAhead {...ctx}/>}
@@ -1402,6 +1451,12 @@ function ManagerHome(ctx){
   const {tasks,today,people} = ctx;
   const [filter,setFilter] = useState(null);
   const [showTheirs,setShowTheirs] = useState(false);
+  const doneLooking = async (t) => {
+    const {error} = await UNWATCH(t.id);
+    if(error){ ctx.showToast(error.message); return; }
+    ctx.showToast(`Stopped watching \u201c${t.title}\u201d`);
+    ctx.load();
+  };
   const allFlagged = tasks.filter(t=>t.assignee_id!==ctx.me.id).map(t=>({t,a:attention(t,today)})).filter(x=>x.a)
     .sort((x,y)=>x.a.rank-y.a.rank || (x.t.due_date||"9").localeCompare(y.t.due_date||"9"));
   // You press the eye so a task comes to you. So a watched task belongs under Watching
@@ -1458,9 +1513,25 @@ function ManagerHome(ctx){
                   why={t=>attention(t,today)}/>
               </Fold>
             : null;
+          // Watched work that has closed, held until you say you are done looking.
+          const closedWatch = WATCHED_DONE(tasks, null).filter(t=>t.assignee_id!==ctx.me.id);
+          const doneBlock = closedWatch.length
+            ? <Fold key="__watchdone" label="Finished, and you were watching" count={closedWatch.length}
+                    storeKey="watchdone" edge="edge-ok">
+                <div className="note" style={{marginBottom:8}}>
+                  Closed, but you asked to follow them, so they stay here until you let go.
+                </div>
+                <TaskTable list={closedWatch} people={people} today={today}
+                  setOpen={ctx.opener(closedWatch)} cols={["who","title","finished"]}
+                  actions={t=><button className="btn sm" style={{whiteSpace:"nowrap"}}
+                    title="Take the eye off it \u2014 it drops out of this list"
+                    onClick={()=>doneLooking(t)}>Done looking</button>}/>
+              </Fold>
+            : null;
           const at = groups.findIndex(([label])=>label==="Overdue");
           const out = groups.map(block);
-          if(watchBlock) out.splice(at<0 ? out.length : at, 0, watchBlock);
+          const extras = [watchBlock, doneBlock].filter(Boolean);
+          if(extras.length) out.splice(at<0 ? out.length : at, 0, ...extras);
           return out;
         })()
       : <div className="card"><div className="empty">
@@ -1813,6 +1884,152 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
       </tr>)}
     </tbody></table>
   </div>;
+}
+
+// ---------- duplicates (manager) ----------
+// The judge has existed for a while but only ever ran when somebody opened a task, and
+// its verdicts had nowhere to be seen. This runs it across everything and puts the
+// answers where you can act on them.
+function Duplicates(ctx){
+  const {tasks,people,today,me,showToast,load,setOpen,isOwner,onCount} = ctx;
+  const [pairs,setPairs]   = useState(null);
+  const [mine,setMine]     = useState(true);
+  const [run,setRun]       = useState(null);     // {done,total,found} while sweeping
+  const [busy,setBusy]     = useState("");       // id of the pair being acted on
+
+  const refresh = useCallback(async (scopeMine) => {
+    const {data,error} = await sb.rpc("duplicate_pairs",{p_mine:scopeMine});
+    if(error){ showToast(error.message); return; }
+    const list = Array.isArray(data) ? data : [];
+    setPairs(list);
+    if(scopeMine && onCount) onCount(list.length);
+  },[showToast,onCount]);
+  useEffect(()=>{ refresh(mine); },[refresh,mine]);
+
+  // Walk every task that still has an unjudged candidate. Each call is one small
+  // judgement cached for good, so a second run has almost nothing left to do.
+  const sweep = async () => {
+    const {data,error} = await sb.rpc("sweep_targets");
+    if(error){ showToast(error.message); return; }
+    const targets = Array.isArray(data) ? data : [];
+    if(!targets.length){
+      setRun(null);
+      showToast("Nothing new to check \u2014 every pair has already been judged");
+      return;
+    }
+    setRun({done:0,total:targets.length,found:0});
+    let found = 0, failed = 0;
+    for(let i=0;i<targets.length;i++){
+      try{
+        const {data:r,error:e} = await sb.functions.invoke("dupecheck",{body:{task_id:targets[i].id}});
+        if(e || !r || !r.ok) failed++; else found += (r.same||0);
+      }catch(err){ failed++; }
+      setRun({done:i+1,total:targets.length,found});
+    }
+    setRun(null);
+    await refresh(mine);
+    showToast(failed
+      ? `Checked ${targets.length-failed} of ${targets.length} \u2014 ${failed} couldn't be judged, try again in a minute`
+      : (found ? `Found ${found} to look at` : "Checked everything \u2014 nothing new looks like a duplicate"));
+  };
+
+  const keyOf = (p) => p.a.id + "|" + p.b.id;
+  const act = async (p, what) => {
+    setBusy(keyOf(p));
+    try{
+      if(what==="link"){
+        const {error} = await sb.rpc("link_many",{p_task:p.a.id, p_others:[p.b.id]});
+        if(error) throw error;
+        showToast("Linked \u2014 they will show on each other from now on");
+      } else if(what==="dismiss"){
+        const {error} = await sb.rpc("dismiss_link",{p_a:p.a.id, p_b:p.b.id});
+        if(error) throw error;
+        showToast("Noted \u2014 you won't be asked about this pair again");
+      }
+      await refresh(mine); await load();
+    }catch(e){ showToast(e.message||String(e)); }
+    finally{ setBusy(""); }
+  };
+  const trash = async (p, side) => {
+    const t = side==="a" ? p.a : p.b;
+    setBusy(keyOf(p));
+    const {error} = await sb.from("tasks").update({deleted_at:new Date().toISOString()}).eq("id",t.id);
+    setBusy("");
+    if(error){ showToast("Couldn't trash it: "+error.message); return; }
+    showToast(`\u201c${t.title}\u201d moved to Trash`, async ()=>{
+      await sb.from("tasks").update({deleted_at:null}).eq("id",t.id);
+      await refresh(mine); await load();
+    });
+    await refresh(mine); await load();
+  };
+
+  const Side = ({t,p,side}) =>
+    <div className="dupside">
+      <button className="duptitle" onClick={()=>setOpen(t.id)} title="Open this task">{t.title}</button>
+      <div className="meta">
+        {t.who || "Unassigned"} {"\u00b7"} {STATUS[t.status]||t.status}
+        {t.due ? ` \u00b7 due ${fmtDate(t.due)}` : " \u00b7 no date"}
+        {t.by ? ` \u00b7 written by ${String(t.by).split(" ")[0]}` : ""}
+      </div>
+      <div className="meta">
+        added {fmtDate(String(t.created).slice(0,10))}
+        {t.steps>0 ? ` \u00b7 ${t.steps} step${t.steps>1?"s":""}` : ""}
+        {t.comments>0 ? ` \u00b7 ${t.comments} comment${t.comments>1?"s":""}` : ""}
+        {!t.steps && !t.comments ? " \u00b7 nothing on it yet" : ""}
+      </div>
+      {t.details ? <div className="dupdetail">{t.details}</div> : null}
+      <button className="btn sm" disabled={busy===keyOf(p)} onClick={()=>trash(p,side)}
+        title="Move this one to Trash — the other stays">Trash this one</button>
+    </div>;
+
+  return <>
+    <div className="h"><h2>Duplicates</h2>
+      <span className="sub">{pairs===null ? "looking\u2026"
+        : pairs.length ? `${pairs.length} pair${pairs.length>1?"s":""} to decide on` : "nothing waiting"}</span></div>
+
+    <div className="note" style={{marginBottom:10,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+      <span style={{flex:1}}>
+        Every pair here was judged to be the same work, not just similar wording. Running the
+        check reads the tasks nobody has compared yet; each answer is kept, so it gets quicker
+        every time.
+      </span>
+      <select value={mine?"mine":"all"} onChange={e=>setMine(e.target.value==="mine")}
+        style={{width:"auto"}}>
+        <option value="mine">Work I have a part in</option>
+        <option value="all">Everyone's</option>
+      </select>
+      <button className="btn p" disabled={!!run} onClick={sweep}>
+        {run ? `Checking ${run.done} of ${run.total}\u2026` : "Run the check"}</button>
+    </div>
+
+    {run && <div className="card" style={{marginBottom:10,padding:"10px 12px"}}>
+      <div className="dupbar"><i style={{width:`${Math.round(100*run.done/Math.max(run.total,1))}%`}}/></div>
+      <div className="meta" style={{marginTop:6}}>
+        Reading each task against the ones it might duplicate. {run.found
+          ? `${run.found} found so far.` : "Nothing new so far."} You can leave this page open.
+      </div>
+    </div>}
+
+    {pairs && pairs.length===0 && !run && <div className="card"><div className="empty">
+      No duplicates waiting on you. Press Run the check if tasks have been added since the last sweep.
+    </div></div>}
+
+    {pairs && pairs.map(p=><div key={keyOf(p)} className="panel tint edged edge-warn" style={{marginBottom:12}}>
+      <h3>Likely the same work</h3>
+      {p.why ? <div className="dupwhy">{p.why}</div> : null}
+      <div className="duppair">
+        <Side t={p.a} p={p} side="a"/>
+        <div className="dupvs">vs</div>
+        <Side t={p.b} p={p} side="b"/>
+      </div>
+      <div className="actions" style={{justifyContent:"flex-start",marginTop:10,gap:8}}>
+        <button className="btn" disabled={busy===keyOf(p)} onClick={()=>act(p,"link")}
+          title="Keep both, but tie them together so each shows on the other">Keep both, link them</button>
+        <button className="btn" disabled={busy===keyOf(p)} onClick={()=>act(p,"dismiss")}
+          title="They are different work — stop suggesting this pair">Not the same</button>
+      </div>
+    </div>)}
+  </>;
 }
 
 // ---------- employee my day ----------
@@ -3288,12 +3505,15 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
   // A watched task that gets finished used to vanish into the general finished list,
   // indistinguishable from everything else they closed. It is the one you asked to
   // follow, so it gets its own heading and a way to let go of it once you are satisfied.
-  const doneWatched = a ? (a.completed||[]).filter(x=>x.origin==="watched") : [];
-  const doneRest    = a ? (a.completed||[]).filter(x=>x.origin!=="watched") : [];
+  // Straight from the full task list rather than the agenda's 14-day bucket, so a
+  // watched task finished months ago is still here until you let go of it.
+  const doneWatched = WATCHED_DONE(ALL_TASKS, personId)
+    .map(t=>({id:t.id, title:t.title, at:t.completed_at||t.updated_at, skipped:t.status==="skipped"}));
+  const watchedIds  = new Set(doneWatched.map(x=>x.id));
+  const doneRest    = a ? (a.completed||[]).filter(x=>!watchedIds.has(x.id)) : [];
   const stopWatching = async (id, title) => {
-    const {error} = await sb.from("task_watchers").delete().eq("task_id",id).eq("user_id",ME.id);
+    const {error} = await UNWATCH(id);
     if(error){ showToast(error.message); return; }
-    WATCHED.delete(id);
     showToast(`Stopped watching \u201c${title}\u201d`);
     reload();
   };
@@ -3514,13 +3734,13 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
     {doneWatched.length>0 && <div className="panel edged edge-navy">
       <h3>Finished, and you were watching ({doneWatched.length})</h3>
       <div style={{fontSize:13,color:"var(--muted)",margin:"-2px 0 8px"}}>
-        You asked to follow these and they are closed. Have a look, then drop the eye and it
-        moves down into the finished list with everything else.</div>
+        Closed, but you asked to follow them, so they stay here however long ago it was,
+        until you drop the eye.</div>
       <div className="ag"><ul>{doneWatched.map((x,i)=>
         <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
           <span style={{flex:1,cursor:x.id?"pointer":undefined}}
             onClick={()=>open(x.id, doneWatched)} title={x.id?"Open the task":undefined}>
-            {x.title}{x.at?<span className="meta">{" \u00b7 "}{fmtWhen(x.at)}</span>:null}</span>
+            {x.title}<span className="meta">{x.skipped?" \u00b7 skipped":""}{x.at?` \u00b7 ${fmtWhen(x.at)}`:""}</span></span>
           <button className="btn sm" style={{whiteSpace:"nowrap"}}
             title="Take the eye off it — it drops out of this list"
             onClick={(e)=>{e.stopPropagation(); stopWatching(x.id, x.title);}}>Done looking</button>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="13.6">
+<meta name="app-version" content="13.7">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -314,6 +314,11 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .jumphit:hover,.jumphit:focus-visible{background:#f3f6fd;outline:none}
 .jumphit .jt{font-weight:600;color:var(--navy)}
 .jumphit .meta{display:block;margin-top:2px}
+.pill.shared{background:#eae4fb;color:#4a3690}
+/* .form label{display:grid} outranks a bare class, same trap as .mp-row above */
+.form label.finishopt{display:flex;gap:9px;align-items:flex-start;padding:4px 0;cursor:pointer;
+                      line-height:1.4;font-size:14.5px;color:inherit;font-weight:400}
+.form label.finishopt input{width:17px;height:17px;margin-top:2px;flex-shrink:0}
 .linkrow{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;padding:3px 0}
 .linkrow > a{color:var(--navy);font-weight:600;text-decoration:none}
 .linkrow > a:hover{text-decoration:underline}
@@ -407,6 +412,7 @@ let INVITEES = [];
 let LINK_COUNTS = {};   // task id -> how many live tasks it is linked to
 let STEP_COUNTS = {};   // task id -> [ticked, total], so a list can show progress
 let WATCHED = new Set();  // tasks you have put an eye on, so their own work reaches you
+let SHARED = new Set();   // one job in several hands, so a list can say so without asking
 // Watching is on the record: everyone who can see a task can see who is following it,
 // the person doing the work included. { taskId: [{id,name}] }
 let WATCHERS = {};
@@ -500,6 +506,12 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"13.7", d:"October 11, 2026", items:[
+    "A Shared pill. Every list shows it on a task that is one job in more than one pair of hands, and the drawer names them \u2014 \"Shared with Carlos\" or \"Shared with 2 others\" \u2014 so you can tell before you open anything.",
+    "Finishing a shared task asks about the others. It lists each person who still has it open with their number and status, and offers to close theirs as well. Nothing is ticked for you: closing somebody else\u2019s work is a decision, not a default. The button says what it will do \u2014 Finish just mine, or Finish \u2014 yours and 1 more.",
+    "It is one question, not two. A task with unticked steps AND other people holding it used to need a second prompt after the first; both now sit in the same panel, steps pre-ticked, copies not.",
+    "Fixed a layout bug in that panel: .form label{display:grid} outranked the new class, so each tick box sat on its own line above its wording. The same trap had already been hit once with the filter rows, and there is a comment above the rule now saying so.",
+  ]},
   {v:"13.6", d:"October 11, 2026", items:[
     "Every email Task Depot sends back now says who has the task, and its number. \"Added to an existing task\" had been reporting the due date and nothing else \u2014 not the owner, not the number \u2014 which is no use when you are checking that a forward landed where you meant.",
     "Where a task is shared, it names everyone: \"Alex Romero \u2014 also with Stephen Yonke (#67, done), Ilah Estrada (#68)\". Naming only the one copy would be half an answer.",
@@ -1310,17 +1322,18 @@ function Shell({me,setMe}){
   const loadedReal = useRef(false);
   const load = useCallback(async ()=>{
     const attempt = async () => {
-      const [pr,tr,inv,lc,wa,wb,sc] = await Promise.all([
+      const [pr,tr,inv,lc,wa,wb,sc,sh] = await Promise.all([
         sb.from("profiles").select("*").order("full_name"),
         sb.from("tasks").select("*").order("due_date",{ascending:true,nullsFirst:false}),
         sb.rpc("waiting_on_signup"),
         sb.rpc("link_counts"),
         sb.rpc("my_watched"),
         sb.rpc("watchers_by_task"),
-        sb.rpc("step_counts")
+        sb.rpc("step_counts"),
+        sb.rpc("shared_tasks")
       ]);
       if(pr.error || tr.error) throw new Error((tr.error||pr.error).message || "read failed");
-      return {p:pr.data||[], t:tr.data||[], inv:(inv&&inv.data)||[], lc:(lc&&lc.data)||{}, wa:(wa&&wa.data)||[], wb:(wb&&wb.data)||{}, sc:(sc&&sc.data)||{}};
+      return {p:pr.data||[], t:tr.data||[], inv:(inv&&inv.data)||[], lc:(lc&&lc.data)||{}, wa:(wa&&wa.data)||[], wb:(wb&&wb.data)||{}, sc:(sc&&sc.data)||{}, sh:(sh&&sh.data)||[]};
     };
     const waits = [0, 300, 900, 1800];
     let why = null;
@@ -1332,7 +1345,7 @@ function Shell({me,setMe}){
         // likely a hiccup than a team that deleted everything in the last minute
         if(got.t.length===0 && loadedReal.current && i < waits.length-1){ why = "came back empty"; continue; }
         setPeople(got.p); setTasks(got.t); setInvitees(got.inv); LINK_COUNTS = got.lc; WATCHED = new Set(got.wa||[]);
-        WATCHERS = got.wb || {}; STEP_COUNTS = got.sc || {};
+        WATCHERS = got.wb || {}; STEP_COUNTS = got.sc || {}; SHARED = new Set(got.sh||[]);
         if(got.t.length>0) loadedReal.current = true;
         setLoadState({ok:true});
         return true;
@@ -1948,6 +1961,7 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
                    {mine ? (t.need_help ? "Needs help" : "Needs you") : `Needs ${who}`}</span>;
                })()}
                {t.bd_status==="returned" && <span className="pill" style={{marginLeft:6,background:"#e0ecff",color:"#1f3a7a"}}>Returned to Kathleen's Inbox</span>}
+               {SHARED.has(t.id) && <span className="pill shared" title="The same task is with more than one person">Shared</span>}
                {LINK_COUNTS[t.id] > 0 && <span className="pill" title="Linked to other tasks"
                  style={{marginLeft:6,background:"#eef3fd",color:"var(--navy)"}}>&#128279; {LINK_COUNTS[t.id]}</span>}
              </>},
@@ -2697,17 +2711,30 @@ function TaskModal(ctx){
   // change — but it should never happen by accident, so say so and make it a choice.
   const [finishing,setFinishing] = useState(null);
   const openSteps = steps.filter(x=>!x.done);
+  // Copies are one job in several hands, so finishing yours leaves theirs open. Closing
+  // somebody else's is never automatic; it is offered, unticked, and only to someone the
+  // row policies already let update their task.
+  const openCopies = links.filter(l=>l.kind==="copy" && !CLOSED(l.status));
   const finish = (patch, msg) => {
-    if(openSteps.length) setFinishing({patch,msg}); else quick(patch,msg);
+    if(openSteps.length || openCopies.length)
+      setFinishing({patch, msg, tick:openSteps.length>0, alsoClose:[]});
+    else quick(patch,msg);
   };
-  const finishNow = async (tickRest) => {
+  const finishNow = async () => {
     const f = finishing; setFinishing(null);
     if(!f) return;
-    if(tickRest && openSteps.length){
+    if(f.tick && openSteps.length){
       const {error} = await sb.from("task_steps").update({done:true, done_by:me.id, done_at:new Date().toISOString()})
         .in("id", openSteps.map(x=>x.id));
       if(error){ showToast(error.message); return; }
       loadSteps();
+    }
+    if(f.alsoClose.length){
+      const {error} = await sb.from("tasks")
+        .update({status:"done", completed_at:new Date().toISOString()})
+        .in("id", f.alsoClose);
+      if(error) showToast("Yours is done, but theirs stayed open: "+error.message);
+      else loadLinks();
     }
     quick(f.patch, f.msg);
   };
@@ -2777,6 +2804,11 @@ function TaskModal(ctx){
     <div style={{marginBottom:10}}>
       <span className={"pill "+t.status}>{STATUS[t.status]}</span>{" "}
       {t.priority==="high" && <span className="pill high">High priority</span>}{" "}
+      {links.some(l=>l.kind==="copy") && <span className="pill shared"
+        title="The same task is with more than one person — see Who has this below">
+        Shared with {links.filter(l=>l.kind==="copy").length===1
+          ? String(links.find(l=>l.kind==="copy").who||"someone else").split(" ")[0]
+          : `${links.filter(l=>l.kind==="copy").length} others`}</span>}{" "}
       {t.need_manager && <span className="pill high">Needs manager</span>}{" "}
       {t.need_help && <span className="pill high">Help requested</span>}{" "}
       {t.recur_rule && <span className="pill">{recurLabel(t)}</span>}
@@ -2812,15 +2844,41 @@ function TaskModal(ctx){
         <button className="btn r" onClick={doAsk}>Send to your manager</button></div>
     </div>}
     {finishing && <div className="form card edged edge-warn" style={{padding:14,marginBottom:12}}>
-      <b>{openSteps.length} of {steps.length} step{steps.length>1?"s":""} {openSteps.length>1?"are":"is"} still unticked.</b>
-      <ul style={{margin:"6px 0 10px 18px",padding:0,color:"var(--muted)",fontSize:13.5}}>
-        {openSteps.slice(0,4).map(x=><li key={x.id}>{x.body}</li>)}
-        {openSteps.length>4 && <li>{"\u2026 and "}{openSteps.length-4} more</li>}
-      </ul>
-      <div className="actions">
+      {openSteps.length>0 && <>
+        <b>{openSteps.length} of {steps.length} step{steps.length>1?"s":""} {openSteps.length>1?"are":"is"} still unticked.</b>
+        <ul style={{margin:"6px 0 8px 18px",padding:0,color:"var(--muted)",fontSize:13.5}}>
+          {openSteps.slice(0,4).map(x=><li key={x.id}>{x.body}</li>)}
+          {openSteps.length>4 && <li>{"\u2026 and "}{openSteps.length-4} more</li>}
+        </ul>
+        <label className="finishopt">
+          <input type="checkbox" checked={finishing.tick}
+            onChange={e=>setFinishing({...finishing, tick:e.target.checked})}/>
+          <span>Tick them all off as well</span>
+        </label>
+      </>}
+      {openCopies.length>0 && <>
+        <b style={{display:"block",marginTop:openSteps.length?12:0}}>
+          This one is shared. {openCopies.length===1 ? "One other person" : `${openCopies.length} other people`} still
+          {openCopies.length===1 ? " has" : " have"} it open.</b>
+        <div className="meta" style={{margin:"3px 0 6px"}}>
+          Finishing yours does not finish theirs. Close theirs too only if the whole job is done.
+        </div>
+        {openCopies.map(l=>
+          <label key={l.id} className="finishopt">
+            <input type="checkbox" checked={finishing.alsoClose.includes(l.id)}
+              onChange={e=>setFinishing({...finishing,
+                alsoClose: e.target.checked ? [...finishing.alsoClose, l.id]
+                                            : finishing.alsoClose.filter(i=>i!==l.id)})}/>
+            <span>Also mark it done for <b>{l.who||"the other holder"}</b>
+              <span className="meta"> {"\u00b7"} #{l.ref} {"\u00b7"} {STATUS[l.status]||l.status}</span></span>
+          </label>)}
+      </>}
+      <div className="actions" style={{marginTop:10}}>
         <button className="btn" onClick={()=>setFinishing(null)}>Cancel</button>
-        <button className="btn" onClick={()=>finishNow(false)}>Finish anyway, leave them</button>
-        <button className="btn p" onClick={()=>finishNow(true)}>Tick them all and finish</button>
+        <button className="btn p" onClick={()=>finishNow()}>
+          {finishing.alsoClose.length
+            ? `Finish \u2014 yours and ${finishing.alsoClose.length} more`
+            : "Finish just mine"}</button>
       </div>
     </div>}
     {skipping && <div className="form card" style={{padding:14,marginBottom:12}}>

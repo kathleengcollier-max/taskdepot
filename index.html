@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="13.0">
+<meta name="app-version" content="13.1">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -289,6 +289,8 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
   display:inline-flex;align-items:center;vertical-align:-3px}
 .ttable .weye svg{display:block}
 /* how far through the steps a task is, sitting quietly beside its name */
+.cmt .frommerge{display:inline-block;margin-left:7px;font-size:11.5px;font-weight:600;
+                color:#6a5a2e;background:#fdf6e3;border:1px solid #efe3c4;border-radius:6px;padding:0 6px}
 .refline{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:-4px 0 12px}
 .refchip{background:#eef2fa;border:1px solid #d6deed;color:var(--navy);font:inherit;font-size:13px;
          font-weight:700;padding:2px 9px;border-radius:7px;cursor:pointer;letter-spacing:.2px}
@@ -471,6 +473,11 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"13.1", d:"October 11, 2026", items:[
+    "Comments read newest first. They were oldest first, so the thing that just happened was at the bottom of the list \u2014 which is the wrong end when you open a task to find out what changed. The timelines inside a comment were already newest first, so the two now agree.",
+    "A comment that arrived by merging two tasks says so, with the number and title of the task it came from. Merging already moved comments across with the dates they were written, so they have always sorted into the right place \u2014 but one written before the task it now sits on looked inexplicable. #147 carries a comment from the evening of Oct 10 on a task created at 1:08 the next morning; it now reads \"from #137 Gas supplier changes\".",
+    "Older merges were backfilled. A comment older than the task holding it cannot be native to it, and the merge is in that task\u2019s history, which is enough to name where it came from.",
+  ]},
   {v:"13.0", d:"October 11, 2026", items:[
     "Every task has a number. Tasks had only ever had the long internal id, so there was nothing a person could say out loud or type. All 147 existing tasks were numbered oldest first, and new ones carry on from there.",
     "Forward an email to tasks@ with #42 at the front of the subject and it is filed against task 42 \u2014 as a comment, with its attachments \u2014 instead of becoming a new task. Replying to a Task Depot email already worked; this is for an email that was never ours, from a vendor or a customer, that belongs on a task you already have.",
@@ -2506,7 +2513,7 @@ function TaskModal(ctx){
   const fileRef = useRef();
   const refresh = useCallback(async ()=>{
     const [c,h,f] = await Promise.all([
-      sb.from("task_comments").select("*").eq("task_id",t.id).order("created_at"),
+      sb.from("task_comments").select("*").eq("task_id",t.id).order("created_at",{ascending:false}),
       sb.from("task_history").select("*").eq("task_id",t.id).order("created_at",{ascending:false}),
       sb.from("task_attachments").select("*").eq("task_id",t.id).is("deleted_at",null).order("created_at"),
     ]);
@@ -2944,7 +2951,14 @@ function TaskModal(ctx){
       <button className={tab==="history"?"on":""} onClick={()=>setTab("history")}>History</button>
     </div>
     {tab==="activity" && <div>
-      {comments.map(c=><div key={c.id} className={"cmt"+(c.is_private?" priv":"")}><div className="by">{nameOf(people,c.author_id)} · {fmtWhen(c.created_at)}{c.is_private?" · private manager note":""}</div>{richText(c.body)}</div>)}
+      {comments.map(c=><div key={c.id} className={"cmt"+(c.is_private?" priv":"")}><div className="by">
+        {nameOf(people,c.author_id)} {"\u00b7"} {fmtWhen(c.created_at)}{c.is_private?" \u00b7 private manager note":""}
+        {c.merged_from ? (() => {
+          const src = (ALL_TASKS||[]).find(x=>x.id===c.merged_from);
+          return <span className="frommerge" title="This came across when two tasks were merged, keeping the date it was written">
+            {"\u21aa "}{src ? `from #${src.ref} ${src.title}` : "from a merged task"}</span>;
+        })() : null}
+      </div>{richText(c.body)}</div>)}
       <div className="form" style={{marginTop:10}}>
         <textarea value={body} onChange={e=>setBody(e.target.value)} placeholder={priv?"Private note only you can see":"Add a comment"}/>
         <div className="actions" style={{justifyContent:"space-between"}}>

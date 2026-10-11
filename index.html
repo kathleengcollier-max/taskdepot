@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="12.9">
+<meta name="app-version" content="13.0">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -289,6 +289,12 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
   display:inline-flex;align-items:center;vertical-align:-3px}
 .ttable .weye svg{display:block}
 /* how far through the steps a task is, sitting quietly beside its name */
+.refline{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:-4px 0 12px}
+.refchip{background:#eef2fa;border:1px solid #d6deed;color:var(--navy);font:inherit;font-size:13px;
+         font-weight:700;padding:2px 9px;border-radius:7px;cursor:pointer;letter-spacing:.2px}
+.refchip:hover{background:#e2e9f7;border-color:#bccbe6}
+.refline .meta{flex:1;min-width:200px}
+.ttable .refsm{color:#9aa3b5;font-weight:600;font-size:12.5px;margin-right:6px}
 .duppair{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:start;margin-top:8px}
 .dupvs{color:var(--muted);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding-top:6px}
 .dupside{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
@@ -465,6 +471,15 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"13.0", d:"October 11, 2026", items:[
+    "Every task has a number. Tasks had only ever had the long internal id, so there was nothing a person could say out loud or type. All 147 existing tasks were numbered oldest first, and new ones carry on from there.",
+    "Forward an email to tasks@ with #42 at the front of the subject and it is filed against task 42 \u2014 as a comment, with its attachments \u2014 instead of becoming a new task. Replying to a Task Depot email already worked; this is for an email that was never ours, from a vendor or a customer, that belongs on a task you already have.",
+    "The number has to lead the subject and has to match a task you are allowed to see. Both guards matter: \"FW: #1160927B\" is a real subject that has already come through here, and it is a vendor\u2019s order number. Checked against all 80 subjects ever received \u2014 none of them would be mistaken for a task number.",
+    "Aim at a number that does not exist, or one belonging to somebody else\u2019s work, and it becomes a new task as it always did, with a line in the confirmation saying why.",
+    "The number sits at the top of the task, and pressing it copies \u201c#42\u201d ready to paste into a subject line. It also sits quietly in front of the title in every table.",
+    "Typing a number into the search box on All tasks goes straight to that task, finished or not \u2014 \"42\" and \"#42\" both work.",
+    "Confirmation emails for a new task now tell you its number and how to send more in.",
+  ]},
   {v:"12.9", d:"October 11, 2026", items:[
     "A Duplicates tab. The app has been judging whether two tasks are the same work since September, but only ever when somebody opened a task drawer, and the verdicts had nowhere to be seen. Press Run the check and it reads every task nobody has compared yet, showing how far along it is; each answer is kept for good, so the second run has almost nothing left to do.",
     "Each suggestion shows both tasks side by side \u2014 owner, status, due date, who wrote it, when it was added, and whether anything has been done on it \u2014 with the reason it was flagged. The one carrying the comments is usually the one to keep, and now you can see that without opening either.",
@@ -1725,6 +1740,8 @@ function AllTasks(ctx){
     ...((INVITEES||[]).length ? [{header:"Not signed up yet"}] : []),
     ...(INVITEES||[]).map(i=>({k:"email:"+i.email, label:i.full_name||i.email})),
   ];
+  // "#42" or a bare number is a task number, not a word to look for in the text
+  const asRef = (() => { const m = String(q||"").trim().match(/^#?\s?(\d{1,6})$/); return m ? Number(m[1]) : null; })();
   const match = (t) => {
     if(st==="open") return !CLOSED(t.status);
     if(st==="blocked") return !CLOSED(t.status) && t.status==="waiting" && !t.need_help && !t.need_manager;
@@ -1735,12 +1752,14 @@ function AllTasks(ctx){
     return true;
   };
   const openCount = tasks.filter(t=>!CLOSED(t.status)).length;
-  const list = tasks.filter(match)
+  // A number in the box means that one task. Show it whatever its status, or you type
+  // the number of something finished and are told there are no results.
+  const list = (asRef !== null ? tasks.filter(t=>t.ref===asRef) : tasks.filter(match))
     .filter(t=>!origin.length || origin.includes(startedAs(t)))
     .filter(t=>!who.length || who.some(w => String(w).startsWith("email:")
         ? String(t.assignee_email||"").toLowerCase() === String(w).slice(6)
         : t.assignee_id === w))
-    .filter(t=>!searching ? true
+    .filter(t=>(asRef !== null || !searching) ? true
       : found ? found.has(t.id)
       : (t.title+" "+t.context+" "+t.details).toLowerCase().includes(q.trim().toLowerCase()))
     .map(t=>{ const f = found && found.get(t.id);
@@ -1749,7 +1768,7 @@ function AllTasks(ctx){
     <div className="h"><h2>{isMgr?"All tasks":"All my tasks"}</h2>
       <span className="sub">{list.length} shown{filtered?` of ${openCount} open`:""}</span></div>
     <div className="filters" style={{marginBottom:10}}>
-      <input placeholder="Search titles, notes, comments and steps" value={q} onChange={e=>setQ(e.target.value)}/>
+      <input placeholder="Search, or type a task number" value={q} onChange={e=>setQ(e.target.value)}/>
       <select value={st} onChange={e=>setSt(e.target.value)}>
         <option value="open">Open</option>
         <option value="blocked">Blocked — waiting on someone else</option>
@@ -1815,6 +1834,7 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
                                       : "Keep an eye on this one")}>
                    <Eye on={mine || others.length>0}/></button>;
                })()}
+               {t.ref ? <span className="refsm">#{t.ref}</span> : null}
                {t.title}
                {(() => {
                  const c = STEP_COUNTS[t.id];
@@ -2603,6 +2623,13 @@ function TaskModal(ctx){
       <button className="btn sm" disabled={at>=queue.length-1} onClick={()=>go(1)} aria-label="Next task">→</button>
     </div>}
     <h2>{t.title}</h2>
+    {t.ref ? <div className="refline">
+      <button className="refchip" title={`Copy "#${t.ref}" — put it at the front of a subject line to file an email here`}
+        onClick={()=>{ try{ navigator.clipboard.writeText("#"+t.ref); showToast(`Copied #${t.ref} \u2014 put it at the front of a subject line and forward the email to tasks@`); }
+                       catch(e){ showToast("Couldn't copy \u2014 the number is #"+t.ref); } }}>
+        #{t.ref}</button>
+      <span className="meta">Forward an email to tasks@ with #{t.ref} at the front of the subject and it lands here.</span>
+    </div> : null}
     {watchersOf(t).length>0 && <div className="note" style={{marginBottom:10,display:"flex",gap:8,alignItems:"center"}}>
       <span style={{color:"var(--navy)",display:"inline-flex",flex:"0 0 auto"}}><Eye on={true} size={16}/></span>
       <span>{(() => {

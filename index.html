@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="13.8">
+<meta name="app-version" content="14.0">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -511,6 +511,17 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"14.0", d:"October 11, 2026", items:[
+    "The morning digest shows every task\u2019s number beside its name. It was the one email listing twenty things you might need to act on and giving you nothing to type or forward \u2014 now each line reads \u201c#13 Prepare warranty condenser unit\u2026\u201d, with the number greyed so it stays a reference and not part of the name.",
+    "The number is on all of them: Assigned to you, the six flagged sections, and stalled repeats. The \u201cWaiting on a first login\u201d rows are people, not tasks, so they stay numberless \u2014 a number there would point at nothing.",
+    "The digest footer now says what the numbers are for: forward any line back in with its number at the front of the subject and it files itself against that task.",
+  ]},
+  {v:"13.9", d:"October 11, 2026", items:[
+    "Every email about a task now leads with its number. \u201c#147 Finished: Await Tech Gas answer\u201d instead of \u201cFinished: \u2026\u201d \u2014 so forwarding one straight back in files it against the right task with nothing to look up and nothing to type.",
+    "The number is also a row in the task panel of each email, above the due date, and the footer says what it is for: reply to comment, or forward something in with the number at the front of the subject.",
+    "Two emails deliberately have no number. The welcome email is about a person, not a task, and the morning digest is about many \u2014 one number on either would point at the wrong thing.",
+    "Checked the loop both ways: a notify subject forwarded back in matches, with or without a FW: or RE: in front, and a vendor\u2019s \u201cFW: #1160927B\u201d still does not.",
+  ]},
   {v:"13.8", d:"October 11, 2026", items:[
     "The jump box searches open work only. A tick box at the top of the results brings finished and skipped ones back, and the choice sticks \u2014 wanting them today usually means wanting them tomorrow.",
     "A number still finds a finished task, it just tells you first: \"Task #9 is finished \u2014 tick the box above to open it.\" Typing an exact number and being told nothing matches would be a lie.",

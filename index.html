@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="13.5">
+<meta name="app-version" content="13.6">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -500,6 +500,12 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"13.6", d:"October 11, 2026", items:[
+    "Every email Task Depot sends back now says who has the task, and its number. \"Added to an existing task\" had been reporting the due date and nothing else \u2014 not the owner, not the number \u2014 which is no use when you are checking that a forward landed where you meant.",
+    "Where a task is shared, it names everyone: \"Alex Romero \u2014 also with Stephen Yonke (#67, done), Ilah Estrada (#68)\". Naming only the one copy would be half an answer.",
+    "All three confirmations use the same Who has it line, so they answer the question the same way.",
+    "The \u21c4 hover said \"Actually a different task \u2014 move to Related\", which reads like an argument rather than a button. It now says what it will do: Make this a shared task, or Make this a separate task. The \u00d7 beside it says Unlink, so it cannot be mistaken for the same thing.",
+  ]},
   {v:"13.5", d:"October 11, 2026", items:[
     "The same task in two hands is no longer filed as \"linked\". Who has this makes copies of one piece of work \u2014 Carlos and Stephen both reading the same racking drawing \u2014 while linking joins two different tasks on one job. They were sharing a list and a label, and they answer different questions: has everyone finished, versus is the other half moving.",
     "The drawer has Who has this and Related to as separate lines, each naming the owner, the status and the due date. Who has this says how many are still open: \"1 still open besides this one \u2014 finishing yours does not finish theirs.\" That is the thing worth knowing when you tick yours off.",
@@ -3013,8 +3019,8 @@ function TaskModal(ctx){
           const {error} = await sb.rpc("set_link_kind",{p_a:t.id, p_b:l.id, p_kind:kind});
           if(error){ showToast(error.message); return; }
           loadLinks();
-          showToast(kind==="copy" ? "Moved to Who has this \u2014 same task, more than one person"
-                                  : "Moved to Related \u2014 different tasks on the same job");
+          showToast(kind==="copy" ? "Now a shared task \u2014 one job, more than one person"
+                                  : "Now a separate task \u2014 related, but its own piece of work");
         };
         const line = (l, moveTo, moveLabel) =>
           <div key={l.id} className="linkrow">
@@ -3025,7 +3031,7 @@ function TaskModal(ctx){
               {l.due_date?` \u00b7 due ${fmtDate(l.due_date)}`:""}</span>
             <span className="linkacts">
               <button className="btn q" title={moveLabel} onClick={()=>flip(l,moveTo)}>{"\u21c4"}</button>
-              <button className="btn q" title="Separate these two" onClick={()=>dropLink(l.id)}>&times;</button>
+              <button className="btn q" title="Unlink — no connection between them at all" onClick={()=>dropLink(l.id)}>&times;</button>
             </span>
           </div>;
         const openCopies = copies.filter(l=>!CLOSED(l.status)).length;
@@ -3036,10 +3042,10 @@ function TaskModal(ctx){
                 ? `${openCopies} still open besides this one \u2014 finishing yours does not finish theirs.`
                 : "Everyone else has finished theirs."}
             </div>
-            {copies.map(l=>line(l,"related","Actually a different task \u2014 move to Related"))}
+            {copies.map(l=>line(l,"related","Make this a separate task"))}
           </dd></>}
           {rel.length>0 && <><dt>Related to</dt><dd>
-            {rel.map(l=>line(l,"copy","Actually the same task shared \u2014 move to Who has this"))}
+            {rel.map(l=>line(l,"copy","Make this a shared task"))}
           </dd></>}
         </>;
       })()}

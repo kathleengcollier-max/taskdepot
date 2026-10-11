@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="13.7">
+<meta name="app-version" content="13.8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -310,6 +310,11 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
           box-shadow:0 10px 28px rgba(20,26,40,.16)}
 .jumphit{display:block;width:100%;text-align:left;background:none;border:0;font:inherit;
          padding:9px 13px;cursor:pointer;border-top:1px solid var(--line)}
+.jumpopt{display:flex;gap:8px;align-items:center;padding:8px 13px;background:#f7f9fd;
+         border-bottom:1px solid var(--line);font-size:13px;color:var(--muted);cursor:pointer}
+.jumpopt input{width:15px;height:15px;flex-shrink:0}
+.jumpfoot{padding:7px 13px;border-top:1px solid var(--line);background:#fafbfd;
+          font-size:12.5px;color:var(--muted)}
 .jumphit:first-child{border-top:0}
 .jumphit:hover,.jumphit:focus-visible{background:#f3f6fd;outline:none}
 .jumphit .jt{font-weight:600;color:var(--navy)}
@@ -506,6 +511,11 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"13.8", d:"October 11, 2026", items:[
+    "The jump box searches open work only. A tick box at the top of the results brings finished and skipped ones back, and the choice sticks \u2014 wanting them today usually means wanting them tomorrow.",
+    "A number still finds a finished task, it just tells you first: \"Task #9 is finished \u2014 tick the box above to open it.\" Typing an exact number and being told nothing matches would be a lie.",
+    "When open results do show and finished ones are hidden behind them, a line at the bottom says how many, so the filter never quietly swallows the thing you were after.",
+  ]},
   {v:"13.7", d:"October 11, 2026", items:[
     "A Shared pill. Every list shows it on a task that is one job in more than one pair of hands, and the drawer names them \u2014 \"Shared with Carlos\" or \"Shared with 2 others\" \u2014 so you can tell before you open anything.",
     "Finishing a shared task asks about the others. It lists each person who still has it open with their number and status, and offers to close theirs as well. Nothing is ticked for you: closing somebody else\u2019s work is a decision, not a default. The button says what it will do \u2014 Finish just mine, or Finish \u2014 yours and 1 more.",
@@ -1547,16 +1557,23 @@ function ManagerHome(ctx){
   // what is already loaded, so it answers as you type rather than after a round trip.
   const [jump,setJump] = useState("");
   const jumpRef = (() => { const m = jump.trim().match(/^#?\s?(\d{1,6})$/); return m ? Number(m[1]) : null; })();
-  const jumpHits = (() => {
+  // Open work only, unless you ask for the rest. The choice sticks, because somebody
+  // who wants finished tasks in the box usually wants them tomorrow as well.
+  const [jumpDone,setJumpDone] = useState(()=>{
+    try{ return localStorage.getItem("td_jump_done")==="1"; }catch(e){ return false; }
+  });
+  const setJD = (v) => { setJumpDone(v); try{ localStorage.setItem("td_jump_done", v?"1":"0"); }catch(e){} };
+  const jumpAll = (() => {
     const q = jump.trim().toLowerCase();
     if(q.length < 2 && jumpRef === null) return [];
     return (tasks||[]).filter(x=>!x.deleted_at && (jumpRef !== null
         ? x.ref === jumpRef
         : (x.title||"").toLowerCase().includes(q)))
       .sort((a,b)=>(CLOSED(a.status)?1:0)-(CLOSED(b.status)?1:0)
-                 || String(a.due_date||"9").localeCompare(String(b.due_date||"9")))
-      .slice(0,8);
+                 || String(a.due_date||"9").localeCompare(String(b.due_date||"9")));
   })();
+  const jumpHits   = (jumpDone ? jumpAll : jumpAll.filter(x=>!CLOSED(x.status))).slice(0,8);
+  const jumpHidden = jumpDone ? 0 : jumpAll.filter(x=>CLOSED(x.status)).length;
   const goTo = (x) => { setJump(""); ctx.setOpen(x.id, jumpHits.map(h=>h.id)); };
   const doneLooking = async (t) => {
     const {error} = await UNWATCH(t.id);
@@ -1591,6 +1608,10 @@ function ManagerHome(ctx){
         onKeyDown={e=>{ if(e.key==="Escape") setJump("");
                         if(e.key==="Enter" && jumpHits.length) goTo(jumpHits[0]); }}/>
       {jump.trim() && <div className="jumplist">
+        <label className="jumpopt">
+          <input type="checkbox" checked={jumpDone} onChange={e=>setJD(e.target.checked)}/>
+          <span>Include finished and skipped</span>
+        </label>
         {jumpHits.length ? jumpHits.map(x=>
           <button key={x.id} className="jumphit" onClick={()=>goTo(x)}>
             <span className="refsm">#{x.ref}</span>
@@ -1599,8 +1620,15 @@ function ManagerHome(ctx){
               {x.due_date?` \u00b7 due ${fmtDate(x.due_date)}`:""}</span>
           </button>)
           : <div className="empty" style={{padding:"10px 12px"}}>
-              {jumpRef !== null ? `No task #${jumpRef}.` : "Nothing with that in the title."}
-              {" "}The All tasks search also reads comments and steps.</div>}
+              {jumpHidden > 0
+                ? (jumpRef !== null
+                    ? `Task #${jumpRef} is finished \u2014 tick the box above to open it.`
+                    : `${jumpHidden} finished task${jumpHidden>1?"s":""} match, but open work only is on \u2014 tick the box above.`)
+                : <>{jumpRef !== null ? `No task #${jumpRef}.` : "Nothing open with that in the title."}
+                   {" "}The All tasks search also reads comments and steps.</>}</div>}
+        {jumpHits.length>0 && jumpHidden>0 && <div className="jumpfoot">
+          {jumpHidden} finished {jumpHidden>1?"ones":"one"} also match{jumpHidden>1?"":"es"}, hidden by the box above.
+        </div>}
       </div>}
     </div>
     {mineToDo.length>0 && <><div className="h"><h2>Assigned to you</h2><span className="sub">{mineToDo.length} — things your team handed up</span></div>

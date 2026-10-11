@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="13.3">
+<meta name="app-version" content="13.5">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -314,6 +314,15 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .jumphit:hover,.jumphit:focus-visible{background:#f3f6fd;outline:none}
 .jumphit .jt{font-weight:600;color:var(--navy)}
 .jumphit .meta{display:block;margin-top:2px}
+.linkrow{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;padding:3px 0}
+.linkrow > a{color:var(--navy);font-weight:600;text-decoration:none}
+.linkrow > a:hover{text-decoration:underline}
+.linkacts{margin-left:auto;white-space:nowrap}
+.linkacts .btn.q{padding:0 5px;color:var(--muted)}
+.linkacts .btn.q:hover{color:var(--navy)}
+.linkwho{color:var(--muted);font-size:13px}
+.linkwho b{font-weight:600;color:#5f6675}
+.linkwho b.ok{color:var(--ok)}
 .refsm{color:#9aa3b5;font-weight:600;font-size:12.5px;margin-right:6px}
 .duppair{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:start;margin-top:8px}
 .dupvs{color:var(--muted);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding-top:6px}
@@ -491,6 +500,17 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"13.5", d:"October 11, 2026", items:[
+    "The same task in two hands is no longer filed as \"linked\". Who has this makes copies of one piece of work \u2014 Carlos and Stephen both reading the same racking drawing \u2014 while linking joins two different tasks on one job. They were sharing a list and a label, and they answer different questions: has everyone finished, versus is the other half moving.",
+    "The drawer has Who has this and Related to as separate lines, each naming the owner, the status and the due date. Who has this says how many are still open: \"1 still open besides this one \u2014 finishing yours does not finish theirs.\" That is the thing worth knowing when you tick yours off.",
+    "A \u21c4 on every row moves it to the other list, because only you can tell which a pair really is.",
+    "Only certain cases were converted automatically: copies are written in one go, so they share a title, an author and an instant. Anything looser would have mislabelled a real duplicate \u2014 #95 and #96 are two Saturday-hours tasks created three minutes apart, and they are two tasks, not one shared. The racking pair needs the \u21c4.",
+    "Copies now join every pair rather than a chain from the first one. Give a task to three people and the second and third could not see each other at all.",
+  ]},
+  {v:"13.4", d:"October 11, 2026", items:[
+    "Fixed: the jump box read \"Jump to a task \\u2014 type a word\u2026\" with the escape code showing. In JSX an escape like that is only read as a character inside code \u2014 in an attribute or in text on the page it is just those six letters. Three more were hiding in button tooltips, and one in the duplicate-checking note, which has been showing \"checking a few more\\u2026\" since the hints were built.",
+    "Linked to now names the owner of each linked task in brackets, and carries its number, so you can see whose plate the other half is on without opening it or hovering for the tooltip.",
+  ]},
   {v:"13.3", d:"October 11, 2026", items:[
     "A jump box at the top of Home. Type a word from a title or a task number and the matches drop down; click one, or press Enter for the first, and it opens in the drawer. Open work sorts above finished. Escape clears it.",
     "It reads what is already loaded, so it answers as you type rather than after a round trip \u2014 and it says so when nothing matches, pointing at the All tasks search, which also reads comments and steps.",
@@ -1548,7 +1568,7 @@ function ManagerHome(ctx){
   return <>
     <div className="jumpwrap">
       <input className="jump" value={jump} onChange={e=>setJump(e.target.value)}
-        placeholder="Jump to a task \u2014 type a word from the title, or its number"
+        placeholder="Jump to a task — type a word from the title, or its number"
         onKeyDown={e=>{ if(e.key==="Escape") setJump("");
                         if(e.key==="Enter" && jumpHits.length) goTo(jumpHits[0]); }}/>
       {jump.trim() && <div className="jumplist">
@@ -1610,7 +1630,7 @@ function ManagerHome(ctx){
                 <TaskTable list={closedWatch} people={people} today={today}
                   setOpen={ctx.opener(closedWatch)} cols={["who","title","finished"]}
                   actions={t=><button className="btn sm" style={{whiteSpace:"nowrap"}}
-                    title="Take the eye off it \u2014 it drops out of this list"
+                    title="Take the eye off it — it drops out of this list"
                     onClick={()=>doneLooking(t)}>Done looking</button>}/>
               </Fold>
             : null;
@@ -2192,10 +2212,18 @@ function AssignModal(ctx){
       : {...row, assignee_id:target||null, assignee_email:null});
     const {data:made, error} = await sb.from("tasks").insert(rows).select("id");
     const firstMade = made && made.length ? made[0].id : null;
-    // one job split between people — link the copies so any of them shows the others
+    // One job in several hands. Every pair is joined, not a star from the first one —
+    // otherwise the second and third copies never see each other. They are marked as
+    // copies, which is a different thing from two related tasks.
     if(!error && made && made.length>1){
-      const {error:le} = await sb.rpc("link_many",{p_task:firstMade, p_others:made.slice(1).map(x=>x.id)});
-      if(le) showToast("Tasks saved, but they couldn't be linked to each other");
+      const ids = made.map(x=>x.id);
+      let le = null;
+      for(let i=0;i<ids.length && !le;i++)
+        for(let j=i+1;j<ids.length && !le;j++){
+          const {error:e} = await sb.rpc("link_tasks_as",{p_a:ids[i], p_b:ids[j], p_kind:"copy"});
+          if(e) le = e;
+        }
+      if(le) showToast("Tasks saved, but they couldn't be joined to each other");
     }
     if(!error && steps.length && made && made.length){
       const stepRows = made.flatMap(t => steps.map((body,i)=>({task_id:t.id, body, position:i, created_by:me.id})));
@@ -2842,7 +2870,7 @@ function TaskModal(ctx){
     {!joining && hints.length>0 && <div className="note" style={{marginBottom:12,background:"#eef3fd",borderLeft:"3px solid var(--navy)"}}>
       <div style={{fontWeight:600,marginBottom:6,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{flex:1}}>{hints.length===1 ? "This looks like the same work as another task" : `This looks like the same work as ${hints.length} other tasks`}</span>
-        {judging && <span style={{fontWeight:400,fontSize:13,color:"var(--muted)"}}>checking a few more\u2026</span>}</div>
+        {judging && <span style={{fontWeight:400,fontSize:13,color:"var(--muted)"}}>checking a few more…</span>}</div>
       {hints.map(h=><div key={h.id} style={{display:"flex",gap:8,alignItems:"flex-start",flexWrap:"wrap",padding:"5px 0",borderTop:"1px solid #dbe3f5"}}>
         <div style={{flex:"1 1 220px"}}>
           <a href="#" style={{color:"var(--navy)",fontWeight:600,textDecoration:"none"}}
@@ -2976,14 +3004,45 @@ function TaskModal(ctx){
     {edit && <EditForm t={t} people={people} isMgr={isMgr} me={me} onCancel={()=>setEdit(false)} onSave={async p=>{ if(await update(t.id,p)){ setEdit(false); showToast("Saved"); } }}/>}
 
     <div className="panel edge-main"><h3>The task</h3><dl className="kv">
-      {links.length>0 && <><dt>Linked to</dt><dd>{links.map((l,i)=>
-        <span key={l.id}>{i>0?", ":""}
-          <a href="#" style={{color:"var(--navy)",fontWeight:600,textDecoration:"none"}}
-             onClick={(e)=>{e.preventDefault(); ctx.setOpen(l.id);}}
-             title={`${l.who||"Unassigned"} · ${l.due_date?fmtDate(l.due_date):"no date"} · ${STATUS[l.status]}`}>{l.title}</a>
-          <button className="btn q" title="Unlink these two"
-            style={{padding:"0 4px",color:"var(--muted)"}} onClick={()=>dropLink(l.id)}>&times;</button>
-        </span>)}</dd></>}
+      {(() => {
+        // The same work in several hands is not the same thing as two related tasks.
+        // One asks "has everyone finished?", the other "is the other half moving?".
+        const copies = links.filter(l=>l.kind==="copy");
+        const rel    = links.filter(l=>l.kind!=="copy");
+        const flip = async (l, kind) => {
+          const {error} = await sb.rpc("set_link_kind",{p_a:t.id, p_b:l.id, p_kind:kind});
+          if(error){ showToast(error.message); return; }
+          loadLinks();
+          showToast(kind==="copy" ? "Moved to Who has this \u2014 same task, more than one person"
+                                  : "Moved to Related \u2014 different tasks on the same job");
+        };
+        const line = (l, moveTo, moveLabel) =>
+          <div key={l.id} className="linkrow">
+            <a href="#" onClick={(e)=>{e.preventDefault(); ctx.setOpen(l.id);}}>
+              {l.ref ? <span className="refsm">#{l.ref}</span> : null}{l.title}</a>
+            <span className="linkwho">({l.who||"Unassigned"}){" \u00b7 "}
+              <b className={CLOSED(l.status)?"ok":""}>{STATUS[l.status]||l.status}</b>
+              {l.due_date?` \u00b7 due ${fmtDate(l.due_date)}`:""}</span>
+            <span className="linkacts">
+              <button className="btn q" title={moveLabel} onClick={()=>flip(l,moveTo)}>{"\u21c4"}</button>
+              <button className="btn q" title="Separate these two" onClick={()=>dropLink(l.id)}>&times;</button>
+            </span>
+          </div>;
+        const openCopies = copies.filter(l=>!CLOSED(l.status)).length;
+        return <>
+          {copies.length>0 && <><dt>Who has this</dt><dd>
+            <div className="meta" style={{marginBottom:5}}>
+              The same task, {copies.length+1} people. {openCopies
+                ? `${openCopies} still open besides this one \u2014 finishing yours does not finish theirs.`
+                : "Everyone else has finished theirs."}
+            </div>
+            {copies.map(l=>line(l,"related","Actually a different task \u2014 move to Related"))}
+          </dd></>}
+          {rel.length>0 && <><dt>Related to</dt><dd>
+            {rel.map(l=>line(l,"copy","Actually the same task shared \u2014 move to Who has this"))}
+          </dd></>}
+        </>;
+      })()}
       <dt>Assigned by</dt><dd>{DELEGATED(t) ? `${nameOf(people,t.created_by)} assigned it` : t.asked_by ? `${nameOf(people,t.asked_by)} asked for it` : t.assignee_id ? "Their own task" : "Not assigned yet"}{t.bd_task_id ? <span style={{marginLeft:8,fontSize:11,fontWeight:700,color:"#1f3a7a",background:"#e0ecff",padding:"1px 7px",borderRadius:7}}>{t.bd_status==="returned"?"returned to Kathleen's Inbox":"from Kathleen's Inbox"}</span> : null}</dd>
       <dt>Assigned to</dt><dd>{t.assignee_id ? nameOf(people,t.assignee_id)
         : t.assignee_email ? `${(INVITEES.find(i=>i.email===String(t.assignee_email).toLowerCase())||{}).full_name || t.assignee_email} — waiting for them to sign up (${t.assignee_email})` : "Unassigned"}{t.assignee_id && t.created_by!==t.assignee_id ? ` · assigned by ${nameOf(people,t.created_by)}` : t.assignee_id ? " · self-assigned" : ""}</dd>
@@ -3007,7 +3066,7 @@ function TaskModal(ctx){
         return shown.map((st,i)=><div key={st.id} ref={el=>{ stepEls.current[st.id]=el; }}
           className={"steprow"+(dragId===st.id?" dragging":"")}>
           {mayOrder && <button className="grip" aria-label={`Move step ${i+1}, ${st.body}`}
-            title="Drag to reorder \u2014 or focus this and use the arrow keys"
+            title="Drag to reorder — or focus this and use the arrow keys"
             onPointerDown={e=>startDrag(e,st)} onPointerMove={moveDrag}
             onPointerUp={endDrag} onPointerCancel={endDrag}
             onKeyDown={e=>{ if(e.key==="ArrowUp"){ e.preventDefault(); nudge(st,-1); }

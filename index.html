@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="14.5">
+<meta name="app-version" content="14.6">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -326,6 +326,18 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .btn.bd:hover{background:#f3eefd;border-color:#b9a7e8}
 .btn.p.bd{background:#4a3690;border-color:#4a3690;color:#fff}
 .btn.p.bd:hover{background:#3d2c7a;border-color:#3d2c7a}
+/* the ask-list builder */
+.nl-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:860px){.nl-grid{grid-template-columns:1fr}}
+.nl-pick{border:1px solid var(--line);border-radius:8px;max-height:340px;overflow:auto;background:#fff}
+.nl-row{display:flex;gap:9px;align-items:flex-start;padding:8px 10px;border-bottom:1px solid #f0f2f6;cursor:pointer}
+.nl-row:last-child{border-bottom:0}
+.nl-row:hover{background:#f7f9fc}
+.nl-row input{width:auto;margin:2px 0 0;flex:0 0 auto;accent-color:var(--navy);cursor:pointer}
+.nl-row .nt{font-size:14px;line-height:1.35}
+.nl-row .nr{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--navy);font-weight:600}
+.nl-row .nm{font-size:12px;color:var(--muted);margin-top:2px}
+.nl-frame{width:100%;height:340px;border:1px solid var(--line);border-radius:8px;background:#fff}
 /* .form label{display:grid} outranks a bare class, same trap as .mp-row above */
 .form label.finishopt{display:flex;gap:9px;align-items:flex-start;padding:4px 0;cursor:pointer;
                       line-height:1.4;font-size:14.5px;color:inherit;font-weight:400}
@@ -523,6 +535,12 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"14.6", d:"October 12, 2026", items:[
+    "Make an email for someone. Narrow All tasks to one person and a button appears that turns their list into an email you can paste straight into Outlook, or print. Tick boxes to leave things off, one editable opening line, and a live preview of exactly what they will see.",
+    "It works for people who have no login, which is the whole point — eleven of them are holding 38 open tasks between them, and the app was never going to be where they read about it. You send it from your own mailbox so their reply comes back to your inbox; an email sent by Task Depot would be answered into nothing, because intake drops a reply from an address with no account.",
+    "It says \"Added Oct 5\" rather than calling anything overdue. Those dates are your own reminders to chase, not deadlines they agreed to, and the email reads like a list rather than a telling-off. Task Depot words like \"Not started\" stay out of it too.",
+    "Where the detail line talks about you in the third person — \"Kathleen is requesting 10 dumpster signs\" — it is turned round to \"I'm requesting\" before it goes out. Only when the line opens with your name; everything else is left exactly as written.",
+  ]},
   {v:"14.5", d:"October 12, 2026", items:[
     "The drawer's arrows follow the order on your screen. Sorting a table reordered the rows but not the arrows, so after sorting Alexis's tasks by due date the arrows still walked the order the screen had before you sorted it \u2014 which looks like them jumping around at random. Every table now hands its own sorted order to the drawer, and the arrows step through exactly what you are looking at.",
     "Email intake was worse: its rows set no order at all, so the arrows there followed whatever screen you happened to be on last. They now walk that screen's rows, skipping any whose task has been deleted.",
@@ -1894,6 +1912,205 @@ function MultiPick({allLabel, options, value, onChange}){
   </div>;
 }
 
+// ---------- "what I need from you", as an email you can paste ----------
+// Several of the people holding Kathleen's work will never have a login, so the app can
+// never be the place they read it. This builds the list as an email she sends herself,
+// from her own mailbox: their reply then lands in her inbox like any other, which is the
+// one thing Task Depot could not do for them — intake drops a reply from an address with
+// no account, so a message sent BY the app would answer into nowhere.
+const htmlEsc = (v) => String(v==null?"":v)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+// Intake writes the detail line about her in the third person — "Kathleen is requesting
+// 10 dumpster signs" — which is right on the task and wrong in an email she is sending.
+// Only fires when the line actually opens with her name, and leaves everything else alone.
+const firstPerson = (txt, myName) => {
+  const full = String(myName||"").trim();
+  for(const n of [full, full.split(" ")[0]].filter(Boolean)){
+    const m = new RegExp("^" + n.replace(/[.*+?^${}()|[\]\\]/g,"\\$&") + "\\b\\s+(.*)$","is").exec(txt);
+    if(!m) continue;
+    let rest = m[1];
+    if(/^is\s/i.test(rest))  return "I'm " + rest.replace(/^is\s+/i,"");
+    if(/^has\s/i.test(rest)) return "I've " + rest.replace(/^has\s+/i,"");
+    rest = rest.replace(/^(need|want|request|ask|would like)s\b/i,"$1");
+    return "I " + rest.charAt(0).toLowerCase() + rest.slice(1);
+  }
+  return txt;
+};
+
+function NeedList({holderKey,holderLabel,tasks,me,onClose,showToast}){
+  const held = (tasks||[]).filter(t=>{
+    if(CLOSED(t.status) || t.deleted_at) return false;
+    return String(holderKey).startsWith("email:")
+      ? t.assignee_email === String(holderKey).slice(6)
+      : t.assignee_id === holderKey;
+  }).sort((a,b)=> String(a.due_date||"9999").localeCompare(String(b.due_date||"9999"))
+                  || String(a.created_at||"").localeCompare(String(b.created_at||"")));
+
+  const [picked,setPicked] = useState(() => new Set(held.map(t=>t.id)));
+  const [details,setDetails] = useState(true);
+  const first = String(holderLabel||"").trim().split(" ")[0] || "there";
+  const [lead,setLead] = useState("You asked what you could help with — here's what I have on my list for you.");
+  const toggle = (id) => setPicked(prev => { const n = new Set(prev);
+    if(n.has(id)) n.delete(id); else n.add(id); return n; });
+  const chosen = held.filter(t=>picked.has(t.id));
+
+  // Outlook keeps inline styles on tables and throws away almost everything else, so this
+  // is built the way the app's other emails are: one table, no flexbox, no stylesheet.
+  const buildHtml = () => {
+    const rows = chosen.map(t=>{
+      const bits = [];
+      if(t.created_at) bits.push("Added " + fmtDate(String(t.created_at).slice(0,10)));
+      if(t.priority==="high") bits.push("High priority");
+      // "Not started" is this app's word for a task nobody has picked up, and it reads as
+      // an accusation to somebody who has never seen the app. Only say something useful.
+      if(t.status==="waiting") bits.push("Waiting on " + (t.waiting_on || "someone else"));
+      const det = details && t.details
+        ? '<div style="color:#4a5060;font-size:14px;margin-top:3px">' + htmlEsc(firstPerson(
+            String(t.details).split(/\n\s*— from an email forwarded by/)[0].trim(),
+            (me&&me.full_name)||"").slice(0,260)) + '</div>'
+        : "";
+      return '<tr>'
+        + '<td style="padding:11px 10px 11px 0;border-top:1px solid #e3e7ee;vertical-align:top;white-space:nowrap">'
+        + '<span style="font-family:Consolas,monospace;font-size:13px;font-weight:700;color:#1f3a7a">#TD'
+        + htmlEsc(t.ref) + '</span></td>'
+        + '<td style="padding:11px 0;border-top:1px solid #e3e7ee;vertical-align:top">'
+        + '<div style="font-weight:600;font-size:15px">' + htmlEsc(t.title) + '</div>'
+        + det
+        + (bits.length ? '<div style="color:#8a909c;font-size:12px;margin-top:4px">' + htmlEsc(bits.join("  ·  ")) + '</div>' : '')
+        + '</td></tr>';
+    }).join("");
+    return '<div style="font-family:Calibri,\'Segoe UI\',Arial,sans-serif;font-size:15px;line-height:1.5;color:#1c1f26;max-width:620px">'
+      + '<p style="margin:0 0 12px">Hi ' + htmlEsc(first) + ',</p>'
+      + (lead.trim() ? '<p style="margin:0 0 4px">' + htmlEsc(lead.trim()) + '</p>' : '')
+      + '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin:10px 0 16px">'
+      + rows + '</table>'
+      + '<p style="margin:0 0 12px;color:#4a5060;font-size:14px">Reply to this one and I\'ll update my notes — nothing for you to log in to.</p>'
+      + '<p style="margin:0">' + htmlEsc(String((me&&me.full_name)||"").split(" ")[0] || "Thanks") + '</p>'
+      + '</div>';
+  };
+  // the same thing again in plain text, for a mail client that refuses the rich flavour
+  const buildText = () => {
+    const lines = ["Hi " + first + ",", ""];
+    if(lead.trim()) lines.push(lead.trim(), "");
+    chosen.forEach(t=>{
+      lines.push("#TD" + t.ref + "  " + t.title);
+      if(details && t.details) lines.push("    " + firstPerson(
+        String(t.details).split(/\n\s*— from an email forwarded by/)[0].trim(),
+        (me&&me.full_name)||"").slice(0,260).replace(/\s+/g," "));
+      const bits = [];
+      if(t.created_at) bits.push("Added " + fmtDate(String(t.created_at).slice(0,10)));
+      if(t.priority==="high") bits.push("High priority");
+      if(t.status==="waiting") bits.push("Waiting on " + (t.waiting_on || "someone else"));
+      if(bits.length) lines.push("    " + bits.join("  ·  "));
+      lines.push("");
+    });
+    lines.push("Reply to this one and I'll update my notes — nothing for you to log in to.", "",
+               String((me&&me.full_name)||"").split(" ")[0] || "Thanks");
+    return lines.join("\n");
+  };
+
+  const copy = async () => {
+    if(!chosen.length){ showToast("Nothing ticked to copy"); return; }
+    const html = buildHtml(), text = buildText();
+    try{
+      if(navigator.clipboard && window.ClipboardItem){
+        await navigator.clipboard.write([new window.ClipboardItem({
+          "text/html": new Blob([html],{type:"text/html"}),
+          "text/plain": new Blob([text],{type:"text/plain"}),
+        })]);
+        showToast("Copied — paste it straight into Outlook"); return;
+      }
+    }catch(e){ /* fall through to the old way */ }
+    // Safari and anything older: put it on the page, select it, let execCommand take it
+    try{
+      const d = document.createElement("div");
+      d.setAttribute("contenteditable","true");
+      d.style.cssText = "position:fixed;left:-9999px;top:0";
+      d.innerHTML = html; document.body.appendChild(d);
+      const r = document.createRange(); r.selectNodeContents(d);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      const ok = document.execCommand("copy");
+      sel.removeAllRanges(); document.body.removeChild(d);
+      showToast(ok ? "Copied — paste it straight into Outlook"
+                   : "Your browser would not let go of the clipboard — use Print instead");
+    }catch(e){ showToast("Your browser would not let go of the clipboard — use Print instead"); }
+  };
+
+  const doPrint = () => {
+    if(!chosen.length){ showToast("Nothing ticked to print"); return; }
+    const w = window.open("", "_blank", "width=820,height=950");
+    if(!w){ showToast("Your browser blocked the print window — allow pop-ups for this site"); return; }
+    w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'
+      + htmlEsc("For " + holderLabel) + '</title>'
+      + '<style>@page{margin:18mm} body{margin:0} tr{page-break-inside:avoid}</style>'
+      + '</head><body>' + buildHtml() + '</body></html>');
+    w.document.close(); w.focus();
+    setTimeout(()=>{ try{ w.print(); }catch(e){} }, 300);
+  };
+
+  return <div className="modal" onClick={onClose}>
+    <div className="panel edge-navy" style={{maxWidth:980}} onClick={e=>e.stopPropagation()}>
+      <div className="spine">
+        <h3 style={{margin:0}}>What I need from {holderLabel}</h3>
+        <button className="btn q" onClick={onClose}>{"×"}</button>
+      </div>
+      {!held.length
+        ? <div className="empty">{holderLabel} has nothing open right now.</div>
+        : <>
+          <label style={{display:"block",marginBottom:10}}>
+            <span style={{display:"block",fontSize:13,color:"var(--muted)",marginBottom:4}}>Opening line</span>
+            <input value={lead} onChange={e=>setLead(e.target.value)}
+              placeholder="Leave it blank to go straight into the list"/>
+          </label>
+          <div className="nl-grid">
+            <div>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+                <span style={{fontSize:13,color:"var(--muted)",flex:1}}>
+                  {chosen.length} of {held.length} included
+                </span>
+                <button className="btn sm" onClick={()=>setPicked(new Set(held.map(t=>t.id)))}>All</button>
+                <button className="btn sm" onClick={()=>setPicked(new Set())}>None</button>
+              </div>
+              <div className="nl-pick">
+                {held.map(t=>{
+                  const bits = [];
+                  if(t.created_at) bits.push("Added " + fmtDate(String(t.created_at).slice(0,10)));
+                  if(t.priority==="high") bits.push("High");
+                  if(t.status==="waiting") bits.push("Waiting");
+                  return <label key={t.id} className="nl-row">
+                    <input type="checkbox" checked={picked.has(t.id)} onChange={()=>toggle(t.id)}/>
+                    <span className="nt"><span className="nr">#{t.ref}</span>{" "}{t.title}
+                      {bits.length ? <span className="nm">{bits.join("  ·  ")}</span> : null}</span>
+                  </label>;
+                })}
+              </div>
+              <label style={{display:"flex",gap:8,alignItems:"center",marginTop:10,fontSize:14}}>
+                <input type="checkbox" checked={details} onChange={e=>setDetails(e.target.checked)} style={{width:"auto"}}/>
+                Include the detail line under each one
+              </label>
+            </div>
+            <div>
+              <div style={{fontSize:13,color:"var(--muted)",marginBottom:6}}>Exactly what they will see</div>
+              <iframe className="nl-frame" title="Preview" srcDoc={
+                '<body style="margin:14px">' + buildHtml() + '</body>'}/>
+            </div>
+          </div>
+          <div className="note" style={{marginTop:12,fontSize:13}}>
+            Send it from your own mailbox rather than letting Task Depot send it: {first} has no
+            account here, so a reply to an app-sent email would be dropped as an unknown sender.
+            Replying to yours just comes back to your inbox.
+          </div>
+          <div className="linkacts" style={{marginTop:12,display:"flex",gap:8,flexWrap:"wrap"}}>
+            <button className="btn p" onClick={copy}>Copy for email</button>
+            <button className="btn" onClick={doPrint}>Print</button>
+            <button className="btn q" onClick={onClose}>Close</button>
+          </div>
+        </>}
+    </div>
+  </div>;
+}
+
 // ---------- all tasks ----------
 function AllTasks(ctx){
   const {tasks,people,today,isMgr,me} = ctx;
@@ -1933,6 +2150,14 @@ function AllTasks(ctx){
     ...((INVITEES||[]).length ? [{header:"Not signed up yet"}] : []),
     ...(INVITEES||[]).map(i=>({k:"email:"+i.email, label:i.full_name||i.email})),
   ];
+  // Narrow the list to one person and you can hand them that list. Everyone with a login
+  // and everyone without appears in the same picker, which matters: the people who most
+  // need an email are exactly the ones who cannot be sent anywhere else.
+  const [needFor,setNeedFor] = useState(null);
+  const labelFor = (k) => {
+    const hit = peopleOpts.find(o=>o.k===k);
+    return (hit && hit.label) || String(k).replace(/^email:/,"");
+  };
   // "#42" or a bare number is a task number, not a word to look for in the text
   const asRef = (() => { const m = String(q||"").trim().match(/^(?:#\s*TD|TD\s*#?|#)?\s*(\d{1,6})$/i); return m ? Number(m[1]) : null; })();
   const match = (t) => {
@@ -1972,6 +2197,9 @@ function AllTasks(ctx){
       {isMgr && <MultiPick allLabel="Everyone" value={who} onChange={setWho} options={peopleOpts}/>}
       {isMgr && <MultiPick allLabel="Assigned or their own" value={origin} onChange={setOrigin} options={ORIGIN_OPTS}/>}
       {filtered && <button className="btn sm" onClick={clearAll}>Clear filters</button>}
+      {isMgr && who.length===1 && <button className="btn sm p" onClick={()=>setNeedFor(who[0])}
+        title="Build the list as an email you can paste into Outlook, or print">
+        Make an email for {String(labelFor(who[0])).split(" ")[0]}</button>}
     </div>
     {filtered && <div className="note" style={{marginBottom:10,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
       <span style={{flex:1}}>
@@ -1980,6 +2208,8 @@ function AllTasks(ctx){
       </span>
       <button className="btn sm" onClick={clearAll}>Show everything</button>
     </div>}
+    {needFor && <NeedList holderKey={needFor} holderLabel={labelFor(needFor)} tasks={tasks}
+      me={me} showToast={ctx.showToast} onClose={()=>setNeedFor(null)}/>}
     <TaskTable list={list} people={people} today={today} setOpen={ctx.opener(list)} isMgr={isMgr} empty="No tasks match."
       cols={searching
         ? (isMgr?["who","title","matched","snippet","status","due"]:["title","matched","snippet","status","due"])

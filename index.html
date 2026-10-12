@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="14.2">
+<meta name="app-version" content="14.3">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -320,6 +320,12 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .jumphit .jt{font-weight:600;color:var(--navy)}
 .jumphit .meta{display:block;margin-top:2px}
 .pill.shared{background:#eae4fb;color:#4a3690}
+/* Brain Dump purple — the Send to my BD Inbox button and the panel it opens. The same
+   purple a Shared task wears: both mean "this is not simply yours to tick off". */
+.btn.bd{color:#4a3690;border-color:#cfc3f0}
+.btn.bd:hover{background:#f3eefd;border-color:#b9a7e8}
+.btn.p.bd{background:#4a3690;border-color:#4a3690;color:#fff}
+.btn.p.bd:hover{background:#3d2c7a;border-color:#3d2c7a}
 /* .form label{display:grid} outranks a bare class, same trap as .mp-row above */
 .form label.finishopt{display:flex;gap:9px;align-items:flex-start;padding:4px 0;cursor:pointer;
                       line-height:1.4;font-size:14.5px;color:inherit;font-weight:400}
@@ -517,6 +523,9 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"14.3", d:"October 12, 2026", items:[
+    "Send to my BD Inbox is purple \u2014 the same purple a Shared task wears, not a new one. Both say the same sort of thing: this is not simply yours to tick off. The panel it opens matches, so the button and the panel read as one action rather than two.",
+  ]},
   {v:"14.2", d:"October 12, 2026", items:[
     "Send to my BD Inbox. A task that was created here can now be handed to your own Brain Dump list, which until now only worked in one direction \u2014 Return to Kathleen needed the task to have come from there in the first place, so anything born in Task Depot had no way home.",
     "What travels: every step with its tick, every comment with who said it and when, and the files. The department comes too. Private notes stay here \u2014 they are yours, and they do not cross.",
@@ -3002,12 +3011,12 @@ function TaskModal(ctx){
       <div className="actions"><button className="btn" disabled={returnBusy} onClick={()=>{setReturning(false);setReturnWhy("");}}>Cancel</button>
         <button className="btn p" disabled={returnBusy} onClick={doReturn}>{returnBusy?"Sending back…":"Return to Kathleen"}</button></div>
     </div>}
-    {sending && <div className="form card" style={{padding:14,marginBottom:12,borderColor:"#c7d7f5",background:"#f7f9ff"}}>
+    {sending && <div className="form card" style={{padding:14,marginBottom:12,borderColor:"#cfc3f0",background:"#faf8ff"}}>
       <div><b>Send this to your Brain Dump inbox</b>
         <div style={{fontSize:13,color:"var(--muted)"}}>It arrives in your Inbox queue with its steps, comments and files, keeping the department it has here. It closes in Task Depot once it is with you — finished, not binned.</div></div>
       <label>Why it is moving (optional)<textarea autoFocus value={sendWhy} onChange={e=>setSendWhy(e.target.value)} placeholder="turned out to be mine / needs my own follow-up / parking it with my own list…"/></label>
       <div className="actions"><button className="btn" disabled={sendBusy} onClick={()=>{setSending(false);setSendWhy("");}}>Cancel</button>
-        <button className="btn p" disabled={sendBusy} onClick={doSend}>{sendBusy?"Sending…":"Send to my BD Inbox"}</button></div>
+        <button className="btn p bd" disabled={sendBusy} onClick={doSend}>{sendBusy?"Sending…":"Send to my BD Inbox"}</button></div>
     </div>}
     {!joining && hints.length>0 && <div className="note" style={{marginBottom:12,background:"#eef3fd",borderLeft:"3px solid var(--navy)"}}>
       <div style={{fontWeight:600,marginBottom:6,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
@@ -3139,7 +3148,7 @@ function TaskModal(ctx){
       {isMgr && (people.filter(p=>p.active && p.id!==t.assignee_id).length + (INVITEES||[]).length)>0 &&
         <button className="btn" onClick={()=>{setCopying(true);setCopyTo([]);setDrop([]);}}>Who has this</button>}
       {fromBD && !CLOSED(t.status) && <button className="btn" style={{color:"#1f3a7a",borderColor:"#c7d7f5"}} onClick={()=>setReturning(true)}>Return to Kathleen</button>}
-      {canSendBD && <button className="btn" style={{color:"#1f3a7a",borderColor:"#c7d7f5"}}
+      {canSendBD && <button className="btn bd"
         title="Hand it to your own list — steps, comments and files come with it" onClick={()=>setSending(true)}>Send to my BD Inbox</button>}
       {isMgr && CLOSED(t.status) && t.assignee_id!==me.id && !t.seen_at && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0) &&
         <button className="btn" style={{color:"var(--ok)",borderColor:"#bfe3c5"}} onClick={()=>update(t.id,{seen_at:new Date().toISOString()}).then(ok=>ok&&showToast("Seen — one fewer on the Finished count"))}>Mark as seen</button>}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="14.3">
+<meta name="app-version" content="14.5">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -523,6 +523,17 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"14.5", d:"October 12, 2026", items:[
+    "The drawer's arrows follow the order on your screen. Sorting a table reordered the rows but not the arrows, so after sorting Alexis's tasks by due date the arrows still walked the order the screen had before you sorted it \u2014 which looks like them jumping around at random. Every table now hands its own sorted order to the drawer, and the arrows step through exactly what you are looking at.",
+    "Email intake was worse: its rows set no order at all, so the arrows there followed whatever screen you happened to be on last. They now walk that screen's rows, skipping any whose task has been deleted.",
+    "Same fix on My day, where grouped recurring tasks meant the arrows stepped through every occurrence rather than the rows actually listed, and on the Linked tasks list in the drawer, which had no order of its own either.",
+    "Emailed tasks default to three working days out instead of one. A ! anywhere in the subject means it cannot wait: high priority, and due the next working day. An explicit date in the subject or the body still beats both, and the confirmation you get back says which rule applied.",
+  ]},
+  {v:"14.4", d:"October 12, 2026", items:[
+    "Email intake gets the eye. Same toggle as every other table, so you can start watching something the moment you see it arrived rather than opening the task first. It only appears where there is still a task to follow \u2014 an email that was dropped, or whose task has been deleted for good, has nothing to watch.",
+    "And an Assigned to column, sortable like the rest. The owner was already buried in the small print under the task name; now it is a column you can sort on, so \u201cwhat came in for Carlos this week\u201d is one click.",
+    "Rows with no task sort to the bottom of that column rather than scattering through it.",
+  ]},
   {v:"14.3", d:"October 12, 2026", items:[
     "Send to my BD Inbox is purple \u2014 the same purple a Shared task wears, not a new one. Both say the same sort of thing: this is not simply yours to tick off. The panel it opens matches, so the button and the panel read as one action rather than two.",
   ]},
@@ -1350,10 +1361,15 @@ function Shell({me,setMe}){
     setOpenId(id);
     if(Array.isArray(list)) setOpenList(list.filter(Boolean));
   },[]);
-  // a helper each list uses so the arrows know the running order
+  // a helper each list uses so the arrows know the running order. A table that sorts or
+  // groups its own rows knows the order on screen better than the list handed to it, so
+  // when it passes that order back, it wins — otherwise the arrows walk the order the
+  // screen had before you sorted it.
   const opener = useCallback((rows) => {
     const ids = (rows||[]).map(r=>r && (r.id || r.task_id)).filter(Boolean);
-    return (id) => setOpen(id, ids);
+    return (id, shown) => setOpen(id, Array.isArray(shown)
+      ? shown.map(r=>r && (r.id || r.task_id)).filter(Boolean)
+      : ids);
   },[setOpen]);
   const [assign,setAssign] = useState(null); // {parent} when open
   const [idea,setIdea] = useState(false);    // the idea board, one click from any screen
@@ -2075,7 +2091,7 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
         {COLS[k].label}{sort && sort.k===k ? <span className="sortmark">{sort.dir===1?"\u25B4":"\u25BE"}</span> : null}</th>)}
       {actions && <th className="num"></th>}
     </tr></thead><tbody>
-      {rows.map(t=><tr key={t.id} onClick={()=>setOpen && setOpen(t.id)} style={setOpen?undefined:{cursor:"default"}}
+      {rows.map(t=><tr key={t.id} onClick={()=>setOpen && setOpen(t.id, rows)} style={setOpen?undefined:{cursor:"default"}}
         className={ASKING(t) ? "r-asking" : WATCHED.has(t.id) ? "r-watching" : ""}>
         {keys.map(k=><td key={k} className={[COLS[k].cls||"",COLS[k].cellCls?COLS[k].cellCls(t):""].join(" ").trim()}>{COLS[k].cell(t)}</td>)}
         {actions && <td className="num" onClick={e=>e.stopPropagation()}>{actions(t)}</td>}
@@ -3276,7 +3292,7 @@ function TaskModal(ctx){
       </div>}
     </div>
     {children.length>0 && <div className="panel tint edge-linked"><h3>Linked tasks — {children.filter(c=>CLOSED(c.status)).length} of {children.length} done</h3>
-      <div className="card" style={{marginBottom:12}}>{children.map(c=><Row key={c.id} t={c} people={people} today={today} setOpen={setOpen} showWho={true} why={c.assignee_id===me.id&&c.status!=="done"?{why:"Yours",tone:"navy"}:null}/>)}</div></div>}
+      <div className="card" style={{marginBottom:12}}>{children.map(c=><Row key={c.id} t={c} people={people} today={today} setOpen={(id)=>setOpen(id, children.map(x=>x.id))} showWho={true} why={c.assignee_id===me.id&&c.status!=="done"?{why:"Yours",tone:"navy"}:null}/>)}</div></div>}
     <div className="panel edge-talk"><div className="tabs" style={{marginTop:0}}>
       <button className={tab==="activity"?"on":""} onClick={()=>setTab("activity")}>Comments ({comments.length})</button>
       <button className={tab==="files"?"on":""} onClick={()=>setTab("files")}>Attachments ({files.length})</button>
@@ -3686,7 +3702,7 @@ function Search({setOpen,showToast,trashedIds,openTaskId,people,today,isMgr}){
       </label>
     </div>
     {rows && <TaskTable list={asTasks} people={people} today={today} isMgr={isMgr}
-      setOpen={(id)=>setOpen(id, asTasks.map(x=>x.id))}
+      setOpen={(id,shown)=>setOpen(id, (shown||asTasks).map(x=>x.id))}
       cols={isMgr?["who","title","status","due","matched","snippet"]:["title","status","due","matched","snippet"]}
       empty="Nothing matched. Try a shorter word, or tick the box to include finished tasks."/>}
   </>;
@@ -4216,7 +4232,7 @@ function Finished({tasks,people,today,setOpen,me,setMe,showToast,load}){
         <option value="month">Last 30 days</option><option value="all">Everything</option></select>
     </div>
     <TaskTable list={list.map(t=>({...t, __unread: unseen(t)}))} people={people} today={today}
-      setOpen={(id)=>setOpen(id, list.map(x=>x.id))}
+      setOpen={(id,shown)=>setOpen(id, (shown||list).map(x=>x.id))}
       cols={["unread","who","title","status","origin","finished"]} empty="Nothing finished in this window."/>
   </>;
 }
@@ -4297,6 +4313,8 @@ function Reports({tasks,people,today,setOpen}){
 
 function IntakeLog({showToast,standalone,setOpen,allTasks,update,people}){
   const [rows,setRows] = useState(null);
+  const [, bump] = useState(0);                 // WATCHED is a module-level Set, so redraw by hand
+  const canWatch = !!(ME && (ME.role==="owner" || ME.role==="manager"));
   const [alts,setAlts] = useState([]);
   const [limit,setLimit] = useState(standalone?40:12);
   const [sort,setSort] = useState(null);
@@ -4326,6 +4344,18 @@ function IntakeLog({showToast,standalone,setOpen,allTasks,update,people}){
       }
     }
     return addr;
+  };
+  // the same toggle the task tables use: optimistic, and put back if the write fails
+  const toggleWatch = async (e,tk) => {
+    e.stopPropagation();                       // the row opens the task; the eye must not
+    const on = !WATCHED.has(tk.id);
+    if(on) WATCHED.add(tk.id); else WATCHED.delete(tk.id);
+    noteWatch(tk, on, ME);
+    bump(x=>x+1);
+    const {error} = on
+      ? await sb.from("task_watchers").insert({task_id:tk.id, user_id:ME.id})
+      : await sb.from("task_watchers").delete().eq("task_id",tk.id).eq("user_id",ME.id);
+    if(error){ if(on) WATCHED.delete(tk.id); else WATCHED.add(tk.id); noteWatch(tk, !on, ME); bump(x=>x+1); }
   };
   const tone = {created:"var(--ok)", unknown_sender:"var(--warn)", unreadable:"var(--warn)", error:"var(--red)"};
   const label = {created:"Became a task", unknown_sender:"Sender has no account — dropped",
@@ -4358,29 +4388,55 @@ function IntakeLog({showToast,standalone,setOpen,allTasks,update,people}){
                   onClick={(e)=>{e.stopPropagation(); update(r.task_id,{deleted_at:null}).then(ok=>ok&&showToast("Restored"));}}>Restore</button>}</>;
               if(n.state==="closed") return <><span className={"pill "+n.task.status}>{STATUS[n.task.status]}</span>
                 <div className="meta" style={{marginTop:2}}>{n.task.title}</div></>;
+              // the owner has its own column now, so the small print is just where it stands
               return <>{n.task.title}
-                <div className="meta" style={{marginTop:2}}>{ownerName(people||[],n.task)} {"·"} {STATUS[n.task.status]}</div></>;
+                <div className="meta" style={{marginTop:2}}>{STATUS[n.task.status]}</div></>;
             }},
+    // An eye only where there is still a task to watch: a dropped email, or one whose task
+    // was deleted for good, has nothing to follow.
+    watch: {label:"", cls:"unreadcol", val:r=>{ const n=taskNow(r); return (n&&n.task&&WATCHED.has(n.task.id))?"0":"1"; },
+            cell:r=>{
+              const n = taskNow(r);
+              if(!canWatch || !n || !n.task) return null;
+              const tk = n.task, mine = WATCHED.has(tk.id), others = otherWatchers(tk);
+              const also = others.length ? watcherNames(others) : "";
+              return <button type="button" className={"weye"+(mine?" on":others.length?" others":"")}
+                onClick={(e)=>toggleWatch(e,tk)}
+                title={mine
+                  ? (others.length ? `Watching \u2014 so ${also} ${others.length>1?"are":"is"} too. Press to stop`
+                                   : "Watching \u2014 press to stop")
+                  : (others.length ? `${also} ${others.length>1?"are":"is"} watching this. Press to watch it too`
+                                   : "Keep an eye on this one")}>
+                <Eye on={mine || others.length>0}/></button>;
+            }},
+    owner: {label:"Assigned to", cls:"who", val:r=>{ const n=taskNow(r);
+              return n&&n.task ? ownerName(people||[],n.task).toLowerCase() : "zzz"; },
+            cell:r=>{ const n = taskNow(r);
+              if(!n || !n.task) return <span className="meta">{"\u2014"}</span>;
+              return ownerName(people||[], n.task); }},
     sender:{label:"Who emailed it in", cls:"who", val:r=>senderName(r.from_email).toLowerCase(),
             cell:r=><span title={r.from_email||""}>{senderName(r.from_email)}</span>},
     when:  {label:"Arrived", cls:"num muted hide-sm", val:r=>r.received_at||"",
             cell:r=>fmtWhen(r.received_at)},
   };
-  const keys = standalone ? ["topic","became","sender","when"] : ["topic","became","sender"];
+  const keys = standalone ? ["watch","topic","became","owner","sender","when"] : ["topic","became","owner","sender"];
   const sorted = (() => {
     if(!sort || !COL[sort.k]) return rows||[];
     const c = COL[sort.k];
     return (rows||[]).slice().sort((a,b)=>{ const x=c.val(a), y=c.val(b);
       return (x<y?-1:x>y?1:0)*sort.dir; });
   })();
+  // the arrows walk this screen's rows, in the order they are sorted here, skipping any
+  // row whose task no longer exists
+  const queue = () => sorted.filter(r=>{ const n=taskNow(r); return n && n.task; }).map(r=>r.task_id);
   const Table = () => <div className="card tablewrap">
     <table className="ttable"><thead><tr>
-      {keys.map(k=><th key={k} className={COL[k].cls||""} title="Sort by this column"
+      {keys.map(k=><th key={k} className={COL[k].cls||""} title={k==="watch"?"Watching":"Sort by this column"}
         onClick={()=>setSort(sort && sort.k===k ? (sort.dir===1?{k,dir:-1}:null) : {k,dir:1})}>
         {COL[k].label}{sort && sort.k===k ? <span className="sortmark">{sort.dir===1?"▴":"▾"}</span> : null}</th>)}
     </tr></thead><tbody>
       {sorted.map(r=><tr key={r.id}
-        onClick={()=>{ if(setOpen&&r.task_id) setOpen(r.task_id); }}
+        onClick={()=>{ if(setOpen&&r.task_id) setOpen(r.task_id, queue()); }}
         style={{cursor:(setOpen&&r.task_id)?"pointer":"default"}}
         title={(setOpen&&r.task_id)?"Open the task this made":undefined}>
         {keys.map(k=><td key={k} className={COL[k].cls||""}>{COL[k].cell(r)}</td>)}

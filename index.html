@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="14.1">
+<meta name="app-version" content="14.2">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -444,6 +444,12 @@ const WATCHING = (t) => WATCHED.has(t.id);
 
 const DOW = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const startedAs = (t) => DELEGATED(t) ? "delegated" : "own";
+// The one person with a Brain Dump. The bridge checks this too — this const only decides
+// whether the button is drawn, never whether the send is allowed.
+const BD_OWNER = "04e1a5b4-dcef-4c56-8f08-e67876786451";
+// a task that has gone home to her Inbox, whichever direction it travelled
+const GONE_TO_BD = (t) => t.bd_status === "returned" || t.bd_status === "sent";
+
 const ORIGIN_OPTS = [{k:"delegated", label:"Someone assigned it to them"},
                      {k:"own",       label:"They created it themselves"}];
 // a saved filter from the old four-way version would match nothing; drop what is gone
@@ -511,6 +517,13 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"14.2", d:"October 12, 2026", items:[
+    "Send to my BD Inbox. A task that was created here can now be handed to your own Brain Dump list, which until now only worked in one direction \u2014 Return to Kathleen needed the task to have come from there in the first place, so anything born in Task Depot had no way home.",
+    "What travels: every step with its tick, every comment with who said it and when, and the files. The department comes too. Private notes stay here \u2014 they are yours, and they do not cross.",
+    "It lands in your Brain Dump Inbox queue, the same place a forwarded email arrives, so it waits for review rather than dropping straight into the list. The task closes here as Done with a \u201cSent to Kathleen\u2019s Inbox\u201d tag and cannot be reopened, because it lives with you now.",
+    "The button only appears on your own screen, and only on a task that has never been across. Nobody else has a Brain Dump, so nobody else is offered one \u2014 and the bridge checks again at the other end rather than trusting the button.",
+    "The Task Depot task keeps no link until Brain Dump confirms where it put it, so a failed hand-over leaves the task exactly as it was instead of half-sent.",
+  ]},
   {v:"14.1", d:"October 11, 2026", items:[
     "Task numbers are written #TD147 now, not #147. Brain Dump numbers its own tasks from the same small integers, so a bare #147 meant one thing here and a different thing there \u2014 and since yesterday every email from Task Depot led with one. Forwarding such an email to Brain Dump would have filed it onto an unrelated task of the same number, silently. Task Depot #147 is the Tech Gas task; Brain Dump #147 is about shredding.",
     "Every email Task Depot sends now says #TD147, the drawer chip copies #TD147, and the confirmations teach the same form. Brain Dump moves to #BD512 for the same reason.",
@@ -2005,7 +2018,7 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
                  return <span className="pill" style={{marginLeft:6,background:mine?"#fdecea":"#f1f3f7",color:mine?"var(--red)":"var(--muted)"}}>
                    {mine ? (t.need_help ? "Needs help" : "Needs you") : `Needs ${who}`}</span>;
                })()}
-               {t.bd_status==="returned" && <span className="pill" style={{marginLeft:6,background:"#e0ecff",color:"#1f3a7a"}}>Returned to Kathleen's Inbox</span>}
+               {GONE_TO_BD(t) && <span className="pill" style={{marginLeft:6,background:"#e0ecff",color:"#1f3a7a"}}>{t.bd_status==="sent"?"Sent to Kathleen's Inbox":"Returned to Kathleen's Inbox"}</span>}
                {SHARED.has(t.id) && <span className="pill shared" title="The same task is with more than one person">Shared</span>}
                {LINK_COUNTS[t.id] > 0 && <span className="pill" title="Linked to other tasks"
                  style={{marginLeft:6,background:"#eef3fd",color:"var(--navy)"}}>&#128279; {LINK_COUNTS[t.id]}</span>}
@@ -2024,7 +2037,7 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
     updated: {label:"Last update", cls:"num muted hide-sm", val:t=>t.last_update_at||t.updated_at||"", cell:t=>t.last_update_at?fmtWhen(t.last_update_at):"—"},
     finished:{label:"Finished", cls:"num", val:t=>String(+finishedAt(t)).padStart(16,"0"), cell:t=>ago(finishedAt(t))},
     trashed: {label:"Trashed", cls:"num muted", val:t=>t.updated_at||"",
-              cell:t=>t.bd_status==="returned" ? `Sent back ${fmtWhen(t.updated_at)}` : fmtWhen(t.updated_at)},
+              cell:t=>GONE_TO_BD(t) ? `${t.bd_status==="sent"?"Sent over":"Sent back"} ${fmtWhen(t.updated_at)}` : fmtWhen(t.updated_at)},
     repeats: {label:"Repeats", cls:"muted", val:t=>recurLabel(t).toLowerCase(), cell:t=>recurLabel(t)},
     unread:  {label:"", cls:"unreadcol", val:t=>t.__unread?"0":"1",
               cell:t=>t.__unread
@@ -2493,7 +2506,10 @@ function TaskModal(ctx){
     loadLinks(); showToast("Unlinked");
   };
   const [returning,setReturning] = useState(false); const [returnWhy,setReturnWhy] = useState(""); const [returnBusy,setReturnBusy] = useState(false);
+  const [sending,setSending] = useState(false); const [sendWhy,setSendWhy] = useState(""); const [sendBusy,setSendBusy] = useState(false);
   const fromBD = !!t.bd_task_id && t.bd_status==="linked";
+  // born here, never been across, and it is her own screen
+  const canSendBD = !t.bd_task_id && !CLOSED(t.status) && me.id === BD_OWNER;
   const doReturn = async () => {
     setReturnBusy(true);
     const {data,error} = await sb.functions.invoke("bridge",{body:{action:"return",task_id:t.id,reason:returnWhy}});
@@ -2503,6 +2519,16 @@ function TaskModal(ctx){
     setReturning(false); setReturnWhy("");
     onClose(); if(ctx.load) await ctx.load();
     showToast("Back with Kathleen — it's in her Inbox");
+  };
+  const doSend = async () => {
+    setSendBusy(true);
+    const {data,error} = await sb.functions.invoke("bridge",{body:{action:"send_to_bd",task_id:t.id,reason:sendWhy}});
+    setSendBusy(false);
+    const err = error ? (error.message||"Couldn't reach Brain Dump") : (data && data.error);
+    if(err){ showToast(err); return; }
+    setSending(false); setSendWhy("");
+    onClose(); if(ctx.load) await ctx.load();
+    showToast(data && data.num ? `In your Brain Dump inbox as #BD${data.num}` : "It's in your Brain Dump inbox");
   };
   const [steps,setSteps] = useState([]);
   const [newStep,setNewStep] = useState("");
@@ -2976,6 +3002,13 @@ function TaskModal(ctx){
       <div className="actions"><button className="btn" disabled={returnBusy} onClick={()=>{setReturning(false);setReturnWhy("");}}>Cancel</button>
         <button className="btn p" disabled={returnBusy} onClick={doReturn}>{returnBusy?"Sending back…":"Return to Kathleen"}</button></div>
     </div>}
+    {sending && <div className="form card" style={{padding:14,marginBottom:12,borderColor:"#c7d7f5",background:"#f7f9ff"}}>
+      <div><b>Send this to your Brain Dump inbox</b>
+        <div style={{fontSize:13,color:"var(--muted)"}}>It arrives in your Inbox queue with its steps, comments and files, keeping the department it has here. It closes in Task Depot once it is with you — finished, not binned.</div></div>
+      <label>Why it is moving (optional)<textarea autoFocus value={sendWhy} onChange={e=>setSendWhy(e.target.value)} placeholder="turned out to be mine / needs my own follow-up / parking it with my own list…"/></label>
+      <div className="actions"><button className="btn" disabled={sendBusy} onClick={()=>{setSending(false);setSendWhy("");}}>Cancel</button>
+        <button className="btn p" disabled={sendBusy} onClick={doSend}>{sendBusy?"Sending…":"Send to my BD Inbox"}</button></div>
+    </div>}
     {!joining && hints.length>0 && <div className="note" style={{marginBottom:12,background:"#eef3fd",borderLeft:"3px solid var(--navy)"}}>
       <div style={{fontWeight:600,marginBottom:6,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{flex:1}}>{hints.length===1 ? "This looks like the same work as another task" : `This looks like the same work as ${hints.length} other tasks`}</span>
@@ -3088,13 +3121,13 @@ function TaskModal(ctx){
         </div>
       </div>;
     })()}
-    {!edit && !skipping && !asking && !replying && !copying && !returning && !joining && (isMgr || iCreated || t.assignee_id===me.id) &&
+    {!edit && !skipping && !asking && !replying && !copying && !returning && !sending && !joining && (isMgr || iCreated || t.assignee_id===me.id) &&
      <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
       {mayAnswer && t.status==="ready_for_review" && <button className="btn p" onClick={()=>finish({status:"done",need_manager:false},"Approved and closed")}>Approve — mark done</button>}
       {mayAnswer && t.status==="ready_for_review" && <button className="btn" onClick={()=>quick({status:"working"},"Sent back")}>Send back</button>}
       {mayAnswer && (t.need_manager||t.need_help) && <button className="btn r" onClick={()=>setReplying(true)}>Reply &amp; clear flag</button>}
       {!CLOSED(t.status) && t.assignee_id!==me.id && <button className="btn" onClick={()=>finish({status:"done"},"Marked done")}>Mark done</button>}
-      {(isMgr || iCreated) && CLOSED(t.status) && t.bd_status!=="returned" && <button className="btn" onClick={()=>quick({status:"working",skip_reason:null},"Reopened")}>Reopen</button>}
+      {(isMgr || iCreated) && CLOSED(t.status) && !GONE_TO_BD(t) && <button className="btn" onClick={()=>quick({status:"working",skip_reason:null},"Reopened")}>Reopen</button>}
       {t.recur_rule && !CLOSED(t.status) && (isMgr || t.assignee_id===me.id) && <button className="btn" onClick={()=>setSkipping(true)}>Skip this one</button>}
       {isMgr && root && <button className="btn" onClick={()=>update(root.id,{recur_paused:!root.recur_paused}).then(ok=>ok&&showToast(root.recur_paused?"Series resumed":"Series paused — no new ones will be created"))}>{root.recur_paused?"Resume series":"Pause series"}</button>}
       {canReshape && <button className="btn" onClick={()=>setEdit(true)}>{isMgr?"Edit / reassign":"Edit"}</button>}
@@ -3106,6 +3139,8 @@ function TaskModal(ctx){
       {isMgr && (people.filter(p=>p.active && p.id!==t.assignee_id).length + (INVITEES||[]).length)>0 &&
         <button className="btn" onClick={()=>{setCopying(true);setCopyTo([]);setDrop([]);}}>Who has this</button>}
       {fromBD && !CLOSED(t.status) && <button className="btn" style={{color:"#1f3a7a",borderColor:"#c7d7f5"}} onClick={()=>setReturning(true)}>Return to Kathleen</button>}
+      {canSendBD && <button className="btn" style={{color:"#1f3a7a",borderColor:"#c7d7f5"}}
+        title="Hand it to your own list — steps, comments and files come with it" onClick={()=>setSending(true)}>Send to my BD Inbox</button>}
       {isMgr && CLOSED(t.status) && t.assignee_id!==me.id && !t.seen_at && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0) &&
         <button className="btn" style={{color:"var(--ok)",borderColor:"#bfe3c5"}} onClick={()=>update(t.id,{seen_at:new Date().toISOString()}).then(ok=>ok&&showToast("Seen — one fewer on the Finished count"))}>Mark as seen</button>}
       {canReshape && <button className="btn" style={{color:"var(--red)"}} onClick={()=>trash(t)}>Trash</button>}
@@ -3152,7 +3187,7 @@ function TaskModal(ctx){
           </dd></>}
         </>;
       })()}
-      <dt>Assigned by</dt><dd>{DELEGATED(t) ? `${nameOf(people,t.created_by)} assigned it` : t.asked_by ? `${nameOf(people,t.asked_by)} asked for it` : t.assignee_id ? "Their own task" : "Not assigned yet"}{t.bd_task_id ? <span style={{marginLeft:8,fontSize:11,fontWeight:700,color:"#1f3a7a",background:"#e0ecff",padding:"1px 7px",borderRadius:7}}>{t.bd_status==="returned"?"returned to Kathleen's Inbox":"from Kathleen's Inbox"}</span> : null}</dd>
+      <dt>Assigned by</dt><dd>{DELEGATED(t) ? `${nameOf(people,t.created_by)} assigned it` : t.asked_by ? `${nameOf(people,t.asked_by)} asked for it` : t.assignee_id ? "Their own task" : "Not assigned yet"}{t.bd_task_id ? <span style={{marginLeft:8,fontSize:11,fontWeight:700,color:"#1f3a7a",background:"#e0ecff",padding:"1px 7px",borderRadius:7}}>{t.bd_status==="returned"?"returned to Kathleen's Inbox":t.bd_status==="sent"?"sent to Kathleen's Inbox":"from Kathleen's Inbox"}</span> : null}</dd>
       <dt>Assigned to</dt><dd>{t.assignee_id ? nameOf(people,t.assignee_id)
         : t.assignee_email ? `${(INVITEES.find(i=>i.email===String(t.assignee_email).toLowerCase())||{}).full_name || t.assignee_email} — waiting for them to sign up (${t.assignee_email})` : "Unassigned"}{t.assignee_id && t.created_by!==t.assignee_id ? ` · assigned by ${nameOf(people,t.created_by)}` : t.assignee_id ? " · self-assigned" : ""}</dd>
       <dt>Due</dt><dd>{fmtDate(t.due_date)}{t.expected_completion && t.expected_completion!==t.due_date ? ` (expected ${fmtDate(t.expected_completion)})` : ""}</dd>
@@ -4083,7 +4118,7 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
             onClick={()=>open(x.id, doneRest)} title={x.id?"Open the task":undefined}>{x.title}
             {mgrView && x.origin!=="mine" && <span className="meta">
               {x.origin==="self" ? " \u00b7 their own" : x.by ? ` \u00b7 from ${String(x.by).split(" ")[0]}` : ""}</span>}</span>
-          {(ALL_TASKS.find(t=>t.id===x.id)||{}).bd_status==="returned"
+          {GONE_TO_BD(ALL_TASKS.find(t=>t.id===x.id)||{})
             ? <span className="meta" style={{whiteSpace:"nowrap"}}>back with Kathleen</span>
             : <button className="btn q" style={{padding:"0 6px",color:"var(--muted)",whiteSpace:"nowrap"}}
                 title="Put it back to Working" onClick={(e)=>{e.stopPropagation(); reopen(x.id, x.title);}}>↻ Reopen</button>}

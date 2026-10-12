@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="14.0">
+<meta name="app-version" content="14.1">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -511,6 +511,12 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"14.1", d:"October 11, 2026", items:[
+    "Task numbers are written #TD147 now, not #147. Brain Dump numbers its own tasks from the same small integers, so a bare #147 meant one thing here and a different thing there \u2014 and since yesterday every email from Task Depot led with one. Forwarding such an email to Brain Dump would have filed it onto an unrelated task of the same number, silently. Task Depot #147 is the Tech Gas task; Brain Dump #147 is about shredding.",
+    "Every email Task Depot sends now says #TD147, the drawer chip copies #TD147, and the confirmations teach the same form. Brain Dump moves to #BD512 for the same reason.",
+    "Nothing you already do breaks. The jump box, the merge picker and the email rule all still take a bare 147, and TD#147 works too. The two parsers reject each other\u2019s prefix for free \u2014 #BD512 wants a digit straight after the #, which B is not \u2014 so a forward can no longer land on the wrong app\u2019s task.",
+    "One ambiguity survives on purpose: an email already sitting in your inbox carries a bare number, so forwarding an OLD Task Depot email to Brain Dump can still mis-file. Delete the number from the subject if you forward one of those.",
+  ]},
   {v:"14.0", d:"October 11, 2026", items:[
     "The morning digest shows every task\u2019s number beside its name. It was the one email listing twenty things you might need to act on and giving you nothing to type or forward \u2014 now each line reads \u201c#13 Prepare warranty condenser unit\u2026\u201d, with the number greyed so it stays a reference and not part of the name.",
     "The number is on all of them: Assigned to you, the six flagged sections, and stalled repeats. The \u201cWaiting on a first login\u201d rows are people, not tasks, so they stay numberless \u2014 a number there would point at nothing.",
@@ -1567,7 +1573,7 @@ function ManagerHome(ctx){
   // Jump straight to a task from the top of Home. Matches titles and numbers against
   // what is already loaded, so it answers as you type rather than after a round trip.
   const [jump,setJump] = useState("");
-  const jumpRef = (() => { const m = jump.trim().match(/^#?\s?(\d{1,6})$/); return m ? Number(m[1]) : null; })();
+  const jumpRef = (() => { const m = jump.trim().match(/^(?:#\s*TD|TD\s*#?|#)?\s*(\d{1,6})$/i); return m ? Number(m[1]) : null; })();
   // Open work only, unless you ask for the rest. The choice sticks, because somebody
   // who wants finished tasks in the box usually wants them tomorrow as well.
   const [jumpDone,setJumpDone] = useState(()=>{
@@ -1890,7 +1896,7 @@ function AllTasks(ctx){
     ...(INVITEES||[]).map(i=>({k:"email:"+i.email, label:i.full_name||i.email})),
   ];
   // "#42" or a bare number is a task number, not a word to look for in the text
-  const asRef = (() => { const m = String(q||"").trim().match(/^#?\s?(\d{1,6})$/); return m ? Number(m[1]) : null; })();
+  const asRef = (() => { const m = String(q||"").trim().match(/^(?:#\s*TD|TD\s*#?|#)?\s*(\d{1,6})$/i); return m ? Number(m[1]) : null; })();
   const match = (t) => {
     if(st==="open") return !CLOSED(t.status);
     if(st==="blocked") return !CLOSED(t.status) && t.status==="waiting" && !t.need_help && !t.need_manager;
@@ -2421,7 +2427,7 @@ function TaskModal(ctx){
   // she just clicked Merge on could be selected and nowhere on screen.
   // "#137" or a bare 137 is a task number. Without this the box only ever read titles,
   // so knowing the number was no help at all.
-  const joinRef = (() => { const m = joinQ.trim().match(/^#?\s?(\d{1,6})$/); return m ? Number(m[1]) : null; })();
+  const joinRef = (() => { const m = joinQ.trim().match(/^(?:#\s*TD|TD\s*#?|#)?\s*(\d{1,6})$/i); return m ? Number(m[1]) : null; })();
   const joinable = (() => {
     const q = joinQ.trim().toLowerCase();
     const pool = (tasks||[]).filter(x=>x.id!==t.id && !x.deleted_at && !links.some(l=>l.id===x.id));
@@ -2825,11 +2831,11 @@ function TaskModal(ctx){
     </div>}
     <h2>{t.title}</h2>
     {t.ref ? <div className="refline">
-      <button className="refchip" title={`Copy "#${t.ref}" — put it at the front of a subject line to file an email here`}
-        onClick={()=>{ try{ navigator.clipboard.writeText("#"+t.ref); showToast(`Copied #${t.ref} \u2014 put it at the front of a subject line and forward the email to tasks@`); }
-                       catch(e){ showToast("Couldn't copy \u2014 the number is #"+t.ref); } }}>
+      <button className="refchip" title={`Copy "#TD${t.ref}" — put it at the front of a subject line to file an email here`}
+        onClick={()=>{ try{ navigator.clipboard.writeText("#TD"+t.ref); showToast(`Copied #TD${t.ref} \u2014 put it at the front of a subject line and forward the email to tasks@`); }
+                       catch(e){ showToast("Couldn't copy \u2014 the number is #TD"+t.ref); } }}>
         #{t.ref}</button>
-      <span className="meta">Forward an email to tasks@ with #{t.ref} at the front of the subject and it lands here.</span>
+      <span className="meta">Forward an email to tasks@ with #TD{t.ref} at the front of the subject and it lands here. The TD keeps it apart from a Brain Dump number.</span>
     </div> : null}
     {watchersOf(t).length>0 && <div className="note" style={{marginBottom:10,display:"flex",gap:8,alignItems:"center"}}>
       <span style={{color:"var(--navy)",display:"inline-flex",flex:"0 0 auto"}}><Eye on={true} size={16}/></span>
@@ -4346,6 +4352,7 @@ function IntakeLog({showToast,standalone,setOpen,allTasks,update,people}){
             Put a name first in the subject — "Ilah: get the Goodman quote" — to say who it's for, and a date — "by Friday", "10/9" —
             to set when. With no date it lands on the next working day. Replies on a thread you've already sent in are added to that
             task as a comment; start the subject with "new:" to force a separate one.
+            Put a task's number at the front — "#TD147" — to file the email onto that task instead of making a new one.
             Anything that can't be placed lands in Needs sorting.
             <div style={{marginTop:6}}><b>This is a record of the emails that arrived, not a list of tasks.</b> Rows stay here for good —
             trashing or finishing the task doesn't remove its email. Each row says where that task stands now.</div>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="14.6">
+<meta name="app-version" content="14.7">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -535,6 +535,12 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"14.7", d:"October 12, 2026", items:[
+    "Answers come back by themselves. Forward their reply to the intake address and each answer is filed as a comment on its own task — \"90 - done, Marathon confirmed\" lands on #TD90, \"142 and 133 are both mine\" lands on both. It reads #TD90, TD90 and a plain \"90 -\" at the start of a line.",
+    "Nothing is ticked off, closed or reassigned by this. A reply is somebody telling you where things stand, not an instruction, and acting on it is your call — the words are put where you will see them and no further.",
+    "The generated email now opens with a quiet \"Reply above this line\" marker, which is what makes the above safe. A forward buries the reply inside the quoted chain, and that chain carries your own list back in with the same numbers against it — without a cut point your task descriptions would be filed back as their answers. Tick box if you would rather not send it.",
+    "Guards on the number reading, because a stray one must never hijack an email: at least two numbers have to resolve to tasks you can see, a vendor reference like #1160927B is left alone, and a leading \"10.\" or \"10/12\" is a numbered list and a date, not a task.",
+  ]},
   {v:"14.6", d:"October 12, 2026", items:[
     "Make an email for someone. Narrow All tasks to one person and a button appears that turns their list into an email you can paste straight into Outlook, or print. Tick boxes to leave things off, one editable opening line, and a live preview of exactly what they will see.",
     "It works for people who have no login, which is the whole point — eleven of them are holding 38 open tasks between them, and the app was never going to be where they read about it. You send it from your own mailbox so their reply comes back to your inbox; an email sent by Task Depot would be answered into nothing, because intake drops a reply from an address with no account.",
@@ -1951,6 +1957,12 @@ function NeedList({holderKey,holderLabel,tasks,me,onClose,showToast}){
   const [details,setDetails] = useState(true);
   const first = String(holderLabel||"").trim().split(" ")[0] || "there";
   const [lead,setLead] = useState("You asked what you could help with — here's what I have on my list for you.");
+  // The marker that lets a forwarded reply file itself. Intake cuts the email there: above
+  // it is new writing, below it is this list coming back round, which must not be read as
+  // answers. Visible on purpose — a hidden one gets stripped by mail clients, and it is
+  // the same line every support mailbox uses, so nobody will blink at it.
+  const [marker,setMarker] = useState(true);
+  const MARK = "Reply above this line and I'll file your answers against the right items.";
   const toggle = (id) => setPicked(prev => { const n = new Set(prev);
     if(n.has(id)) n.delete(id); else n.add(id); return n; });
   const chosen = held.filter(t=>picked.has(t.id));
@@ -1981,6 +1993,8 @@ function NeedList({holderKey,holderLabel,tasks,me,onClose,showToast}){
         + '</td></tr>';
     }).join("");
     return '<div style="font-family:Calibri,\'Segoe UI\',Arial,sans-serif;font-size:15px;line-height:1.5;color:#1c1f26;max-width:620px">'
+      + (marker ? '<div style="color:#8a909c;font-size:12px;border-bottom:1px solid #e3e7ee;padding-bottom:9px;margin:0 0 14px">'
+                  + htmlEsc(MARK) + '</div>' : '')
       + '<p style="margin:0 0 12px">Hi ' + htmlEsc(first) + ',</p>'
       + (lead.trim() ? '<p style="margin:0 0 4px">' + htmlEsc(lead.trim()) + '</p>' : '')
       + '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin:10px 0 16px">'
@@ -1991,7 +2005,7 @@ function NeedList({holderKey,holderLabel,tasks,me,onClose,showToast}){
   };
   // the same thing again in plain text, for a mail client that refuses the rich flavour
   const buildText = () => {
-    const lines = ["Hi " + first + ",", ""];
+    const lines = marker ? [MARK, "", "Hi " + first + ",", ""] : ["Hi " + first + ",", ""];
     if(lead.trim()) lines.push(lead.trim(), "");
     chosen.forEach(t=>{
       lines.push("#TD" + t.ref + "  " + t.title);
@@ -2089,6 +2103,13 @@ function NeedList({holderKey,holderLabel,tasks,me,onClose,showToast}){
                 <input type="checkbox" checked={details} onChange={e=>setDetails(e.target.checked)} style={{width:"auto"}}/>
                 Include the detail line under each one
               </label>
+              <label style={{display:"flex",gap:8,alignItems:"flex-start",marginTop:7,fontSize:14}}>
+                <input type="checkbox" checked={marker} onChange={e=>setMarker(e.target.checked)} style={{width:"auto",marginTop:3}}/>
+                <span>Add the reply line at the top
+                  <span className="meta" style={{display:"block"}}>
+                    Forward their reply in and each answer files itself against its own task.
+                    Without it, you would have to forward them one at a time.</span></span>
+              </label>
             </div>
             <div>
               <div style={{fontSize:13,color:"var(--muted)",marginBottom:6}}>Exactly what they will see</div>
@@ -2099,7 +2120,8 @@ function NeedList({holderKey,holderLabel,tasks,me,onClose,showToast}){
           <div className="note" style={{marginTop:12,fontSize:13}}>
             Send it from your own mailbox rather than letting Task Depot send it: {first} has no
             account here, so a reply to an app-sent email would be dropped as an unknown sender.
-            Replying to yours just comes back to your inbox.
+            Replying to yours comes back to your inbox {"''' + D + u'''"} and forwarding that reply in files
+            each answer on its own task.
           </div>
           <div className="linkacts" style={{marginTop:12,display:"flex",gap:8,flexWrap:"wrap"}}>
             <button className="btn p" onClick={copy}>Copy for email</button>

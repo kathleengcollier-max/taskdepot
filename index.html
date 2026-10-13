@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="14.7">
+<meta name="app-version" content="14.9">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -338,6 +338,18 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .nl-row .nr{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--navy);font-weight:600}
 .nl-row .nm{font-size:12px;color:var(--muted);margin-top:2px}
 .nl-frame{width:100%;height:340px;border:1px solid var(--line);border-radius:8px;background:#fff}
+/* results that live in the other app */
+.bdsec{margin-top:16px}
+.bdsec .bdhead{display:flex;align-items:baseline;gap:8px;margin:0 0 7px}
+.bdsec .bdhead h3{margin:0;font-size:15px;color:#4a3690}
+.bdsec .bdhead .meta{font-size:13px}
+.bdrow{display:block;padding:10px 12px;border-bottom:1px solid #f0f2f6;text-decoration:none;color:inherit}
+.bdrow:last-child{border-bottom:0}
+.bdrow:hover{background:#faf8ff}
+.bdrow .bt{font-weight:600;font-size:14.5px}
+.bdrow .bn{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:#4a3690;font-weight:700;margin-right:7px}
+.bdrow .bs{font-size:13px;color:var(--muted);margin-top:2px}
+.bdrow .bm{font-size:12.5px;color:var(--muted);margin-top:3px}
 /* .form label{display:grid} outranks a bare class, same trap as .mp-row above */
 .form label.finishopt{display:flex;gap:9px;align-items:flex-start;padding:4px 0;cursor:pointer;
                       line-height:1.4;font-size:14.5px;color:inherit;font-weight:400}
@@ -465,6 +477,7 @@ const startedAs = (t) => DELEGATED(t) ? "delegated" : "own";
 // The one person with a Brain Dump. The bridge checks this too — this const only decides
 // whether the button is drawn, never whether the send is allowed.
 const BD_OWNER = "04e1a5b4-dcef-4c56-8f08-e67876786451";
+const BD_URL = "https://braindump.kathleengrawcollier.com/";
 // a task that has gone home to her Inbox, whichever direction it travelled
 const GONE_TO_BD = (t) => t.bd_status === "returned" || t.bd_status === "sent";
 
@@ -535,6 +548,18 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"14.9", d:"October 13, 2026", items:[
+    "Search reaches into Brain Dump. Task Depot results come up first, and an In Brain Dump block fills in underneath with the number, where it matched, which folder it is in and who has it. Titles, topics and notes, and a number like #BD879 finds that one.",
+    "Only Kathleen sees it, and that is enforced on the server rather than by hiding the box: the bridge refuses the request outright for any other account. Brain Dump is one person\u2019s private list, and the people she shares Task Depot with have no business reading it.",
+    "The second search never holds up the first. Brain Dump is two bridge hops away, so Task Depot answers on its own and Brain Dump arrives when it arrives; if it cannot be reached, the reason is shown and this app\u2019s results are untouched.",
+    "Groundwork for the other direction went in at the same time — Brain Dump\u2019s search box can now reach Task Depot through the same pair of bridges. The Brain Dump app has to be changed to use it, which is a separate file.",
+  ]},
+  {v:"14.8", d:"October 13, 2026", items:[
+    "Repeating filters by person and by frequency, the same pickers All tasks uses. Either on its own or both together, and the heading says \"5 of 18 shown\" so a narrowed list never passes for the whole list.",
+    "Both pickers only offer what is actually there. Three people have repeating work, so the person list names three — not the whole roster with ten names that would return nothing — and Daily stays out of the frequency list until something actually repeats daily. People holding repeating work against an email address, with no login, are in the list like anyone else.",
+    "The filters are deliberately forgotten between visits, unlike the ones on All tasks. Everything here fits on one screen, so a filter left on from last week would hide work rather than save you any narrowing.",
+    "Sorting still applies to whatever is on screen, so narrowing to one person and sorting by Open now answers \"what is she furthest behind on\" in two clicks.",
+  ]},
   {v:"14.7", d:"October 12, 2026", items:[
     "Answers come back by themselves. Forward their reply to the intake address and each answer is filed as a comment on its own task — \"90 - done, Marathon confirmed\" lands on #TD90, \"142 and 133 are both mine\" lands on both. It reads #TD90, TD90 and a plain \"90 -\" at the start of a line.",
     "Nothing is ticked off, closed or reassigned by this. A reply is somebody telling you where things stand, not an instruction, and acting on it is your call — the words are put where you will see them and no further.",
@@ -3839,6 +3864,10 @@ function WeekAhead({tasks,people,today,setOpen,opener,me,isMgr}){
 function Repeating({showToast,setOpen,tasks,isMgr,update}){
   const [rows,setRows] = useState(null);
   const [sort,setSort] = useState(null);
+  // Deliberately not remembered between visits, unlike All tasks: everything here fits on
+  // one screen, so a filter left on from last week would hide work rather than save any.
+  const [who,setWho] = useState([]);
+  const [freq,setFreq] = useState([]);
   const load = useCallback(()=>{ sb.rpc("recurring_overview").then(({data,error})=>{
     if(error){ showToast(error.message); return; } setRows(data||[]); }); },[showToast]);
   useEffect(()=>{load();},[load]);
@@ -3879,15 +3908,35 @@ function Repeating({showToast,setOpen,tasks,isMgr,update}){
     setOpen(t.id, queue);
   };
   if(rows===null) return <div className="empty">Loading…</div>;
+
+  // Built from what is actually here, not from the whole roster: three people have
+  // repeating work and nobody needs a picker listing the ten who do not.
+  const holderOf = (r) => r.assignee || "Unassigned";
+  const whoOpts = [...new Set(rows.map(holderOf))].sort((a,b)=>a.localeCompare(b))
+    .map(n=>({k:n, label:n}));
+  const RULE_NAME = {daily:"Daily", weekly:"Weekly", monthly:"Monthly", yearly:"Yearly"};
+  const freqOpts = ["daily","weekly","monthly","yearly"].filter(k=>rows.some(r=>r.rule===k))
+    .map(k=>({k, label:RULE_NAME[k]}));
+  const shown = rows.filter(r=>(!who.length || who.includes(holderOf(r)))
+                            && (!freq.length || freq.includes(r.rule)));
+  const filtered = !!(who.length || freq.length);
+  const clearAll = () => { setWho([]); setFreq([]); };
+
   const sval = (r,k) => k==="title" ? String(r.title).toLowerCase() : k==="assignee" ? String(r.assignee||"zz").toLowerCase()
     : k==="rule" ? ruleText(r).toLowerCase() : k==="open_count" ? String(r.open_count).padStart(6,"0")
     : k==="oldest_open" ? (r.oldest_open||"9999") : k==="next" ? ((r.next_dates||[])[0]||"9999") : "";
-  const sorted = !sort ? rows : rows.slice().sort((a,b)=>{ const x=sval(a,sort.k), y=sval(b,sort.k);
+  const sorted = !sort ? shown : shown.slice().sort((a,b)=>{ const x=sval(a,sort.k), y=sval(b,sort.k);
     return (x<y?-1:x>y?1:0)*sort.dir || String(a.title).localeCompare(String(b.title)); });
   return <>
-    <div className="h"><h2>Repeating</h2><span className="sub">{rows.length} recurring task{rows.length===1?"":"s"}</span></div>
+    <div className="h"><h2>Repeating</h2><span className="sub">
+      {filtered ? `${shown.length} of ${rows.length} shown` : `${rows.length} recurring task${rows.length===1?"":"s"}`}</span></div>
+    {rows.length>1 && <div className="filters" style={{marginBottom:10}}>
+      <MultiPick allLabel="Everyone" value={who} onChange={setWho} options={whoOpts}/>
+      <MultiPick allLabel="Any frequency" value={freq} onChange={setFreq} options={freqOpts}/>
+      {filtered && <button className="btn sm" onClick={clearAll}>Clear filters</button>}
+    </div>}
     <div className="note" style={{marginBottom:10}}>Click a row to open the one that's live now — the arrows in the drawer then step back through earlier ones. Weekly and monthly tasks appear five days before each due date, whether or not the last one got finished — they stack up rather than disappearing. Daily ones roll forward instead of piling up. Dates below that haven't happened yet are scheduled, not created.</div>
-    {rows.length ? <div className="card tablewrap">
+    {sorted.length ? <div className="card tablewrap">
       <table className="ttable"><thead><tr>
         {[["title","Task","task"],["assignee","Person","who"],["rule","Repeats","muted"],
           ["open_count","Open now","num"],["oldest_open","Oldest due","num hide-sm"],["next","Coming up","muted hide-sm"]].map(([k,label,cls])=>
@@ -3911,7 +3960,9 @@ function Repeating({showToast,setOpen,tasks,isMgr,update}){
             <button className="btn sm" onClick={()=>togglePause(r)}>{r.paused?"Resume":"Pause"}</button></span></td>}
         </tr>; })}
       </tbody></table>
-    </div> : <div className="card"><div className="empty">No repeating tasks yet. Set one up by choosing how often it repeats when you assign it.</div></div>}
+    </div> : <div className="card"><div className="empty">{filtered
+      ? "Nothing repeating matches those filters."
+      : "No repeating tasks yet. Set one up by choosing how often it repeats when you assign it."}</div></div>}
   </>;
 }
 
@@ -3919,15 +3970,32 @@ function Search({setOpen,showToast,trashedIds,openTaskId,people,today,isMgr}){
   const [q,setQ] = useState(""); const [closed,setClosed] = useState(false);
   const [rows,setRows] = useState(null); const [busy,setBusy] = useState(false);
   const [ran,setRan] = useState("");
+  // Brain Dump is one person's private list, so only she is offered it. The bridge refuses
+  // anyone else on the server as well — this is for tidiness, not for safety.
+  const canBD = !!(ME && ME.id === BD_OWNER);
+  const [bd,setBd] = useState(null);        // null = not asked, [] = asked and nothing
+  const [bdErr,setBdErr] = useState("");
   const run = useCallback(async (term) => {
     const text = (term===undefined ? q : term);
     if(String(text).trim().length<2){ showToast("Type at least two characters"); return; }
     setBusy(true);
+    // the other app is a round trip through two bridges, so it must never hold up the
+    // results from this one — they land first and Brain Dump fills in underneath
+    if(canBD){
+      setBd(null); setBdErr("");
+      sb.functions.invoke("bridge",{body:{action:"search_bd", q:text, closed}})
+        .then(({data,error})=>{
+          const why = error ? (error.message||"Couldn't reach Brain Dump") : (data && data.error);
+          if(why){ setBdErr(why); setBd([]); return; }
+          setBd((data && data.results) || []);
+        })
+        .catch(()=>{ setBdErr("Couldn't reach Brain Dump"); setBd([]); });
+    }
     const {data,error} = await sb.rpc("search_all",{q:text, include_closed:closed});
     setBusy(false);
     if(error){ showToast(error.message); return; }
     setRows(data||[]); setRan(String(text));
-  },[q,closed,showToast]);
+  },[q,closed,showToast,canBD]);
   // results are a snapshot: re-run them when a task drawer closes, so anything you
   // just trashed, finished or retitled in there stops showing the old version
   useEffect(()=>{ if(openTaskId===null && ran) run(ran); },[openTaskId]);   // eslint-disable-line
@@ -3957,6 +4025,30 @@ function Search({setOpen,showToast,trashedIds,openTaskId,people,today,isMgr}){
       setOpen={(id,shown)=>setOpen(id, (shown||asTasks).map(x=>x.id))}
       cols={isMgr?["who","title","status","due","matched","snippet"]:["title","status","due","matched","snippet"]}
       empty="Nothing matched. Try a shorter word, or tick the box to include finished tasks."/>}
+
+    {canBD && rows && <div className="bdsec">
+      <div className="bdhead">
+        <h3>In Brain Dump</h3>
+        <span className="meta">{bd===null ? "looking\u2026"
+          : bdErr ? bdErr
+          : `${bd.length} match${bd.length===1?"":"es"}`}</span>
+      </div>
+      {bd && bd.length>0 && <div className="card">
+        {bd.map(r=><a key={r.num} className="bdrow" href={BD_URL} target="_blank" rel="noopener noreferrer"
+          title="Open Brain Dump">
+          <div className="bt"><span className="bn">#BD{r.num}</span>{r.title}</div>
+          {r.snippet ? <div className="bs">{r.where}: {r.snippet}</div> : null}
+          <div className="bm">{[
+            r.state==="inbox" ? "In your Inbox" : r.state==="done" ? "Done" : null,
+            r.category || null,
+            r.withWhom ? `with ${r.withWhom}` : null,
+            r.due ? `due ${fmtDate(r.due)}` : null,
+          ].filter(Boolean).join("  \u00b7  ")}</div>
+        </a>)}
+      </div>}
+      {bd && bd.length===0 && !bdErr &&
+        <div className="card"><div className="empty">Nothing in Brain Dump matched.</div></div>}
+    </div>}
   </>;
 }
 

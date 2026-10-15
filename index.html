@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="14.9">
+<meta name="app-version" content="15.1">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -319,6 +319,12 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .jumphit:hover,.jumphit:focus-visible{background:#f3f6fd;outline:none}
 .jumphit .jt{font-weight:600;color:var(--navy)}
 .jumphit .meta{display:block;margin-top:2px}
+.jumpbd{padding:6px 13px;background:#f6f3fd;border-top:1px solid var(--line);
+  font-size:12px;font-weight:700;color:#4a3690;letter-spacing:.02em}
+.jumphit.bd{text-decoration:none;color:inherit}
+.jumphit.bd:hover,.jumphit.bd:focus-visible{background:#faf8ff}
+.jumphit.bd .jt{color:#4a3690}
+.refsm.bd{color:#4a3690}
 .pill.shared{background:#eae4fb;color:#4a3690}
 /* Brain Dump purple — the Send to my BD Inbox button and the panel it opens. The same
    purple a Shared task wears: both mean "this is not simply yours to tick off". */
@@ -548,6 +554,19 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"15.1", d:"October 13, 2026", items:[
+    "Brain Dump results now appear under All tasks, which is where the search box actually lives. In 14.9 they went to the old standalone Search screen — which was folded into All tasks a while back and has not been reachable since, so nobody could have seen them. My mistake: the component still compiled and still passed its tests, because a test that mounts a screen directly proves the screen works, not that you can get to it.",
+    "That dead Search component has been deleted rather than left lying about, along with the trashedIds it was the only user of. It is what misled me, and leaving it invites the same mistake again.",
+    "The status filter carries across: on Open you get open Brain Dump items, on Done, Skipped or Everything you get those too. Blocked and Needs you are Task Depot\u2019s own ideas with no meaning over there, so the block stays out of the way for those.",
+    "Three characters before it asks, and a quarter-second of quiet, matching the lookup this screen already runs. An answer about an older keystroke is discarded rather than replacing what is on screen.",
+  ]},
+  {v:"15.0", d:"October 13, 2026", items:[
+    "The jump bar reaches Brain Dump too. Type three letters and an In Brain Dump group appears under your Task Depot hits, up to five of them, with the number, folder and who has it. The number was the giveaway that this belonged here rather than only on the Search screen.",
+    "The list above it stays instant. It filters tasks already loaded in the browser, so it answers as you type; Brain Dump is two bridge hops away and is never allowed to hold that up — it arrives a beat later, underneath.",
+    "Three characters rather than two, and a third of a second of quiet before it asks, because every keystroke past that is a round trip. Typing \u201ccleaning\u201d makes one request, not five.",
+    "An answer about something you typed three keystrokes ago is thrown away rather than replacing what is on screen now. Without that, a slow reply can overwrite a fast one and you end up looking at results for half a word.",
+    "Include finished and skipped applies to both lists, and the same rule as everywhere else holds: only Kathleen sees any of it, refused on the server for anyone else.",
+  ]},
   {v:"14.9", d:"October 13, 2026", items:[
     "Search reaches into Brain Dump. Task Depot results come up first, and an In Brain Dump block fills in underneath with the number, where it matched, which folder it is in and who has it. Titles, topics and notes, and a number like #BD879 finds that one.",
     "Only Kathleen sees it, and that is enforced on the server rather than by hiding the box: the bridge refuses the request outright for any other account. Brain Dump is one person\u2019s private list, and the people she shares Task Depot with have no business reading it.",
@@ -1485,8 +1504,6 @@ function Shell({me,setMe}){
   };
 
   const live = tasks.filter(t=>!t.deleted_at); ALL_TASKS = live; INVITEES = invitees; ME = me; PEOPLE = people;
-  // Search keeps its own results, so it needs to know what has been trashed since
-  const trashedIds = tasks.filter(t=>t.deleted_at).map(t=>t.id);
   const openTask = tasks.find(t=>t.id===open);
   // a mention that turns out to need doing: open the assign form with its wording,
   // aimed at the person whose 1:1 it came from, and link the two once it saves
@@ -1679,6 +1696,30 @@ function ManagerHome(ctx){
   const jumpHits   = (jumpDone ? jumpAll : jumpAll.filter(x=>!CLOSED(x.status))).slice(0,8);
   const jumpHidden = jumpDone ? 0 : jumpAll.filter(x=>CLOSED(x.status)).length;
   const goTo = (x) => { setJump(""); ctx.setOpen(x.id, jumpHits.map(h=>h.id)); };
+  // Brain Dump, from the same box. The list above stays instant because it filters what is
+  // already loaded; this one is two bridge hops away, so it arrives a little behind your
+  // typing and is never allowed to hold it up. Three characters rather than two, because
+  // every keystroke past that is a round trip.
+  const canBD = !!(ME && ME.id === BD_OWNER);
+  const [bdHits,setBdHits] = useState([]);
+  const bdSeq = useRef(0);
+  useEffect(()=>{
+    if(!canBD) return;
+    const q = jump.trim();
+    if(q.length < 3){ setBdHits([]); return; }
+    const mine = ++bdSeq.current;
+    const timer = setTimeout(()=>{
+      sb.functions.invoke("bridge",{body:{action:"search_bd", q, closed:jumpDone}})
+        .then(({data,error})=>{
+          // a slow answer about something you typed three keystrokes ago must not
+          // overwrite the answer about what is in the box now
+          if(mine !== bdSeq.current) return;
+          setBdHits((!error && data && data.results) ? data.results.slice(0,5) : []);
+        })
+        .catch(()=>{ if(mine === bdSeq.current) setBdHits([]); });
+    }, 300);
+    return ()=>clearTimeout(timer);
+  },[jump,jumpDone,canBD]);
   const doneLooking = async (t) => {
     const {error} = await UNWATCH(t.id);
     if(error){ ctx.showToast(error.message); return; }
@@ -1733,6 +1774,21 @@ function ManagerHome(ctx){
         {jumpHits.length>0 && jumpHidden>0 && <div className="jumpfoot">
           {jumpHidden} finished {jumpHidden>1?"ones":"one"} also match{jumpHidden>1?"":"es"}, hidden by the box above.
         </div>}
+        {canBD && bdHits.length>0 && <>
+          <div className="jumpbd">In Brain Dump</div>
+          {bdHits.map(r=>
+            <a key={"bd"+r.num} className="jumphit bd" href={BD_URL} target="_blank" rel="noopener noreferrer"
+               title="Open Brain Dump">
+              <span className="refsm bd">#BD{r.num}</span>
+              <span className="jt">{r.title}</span>
+              <span className="meta">{[
+                r.state==="inbox" ? "In your Inbox" : r.state==="done" ? "Done" : null,
+                r.category || null,
+                r.withWhom ? `with ${r.withWhom}` : null,
+                r.due ? `due ${fmtDate(r.due)}` : null,
+              ].filter(Boolean).join(" \u00b7 ")}</span>
+            </a>)}
+        </>}
       </div>}
     </div>
     {mineToDo.length>0 && <><div className="h"><h2>Assigned to you</h2><span className="sub">{mineToDo.length} — things your team handed up</span></div>
@@ -2185,6 +2241,33 @@ function AllTasks(ctx){
   },[q]);
   const searching = q.trim().length >= 2;
   const [st,setSt] = useState(saved ? saved.st : "open");
+  // Brain Dump, from this same box. Same debounce as the lookup above, but three
+  // characters rather than two: that one reads a table here, this one is two bridge hops
+  // away. Blocked and Needs you are Task Depot's own ideas and mean nothing over there,
+  // so the block stays out of the way when you are asking either of those questions.
+  const canBD = !!(ME && ME.id === BD_OWNER);
+  const bdWanted = canBD && ["open","done","skipped","all"].includes(st);
+  const [bdHits,setBdHits] = useState([]);
+  const [bdErr,setBdErr] = useState("");
+  const bdSeq = useRef(0);
+  useEffect(()=>{
+    const text = q.trim();
+    if(!bdWanted || text.length < 3){ setBdHits([]); setBdErr(""); return; }
+    const mine = ++bdSeq.current;
+    const h = setTimeout(()=>{
+      sb.functions.invoke("bridge",{body:{action:"search_bd", q:text, closed: st!=="open"}})
+        .then(({data,error})=>{
+          // an answer about what you typed a moment ago must not replace the one about
+          // what is in the box now
+          if(mine !== bdSeq.current) return;
+          const why = error ? (error.message||"Couldn't reach Brain Dump") : (data && data.error);
+          if(why){ setBdErr(why); setBdHits([]); return; }
+          setBdErr(""); setBdHits((data && data.results) || []);
+        })
+        .catch(()=>{ if(mine===bdSeq.current){ setBdErr("Couldn't reach Brain Dump"); setBdHits([]); } });
+    }, 250);
+    return ()=>clearTimeout(h);
+  },[q,st,bdWanted]);
   const [who,setWho] = useState(saved ? (saved.who||[]) : []);
   // First visit for a manager opens on the work they handed out, which is the question
   // this screen usually answers. Everything else is one tick away and the banner says so.
@@ -2261,6 +2344,26 @@ function AllTasks(ctx){
       cols={searching
         ? (isMgr?["who","title","matched","snippet","status","due"]:["title","matched","snippet","status","due"])
         : (isMgr?["who","title","status","origin","entered","due","updated"]:["title","status","origin","entered","due","updated"])}/>
+
+    {bdWanted && q.trim().length>=3 && (bdHits.length>0 || bdErr) && <div className="bdsec">
+      <div className="bdhead">
+        <h3>In Brain Dump</h3>
+        <span className="meta">{bdErr ? bdErr : `${bdHits.length} match${bdHits.length===1?"":"es"}`}</span>
+      </div>
+      {bdHits.length>0 && <div className="card">
+        {bdHits.map(r=><a key={r.num} className="bdrow" href={BD_URL} target="_blank" rel="noopener noreferrer"
+          title="Open Brain Dump">
+          <div className="bt"><span className="bn">#BD{r.num}</span>{r.title}</div>
+          {r.snippet ? <div className="bs">{r.where}: {r.snippet}</div> : null}
+          <div className="bm">{[
+            r.state==="inbox" ? "In your Inbox" : r.state==="done" ? "Done" : null,
+            r.category || null,
+            r.withWhom ? `with ${r.withWhom}` : null,
+            r.due ? `due ${fmtDate(r.due)}` : null,
+          ].filter(Boolean).join("  \u00b7  ")}</div>
+        </a>)}
+      </div>}
+    </div>}
   </>;
 }
 
@@ -3963,92 +4066,6 @@ function Repeating({showToast,setOpen,tasks,isMgr,update}){
     </div> : <div className="card"><div className="empty">{filtered
       ? "Nothing repeating matches those filters."
       : "No repeating tasks yet. Set one up by choosing how often it repeats when you assign it."}</div></div>}
-  </>;
-}
-
-function Search({setOpen,showToast,trashedIds,openTaskId,people,today,isMgr}){
-  const [q,setQ] = useState(""); const [closed,setClosed] = useState(false);
-  const [rows,setRows] = useState(null); const [busy,setBusy] = useState(false);
-  const [ran,setRan] = useState("");
-  // Brain Dump is one person's private list, so only she is offered it. The bridge refuses
-  // anyone else on the server as well — this is for tidiness, not for safety.
-  const canBD = !!(ME && ME.id === BD_OWNER);
-  const [bd,setBd] = useState(null);        // null = not asked, [] = asked and nothing
-  const [bdErr,setBdErr] = useState("");
-  const run = useCallback(async (term) => {
-    const text = (term===undefined ? q : term);
-    if(String(text).trim().length<2){ showToast("Type at least two characters"); return; }
-    setBusy(true);
-    // the other app is a round trip through two bridges, so it must never hold up the
-    // results from this one — they land first and Brain Dump fills in underneath
-    if(canBD){
-      setBd(null); setBdErr("");
-      sb.functions.invoke("bridge",{body:{action:"search_bd", q:text, closed}})
-        .then(({data,error})=>{
-          const why = error ? (error.message||"Couldn't reach Brain Dump") : (data && data.error);
-          if(why){ setBdErr(why); setBd([]); return; }
-          setBd((data && data.results) || []);
-        })
-        .catch(()=>{ setBdErr("Couldn't reach Brain Dump"); setBd([]); });
-    }
-    const {data,error} = await sb.rpc("search_all",{q:text, include_closed:closed});
-    setBusy(false);
-    if(error){ showToast(error.message); return; }
-    setRows(data||[]); setRan(String(text));
-  },[q,closed,showToast,canBD]);
-  // results are a snapshot: re-run them when a task drawer closes, so anything you
-  // just trashed, finished or retitled in there stops showing the old version
-  useEffect(()=>{ if(openTaskId===null && ran) run(ran); },[openTaskId]);   // eslint-disable-line
-  const gone = new Set(trashedIds||[]);
-  const shown = (rows||[]).filter(r=>!gone.has(r.task_id));
-  // reuse the real task rows so the table looks and behaves like All tasks; carry the
-  // match detail along on the object so the two search-only columns can read it
-  const asTasks = shown.map(r=>{
-    const live = (ALL_TASKS||[]).find(x=>x.id===r.task_id);
-    const base = live || {id:r.task_id, title:r.title, status:r.status, due_date:r.due_date,
-                          assignee_id:null, assignee_email:null, created_at:null, updated_at:null};
-    return {...base, __hit:r.hit_kind, __snippet:r.snippet};
-  });
-  return <>
-    <div className="h"><h2>Search</h2><span className="sub">{rows?`${shown.length} result${shown.length===1?"":"s"}`:"Titles, details, comments, steps and your private notes"}</span></div>
-    <div className="form" style={{marginBottom:10}}>
-      <div style={{display:"flex",gap:8}}>
-        <input autoFocus value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&run()} placeholder="Goodman, freight quote, Suan…" style={{flex:1}}/>
-        <button className="btn p" onClick={()=>run()} disabled={busy}>{busy?"…":"Search"}</button>
-      </div>
-      <label style={{display:"flex",gap:8,alignItems:"center",fontSize:14,color:"var(--muted)"}}>
-        <input type="checkbox" checked={closed} onChange={e=>setClosed(e.target.checked)} style={{width:"auto"}}/>
-        Include finished and skipped tasks
-      </label>
-    </div>
-    {rows && <TaskTable list={asTasks} people={people} today={today} isMgr={isMgr}
-      setOpen={(id,shown)=>setOpen(id, (shown||asTasks).map(x=>x.id))}
-      cols={isMgr?["who","title","status","due","matched","snippet"]:["title","status","due","matched","snippet"]}
-      empty="Nothing matched. Try a shorter word, or tick the box to include finished tasks."/>}
-
-    {canBD && rows && <div className="bdsec">
-      <div className="bdhead">
-        <h3>In Brain Dump</h3>
-        <span className="meta">{bd===null ? "looking\u2026"
-          : bdErr ? bdErr
-          : `${bd.length} match${bd.length===1?"":"es"}`}</span>
-      </div>
-      {bd && bd.length>0 && <div className="card">
-        {bd.map(r=><a key={r.num} className="bdrow" href={BD_URL} target="_blank" rel="noopener noreferrer"
-          title="Open Brain Dump">
-          <div className="bt"><span className="bn">#BD{r.num}</span>{r.title}</div>
-          {r.snippet ? <div className="bs">{r.where}: {r.snippet}</div> : null}
-          <div className="bm">{[
-            r.state==="inbox" ? "In your Inbox" : r.state==="done" ? "Done" : null,
-            r.category || null,
-            r.withWhom ? `with ${r.withWhom}` : null,
-            r.due ? `due ${fmtDate(r.due)}` : null,
-          ].filter(Boolean).join("  \u00b7  ")}</div>
-        </a>)}
-      </div>}
-      {bd && bd.length===0 && !bdErr &&
-        <div className="card"><div className="empty">Nothing in Brain Dump matched.</div></div>}
-    </div>}
   </>;
 }
 

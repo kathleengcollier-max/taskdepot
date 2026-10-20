@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="15.1">
+<meta name="app-version" content="15.2">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -554,6 +554,12 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"15.2", d:"October 20, 2026", items:[
+    "Searching a number now searches for the number. Typing 1050 used to mean \u201ctask #1050\u201d and nothing else, so when no task had that number you got an empty screen — even though a comment on #TD189 says 1050 and the account is all over your work. A number is a GL account, an invoice or a policy long before it is a task reference, and the box now reads it both ways.",
+    "The task with that number still comes first, and still appears whatever its status, so typing the number of something finished takes you to it exactly as before. Everything carrying the number in its words follows underneath.",
+    "That direct hit deliberately ignores your filters: asking for a number on its own is asking to be taken to that task, not to be told it does not match the view you happen to have set. The text matches below it respect the filters as usual.",
+    "Same fix in the jump bar, which had the identical blind spot — a title with a number in it could not be found by typing that number.",
+  ]},
   {v:"15.1", d:"October 13, 2026", items:[
     "Brain Dump results now appear under All tasks, which is where the search box actually lives. In 14.9 they went to the old standalone Search screen — which was folded into All tasks a while back and has not been reachable since, so nobody could have seen them. My mistake: the component still compiled and still passed its tests, because a test that mounts a screen directly proves the screen works, not that you can get to it.",
     "That dead Search component has been deleted rather than left lying about, along with the trashedIds it was the only user of. It is what misled me, and leaving it invites the same mistake again.",
@@ -1687,11 +1693,15 @@ function ManagerHome(ctx){
   const jumpAll = (() => {
     const q = jump.trim().toLowerCase();
     if(q.length < 2 && jumpRef === null) return [];
-    return (tasks||[]).filter(x=>!x.deleted_at && (jumpRef !== null
-        ? x.ref === jumpRef
-        : (x.title||"").toLowerCase().includes(q)))
+    const live = (tasks||[]).filter(x=>!x.deleted_at);
+    const byTitle = live.filter(x=>q.length >= 2 && (x.title||"").toLowerCase().includes(q))
       .sort((a,b)=>(CLOSED(a.status)?1:0)-(CLOSED(b.status)?1:0)
                  || String(a.due_date||"9").localeCompare(String(b.due_date||"9")));
+    // A number is a task number AND a number. It used to be only the former, so a title
+    // with \"1050\" in it could not be found by typing 1050. The task with that number
+    // leads; titles carrying it follow.
+    const byNumber = jumpRef !== null ? live.filter(x=>x.ref === jumpRef) : [];
+    return [...byNumber, ...byTitle.filter(x=>!byNumber.some(r=>r.id===x.id))];
   })();
   const jumpHits   = (jumpDone ? jumpAll : jumpAll.filter(x=>!CLOSED(x.status))).slice(0,8);
   const jumpHidden = jumpDone ? 0 : jumpAll.filter(x=>CLOSED(x.status)).length;
@@ -2300,16 +2310,24 @@ function AllTasks(ctx){
     return true;
   };
   const openCount = tasks.filter(t=>!CLOSED(t.status)).length;
-  // A number in the box means that one task. Show it whatever its status, or you type
-  // the number of something finished and are told there are no results.
-  const list = (asRef !== null ? tasks.filter(t=>t.ref===asRef) : tasks.filter(match))
+  // A number in the box used to mean ONLY that task, which quietly made every other number
+  // unsearchable: \"1050\" is a GL account, an invoice or a policy long before it is a task
+  // reference, and typing one returned nothing at all. Now it means both. The task with
+  // that number comes first, whatever its status \u2014 type the number of something finished
+  // and you still get it \u2014 and everything carrying the number in its words follows.
+  const matchesText = (t) => !searching ? true
+    : found ? found.has(t.id)
+    : (t.title+" "+t.context+" "+t.details).toLowerCase().includes(q.trim().toLowerCase());
+  const narrowed = tasks.filter(match)
     .filter(t=>!origin.length || origin.includes(startedAs(t)))
     .filter(t=>!who.length || who.some(w => String(w).startsWith("email:")
         ? String(t.assignee_email||"").toLowerCase() === String(w).slice(6)
         : t.assignee_id === w))
-    .filter(t=>(asRef !== null || !searching) ? true
-      : found ? found.has(t.id)
-      : (t.title+" "+t.context+" "+t.details).toLowerCase().includes(q.trim().toLowerCase()))
+    .filter(matchesText);
+  // the direct hit ignores the filters on purpose: asking for a number by itself is asking
+  // to be taken to that task, not to be told it does not match your current view
+  const byNumber = asRef !== null ? tasks.filter(t=>t.ref===asRef && !t.deleted_at) : [];
+  const list = [...byNumber, ...narrowed.filter(t=>!byNumber.some(r=>r.id===t.id))]
     .map(t=>{ const f = found && found.get(t.id);
               return f ? {...t, __hit:f.hit, __snippet:f.snippet} : t; });
   return <>

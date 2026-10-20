@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="15.2">
+<meta name="app-version" content="15.4">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -319,6 +319,9 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .jumphit:hover,.jumphit:focus-visible{background:#f3f6fd;outline:none}
 .jumphit .jt{font-weight:600;color:var(--navy)}
 .jumphit .meta{display:block;margin-top:2px}
+/* a repeating task, marked where you actually look at tasks */
+.recurmk{margin-left:6px;color:var(--muted);font-size:12.5px;font-weight:600;cursor:help}
+tr:hover .recurmk{color:var(--navy)}
 .jumpbd{padding:6px 13px;background:#f6f3fd;border-top:1px solid var(--line);
   font-size:12px;font-weight:700;color:#4a3690;letter-spacing:.02em}
 .jumphit.bd{text-decoration:none;color:inherit}
@@ -554,6 +557,19 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"15.4", d:"October 20, 2026", items:[
+    "A 1:1 now reads the same to both people in it. It never did: the agenda decided what to show and what to fold by asking who was logged in, so every one of Alexis\u2019s 21 open tasks landed in a different bucket for Kathleen, for Eliseth and for Alexis. Three people, three different meetings.",
+    "The fold now follows the pair. A task is judged against the report\u2019s manager, not the reader: 10 of Alexis\u2019s are Eliseth\u2019s and lead the agenda, 5 came down from Kathleen and stay on it marked \u201cfrom Kathleen\u201d, 6 she set herself and fold away. Same fifteen, same six, whoever opens it.",
+    "Flagged items group by who is being asked rather than by whether that is you. The item that said \u201cNeeds you\u201d on one screen and \u201cAsked Eli, not you\u201d on the other now says \u201cNeeds Eliseth\u201d on both, with a quiet \u201c(you)\u201d for whoever it belongs to.",
+    "Your own view stops being a special case. It used to switch folding off entirely, which is why your screen and your manager\u2019s could never match; now everyone sees the same shape, and Show everything is one click and still remembered per person.",
+    "Watching is a mark, not a mover. A task you follow used to be hauled onto the agenda for you alone — an item the other person could not see. It now sits where the pair put it wearing the eye, and the folded block says how many in there you are watching, so nothing hides.",
+    "Somebody with nobody above them has no pair, so nothing folds on their 1:1 at all.",
+  ]},
+  {v:"15.3", d:"October 20, 2026", items:[
+    "A repeating task now says so in every list. A small \u21bb sits after the name on All tasks, Home, Finished, Trash, search results and Email intake, and hovering it says which rhythm \u2014 \u201cRepeats monthly on the 30\u201d, \u201cRepeats Tuesdays\u201d. Until now a monthly bank rec was indistinguishable from a one-off unless you opened it or went to the Repeating screen.",
+    "A mark rather than a column, on purpose: it costs no width in an already wide table, and it turns up on every screen at once where a column would only have helped the one screen it was added to.",
+    "The table had a finished Repeats column built into it all along that nothing ever asked for \u2014 the word appears in none of the app\u2019s eight column lists. It stays unused; the mark does the job better.",
+  ]},
   {v:"15.2", d:"October 20, 2026", items:[
     "Searching a number now searches for the number. Typing 1050 used to mean \u201ctask #1050\u201d and nothing else, so when no task had that number you got an empty screen — even though a comment on #TD189 says 1050 and the account is all over your work. A number is a GL account, an invoice or a policy long before it is a task reference, and the box now reads it both ways.",
     "The task with that number still comes first, and still appears whatever its status, so typing the number of something finished takes you to it exactly as before. Everything carrying the number in its words follows underneath.",
@@ -2434,6 +2450,10 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
                  return <span className="steps-n" title={`${done} of ${total} step${total>1?"s":""} ticked off`}
                    style={all?{color:"var(--ok)"}:null}>{` (${done}/${total})`}</span>;
                })()}
+               {/* Nothing in any table said a task repeats, so a monthly bank rec read as a
+                   one-off. A mark rather than a column: it costs no width and turns up on
+                   every screen at once, where a column would only help the one it is on. */}
+               {t.recur_rule && <span className="recurmk" title={recurLabel(t)}>{"\u21bb"}</span>}
                {t.priority==="high" && <span className="pill high" style={{marginLeft:6}}>High</span>}
                {(t.need_manager||t.need_help) && (() => {
                  const at = ASKEE(t), mine = !!(ME && at === ME.id);
@@ -4213,9 +4233,8 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
     const L=[]; L.push(`1:1 — ${a.person} — ${new Date().toLocaleDateString()}`);
     const sec=(t,arr,fmtFn)=>{ if(!arr||!arr.length) return; L.push(""); L.push(t.toUpperCase()); arr.forEach(x=>L.push("  - "+fmtFn(x))); };
     if(mentions && mentions.items.length){ L.push(""); L.push("WORTH MENTIONING"); mentions.items.forEach(x=>L.push(`  - ${x.mentioned?"[said] ":""}${x.body}`)); }
-    sec("Needs you",asksMe,x=>`${x.title}${x.note?` — "${x.note}"`:""}`);
-    sec(askedWho?`Asked ${askedWho}, not you`:"Asked someone else",asksOther,
-        x=>`${x.title}${x.note?` — "${x.note}"`:""}`);
+    askGroups.forEach(g => sec(`Needs ${g.who}${g.mine?" (you)":""}`, g.items,
+        x=>`${x.title}${x.note?` — "${x.note}"`:""}`));
     sec("Not moving",stalled,x=>`${x.title} — ${x.__why}`);
     sec("Everything else on their plate",inFlight,x=>`${x.title}${x.due?` (due ${fmtDate(x.due)})`:""}${x.next?` — next: ${x.next}`:""}`);
     if(theirsLive.length){ L.push(""); L.push(`THEIR OWN LIST (${theirsLive.length}) \u2014 not walked through`);
@@ -4315,17 +4334,26 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
   // the shared agenda: what you gave them. Their own work and anything a third person
   // handed them drops to the folded block, unless this is their own view of the meeting
   // or you have asked to see everything with this particular person.
-  const mgrView = !!(a && !a.own_view);
-  const grouped = mgrView && !showAll;
+  // The fold belongs to the pair, not to the reader. It used to switch off entirely on a
+  // person's own view, which is why their screen and their manager's never matched.
+  // Somebody with nobody above them has no pair, so nothing folds for them.
+  const hasPair = !!(a && a.pair_manager);
+  const grouped = hasPair && !showAll;
   // "above" is work handed straight to them by someone you report to. It stays on the
   // agenda: if your own manager is not meeting them, nobody else is going to review it.
-  const ONAGENDA = (o) => o==="mine" || o==="above" || o==="watched";
+  // "watched" has left this list on purpose: who is watching is personal, so letting it
+  // decide the fold gave each reader a different agenda. The eye is a marker now, below.
+  const ONAGENDA = (o) => o==="mine" || o==="above";
   const agenda = (items) => grouped ? (items||[]).filter(x=>ONAGENDA(x.origin)) : (items||[]);
-  const fromAbove = (x) => x.origin==="above" && x.by
-    ? <span className="meta"> {"\u00b7"} from {String(x.by).split(" ")[0]}</span>
-    : x.origin==="watched"
-    ? <span className="meta" style={{display:"inline-flex",alignItems:"center",gap:4}}>
-        {"\u00b7"} <Eye on={true} size={12}/> watching</span> : null;
+  // Both can be true at once now: an item handed down from above that you are also
+  // watching says so twice, and neither fact moves it out of the shared running order.
+  const fromAbove = (x) => <>
+    {x.origin==="above" && x.by
+      ? <span className="meta"> {"\u00b7"} from {String(x.by).split(" ")[0]}</span> : null}
+    {x.watching
+      ? <span className="meta" style={{display:"inline-flex",alignItems:"center",gap:4}}>
+          {"\u00b7"} <Eye on={true} size={12}/> watching</span> : null}
+  </>;
   // Waiting on you is never folded whatever its origin: a flag, a plea for help or a
   // request to move a date is them asking you, and that IS the meeting.
   const theirsLive = grouped
@@ -4347,19 +4375,33 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
     ...bucket(agenda(a.overdue), x=>`overdue since ${fmtDate(x.due)}`),
     ...bucket(agenda(a.waiting_on_others), x=>x.who ? `waiting on ${x.who}` : "waiting on someone else"),
   ] : [];
-  // An ask has an address now. One pointed at somebody else still belongs in the meeting
-  // — it is their open work — but not under a heading that says it is waiting on you.
-  const asks     = a ? (a.waiting_on_you||[]) : [];
-  const asksMe   = asks.filter(x=>!x.askee || (ME && x.askee===ME.id));
-  const asksOther= asks.filter(x=>x.askee && !(ME && x.askee===ME.id));
-  const askedWho = asksOther.length
-    ? String(nameOf(people, asksOther[0].askee)).split(" ")[0] : "";
+  // An ask has an address, and the agenda is grouped by that address rather than by who
+  // happens to be reading. The same item used to head \"Needs you\" on one person's screen
+  // and \"Asked Eli, not you\" on the other's, which is the whole reason the two 1:1 views
+  // never matched. Sections, their contents and their order are now identical for both
+  // participants; only the colour and the \"(you)\" marker follow the reader.
+  const asks = a ? (a.waiting_on_you||[]) : [];
+  const askGroups = (() => {
+    const by = new Map();
+    for(const x of asks){
+      const k = x.askee || "";               // no address: whoever manages them
+      if(!by.has(k)) by.set(k, []);
+      by.get(k).push(x);
+    }
+    const label = (k) => k ? String(nameOf(people, k)).split(" ")[0] : "a manager";
+    return [...by.entries()].map(([key,items]) => ({
+        key, items, who: label(key), mine: !!(ME && key === ME.id) }))
+      // by name, unaddressed last, so the running order cannot depend on who is looking
+      .sort((m,n) => (m.key?0:1) - (n.key?0:1) || m.who.localeCompare(n.who));
+  })();
   const inFlightAll = a ? bucket(agenda(a.open), x=>"") : [];
   // Same rule as Home: a task you are watching gets its own heading, unless it is
   // already asking you or has stalled — those outrank the eye and keep it. Without
   // this, a watched task that is simply ticking along vanishes into the catch-all.
-  const watchedFine = inFlightAll.filter(x=>x.origin==="watched");
-  const inFlight    = inFlightAll.filter(x=>x.origin!=="watched");
+  // No separate Watching heading any more: pulling watched work onto the agenda added an
+  // item for one reader and not the other. It sits in its proper place wearing the eye.
+  const inFlight = inFlightAll;
+  const watchedFolded = theirsLive.filter(x=>x.watching).length;
   const [openHanded,setOpenHanded] = useState(false);
   const coveredItems = () => [...(a?.overdue||[]), ...(a?.waiting_on_you||[]), ...(a?.waiting_on_others||[]),
                               ...(a?.open||[]), ...(a?.they_asked_you||[])].filter(x=>x.discussed);
@@ -4382,8 +4424,9 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
       <div style={{display:"flex",gap:6}}>
         <select value={days} onChange={e=>setDays(parseInt(e.target.value))} style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}>
           <option value={7}>Last 7 days</option><option value={14}>Last 14 days</option><option value={30}>Last 30 days</option></select>
-        {mgrView && <button className="btn sm" onClick={()=>setAll(!showAll)}
-          title={showAll ? "Lead with the work you gave them" : "Walk the whole list together"}>
+        {hasPair && <button className="btn sm" onClick={()=>setAll(!showAll)}
+          title={showAll ? "Lead with the work this 1:1 is actually about"
+                         : "Walk the whole list together"}>
           {showAll ? "Just our work" : "Show everything"}</button>}
         <button className="btn sm" onClick={copy}>Copy</button>
         <button className="btn sm" onClick={()=>window.print()}>Print</button>
@@ -4423,16 +4466,13 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
       : <div className="empty">Nothing waiting. Add anything you want to remember to bring up.</div>}
     </div>
 
-    <Sec edge="edge-red" title="Needs you" items={asksMe} render={x=><><b>{x.title}</b>
-      {x.asked?<div className="meta">asked to move it to {fmtDate(x.asked)}</div>:null}
-      {x.note?<div className="meta">"{x.note}"</div>:null}</>}/>
-    <Sec edge="edge-grey" title={askedWho ? `Asked ${askedWho}, not you` : "Asked someone else"}
-      items={asksOther} render={x=><><b>{x.title}</b>
-      {x.asked?<div className="meta">asked to move it to {fmtDate(x.asked)}</div>:null}
-      {x.note?<div className="meta">"{x.note}"</div>:null}</>}/>
+    {askGroups.map(g=>
+      <Sec key={g.key||"unaddressed"} edge={g.mine?"edge-red":"edge-grey"}
+        title={`Needs ${g.who}${g.mine?" (you)":""}`}
+        items={g.items} render={x=><><b>{x.title}</b>
+        {x.asked?<div className="meta">asked to move it to {fmtDate(x.asked)}</div>:null}
+        {x.note?<div className="meta">"{x.note}"</div>:null}</>}/>)}
     <Sec edge="edge-warn" title="Not moving" items={stalled} render={x=><><b>{x.title}</b> <span className="meta">{x.__why}</span>{fromAbove(x)}</>}/>
-    <Sec edge="edge-navy" title="Watching" items={watchedFine} render={x=><>{x.title} <span className="meta">
-      {x.due?`due ${fmtDate(x.due)}`:"no date"}{x.next?` \u00b7 next: ${x.next}`:""} {"\u00b7"} nothing wrong with it, you just asked to follow it</span></>}/>
     <Sec edge="edge-navy" title="Everything else on their plate" items={inFlight} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:"no date"}{x.next?` · next: ${x.next}`:""}</span>{fromAbove(x)}</>}/>
 
     {live(a.they_asked_you).length>0 && <div className="panel tint edged edge-grey">
@@ -4473,6 +4513,7 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
           {" \u2014 "}
           {theirsOverdue>0 ? `${theirsOverdue} overdue` : "none overdue"}
           {", nothing waiting on you."}
+          {watchedFolded>0 ? ` Including ${watchedFolded} you\u2019re watching.` : ""}
           {" Not yours to run, but here if the answer is in it."}
         </span>
         <button className="btn sm" onClick={()=>setOpenTheirs(!openTheirs)}>{openTheirs?"Hide":"Show"}</button>
@@ -4520,7 +4561,7 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
         <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
           <span style={{flex:1,cursor:x.id?"pointer":undefined}}
             onClick={()=>open(x.id, doneRest)} title={x.id?"Open the task":undefined}>{x.title}
-            {mgrView && x.origin!=="mine" && <span className="meta">
+            {hasPair && x.origin!=="mine" && <span className="meta">
               {x.origin==="self" ? " \u00b7 their own" : x.by ? ` \u00b7 from ${String(x.by).split(" ")[0]}` : ""}</span>}</span>
           {GONE_TO_BD(ALL_TASKS.find(t=>t.id===x.id)||{})
             ? <span className="meta" style={{whiteSpace:"nowrap"}}>back with Kathleen</span>
@@ -4769,6 +4810,7 @@ function IntakeLog({showToast,standalone,setOpen,allTasks,update,people}){
                 <div className="meta" style={{marginTop:2}}>{n.task.title}</div></>;
               // the owner has its own column now, so the small print is just where it stands
               return <>{n.task.title}
+                {n.task.recur_rule && <span className="recurmk" title={recurLabel(n.task)}>{"\u21bb"}</span>}
                 <div className="meta" style={{marginTop:2}}>{STATUS[n.task.status]}</div></>;
             }},
     // An eye only where there is still a task to watch: a dropped email, or one whose task

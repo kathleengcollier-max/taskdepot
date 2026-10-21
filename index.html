@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="15.4">
+<meta name="app-version" content="15.7">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -234,6 +234,18 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .ag ul{margin:0;padding-left:18px} .ag li{margin-bottom:5px;font-size:14px;border-radius:6px;padding:3px 6px;margin-left:-6px}
 .ag li[style*="pointer"]:hover{background:#eef2fa}
 .ag .meta{color:var(--muted);font-size:13px}
+/* the 1:1 agenda as a table: a due column you can read straight down, and covered
+   items struck through where they sit instead of jumping to the foot of the page */
+.agt{margin:-2px 0 0}
+.agt th{position:static;background:transparent;padding:4px 10px 6px}
+.agt td{padding:7px 10px}
+.agt tr:hover td{background:#eef2fa}
+.agt td.tickcol,.agt th.tickcol{width:26px;padding-right:0}
+.agt td.num,.agt th.num{width:96px;text-align:right}
+.agt tr.covered td{color:var(--muted)}
+.agt tr.covered .tt{text-decoration:line-through}
+.agt tr.covered:hover td{background:transparent}
+.agt tr.covered td.late,.agt tr.covered td.today{color:var(--muted);font-weight:400}
 .tablewrap{overflow-x:auto}
 .ttable{width:100%;border-collapse:collapse;font-size:14px}
 .ttable th{position:sticky;top:0;background:#f6f7f9;text-align:left;font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line);cursor:pointer;white-space:nowrap;user-select:none}
@@ -519,7 +531,10 @@ const ASKING_ANY = (t) => !!(t.need_help || t.need_manager || t.status==="ready_
 // it, else the person who handed it over, else the assignee's manager.
 const ASKEE = (t) => {
   if(!ASKING_ANY(t)) return null;
-  if(t.need_help || t.need_manager) return managerOf(t.assignee_id);
+  // An ask can carry its own address now. Without it, "needs a manager" could only ever
+  // resolve to the owner's own manager, so there was no way for anyone further up to say
+  // "this one needs me" about work two levels down.
+  if(t.need_help || t.need_manager) return t.needs_from || managerOf(t.assignee_id);
   return t.asked_by || (DELEGATED(t) ? t.created_by : managerOf(t.assignee_id));
 };
 // They are asking YOU, not just working. This outranks who wrote the task down.
@@ -557,6 +572,26 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"15.7", d:"October 21, 2026", items:[
+    "You can set the status on a task that is not your own. Edit now has a Status field \u2014 Not started, Working, Waiting, and Ready for review where a task has an audience \u2014 with Waiting on beside it when you pick Waiting. Until now the only status controls on somebody else\u2019s task were Mark done and Skip, so there was no way to record that a task of theirs was Working or Waiting without pretending to finish it.",
+    "Done and Skipped are deliberately not in that dropdown. Both carry consequences \u2014 the unticked-steps prompt, the question about everyone else holding the same task, a skip reason, an email \u2014 and a dropdown would quietly walk past all of them. They stay on the buttons that handle them properly.",
+    "The All tasks filter said \u201cBlocked\u201d for a status the rest of the app calls Waiting. It now reads \u201cWaiting \u2014 on someone else\u201d. Your saved filter is untouched.",
+  ]},
+  {v:"15.6", d:"October 20, 2026", items:[
+    "The 1:1 is a table now, with the due date in its own column. It used to trail the title in grey on every line, which meant reading twelve sentences to find out what was late. You read one column down instead, and overdue is red, today is amber.",
+    "Ticking an item off no longer moves it. It stays exactly where it was, struck through, with the tick turned into an arrow to put it back \u2014 and the heading says \u201c(3) \u00b7 2 covered\u201d so a short section is never mistaken for an empty one. Items used to leap to a \u201cCovered in this meeting\u201d block at the foot of the page, which lost your place in the meeting every single time. That block is gone; nothing was lost with it.",
+    "Opening a task from the agenda still counts as covering it, so it is struck through where it sits when the drawer closes.",
+    "\u201cNeeds me\u201d on somebody else\u2019s task. There was no way to say a task of Alexis\u2019s needed you: the only flag available meant \u201cI need my manager\u201d, so it pointed at Eliseth however it was raised. A flag now carries an address. One click puts the task at the top of your next 1:1 with its owner, under \u201cNeeds Kathleen\u201d, and one click takes it off again.",
+    "It is deliberately quiet: no email, and the task\u2019s status and waiting-on line are left exactly as the owner left them, because they are not blocked \u2014 you just want to talk about it. The task\u2019s own history records who flagged it, so the owner can see it without being chased.",
+    "Update and Blocked now appear on a report\u2019s task too. Recording progress on somebody\u2019s behalf meant opening the whole edit form; it is two clicks now, the same two they get.",
+    "Their own list, what they have handed out and what their people are waiting on are all tables as well, with the same due column \u2014 and the last of those gained a Who column.",
+  ]},
+  {v:"15.5", d:"October 20, 2026", items:[
+    "You can park something on a 1:1 agenda before it is ready to say. Tick \u201cNot yet\u201d when you add it to \u201cWorth mentioning\u201d and it stays yours alone \u2014 it does not appear on their side of the agenda, and it is not counted in what is waiting to be said. Release it when you want it in front of them.",
+    "A held item wears a \u201cNot yet\u201d tag on your screen and says \u201conly you can see it\u201d, so there is no guessing whether the other person has seen it. Release is one click on the same line, and you can put it back.",
+    "The privacy of it is enforced in the database, not just hidden in the screen \u2014 a held row is not readable by the other person at all, however it is asked for.",
+    "Only the person who raised an item can hold or release it, and once an item has been marked as discussed it can no longer be held back.",
+  ]},
   {v:"15.4", d:"October 20, 2026", items:[
     "A 1:1 now reads the same to both people in it. It never did: the agenda decided what to show and what to fold by asking who was logged in, so every one of Alexis\u2019s 21 open tasks landed in a different bucket for Kathleen, for Eliseth and for Alexis. Three people, three different meetings.",
     "The fold now follows the pair. A task is judged against the report\u2019s manager, not the reader: 10 of Alexis\u2019s are Eliseth\u2019s and lead the agenda, 5 came down from Kathleen and stay on it marked \u201cfrom Kathleen\u201d, 6 she set herself and fold away. Same fifteen, same six, whoever opens it.",
@@ -2353,7 +2388,7 @@ function AllTasks(ctx){
       <input placeholder="Search, or type a task number" value={q} onChange={e=>setQ(e.target.value)}/>
       <select value={st} onChange={e=>setSt(e.target.value)}>
         <option value="open">Open</option>
-        <option value="blocked">Blocked — waiting on someone else</option>
+        <option value="blocked">Waiting — on someone else</option>
         <option value="needsyou">Needs you</option>
         <option value="skipped">Skipped</option>
         <option value="done">Done</option>
@@ -3114,6 +3149,25 @@ function TaskModal(ctx){
     setAsking(false); setAskNote("");
     await ctx.load(); showToast("Sent — your manager has been emailed");
   };
+  // "Needs me" on somebody else's task. The ordinary help flag has no address, so it
+  // always resolved to the owner's own manager — which is why there was no way for
+  // Kathleen to mark a task of Alexis's as hers to answer: it landed on Eliseth. This
+  // one carries an address, sends no email (you do not need telling about your own
+  // flag), and leaves the owner's status and waiting-on line alone, because they are
+  // not blocked — you just want to talk about it.
+  const [flagNote,setFlagNote] = useState("");
+  const [flagging,setFlagging] = useState(false);
+  const doFlagMine = async () => {
+    const {error} = await sb.rpc("flag_for_me",{p_task:t.id, p_note:flagNote});
+    if(error){ showToast(error.message); return; }
+    setFlagging(false); setFlagNote("");
+    await ctx.load(); showToast("Flagged — it leads your 1:1 with " + ownerName(people,t,{plain:true}));
+  };
+  const dropMyFlag = async () => {
+    const {error} = await sb.rpc("unflag_for_me",{p_task:t.id});
+    if(error){ showToast(error.message); return; }
+    await ctx.load(); showToast("Flag off");
+  };
   const [replyNote,setReplyNote] = useState("");
   const doReply = async () => {
     const {data,error} = await sb.rpc("resolve_help",{p_task:t.id, p_note:replyNote});
@@ -3262,6 +3316,9 @@ function TaskModal(ctx){
       case "waiting_on": return `${who} set waiting on: ${h.to_value||"(cleared)"}`;
       case "need_manager_on": return `${who} flagged: needs manager`;
       case "need_manager_off": return `${who} cleared the needs-manager flag`;
+      case "needs_from": return h.to_value
+        ? `${who} flagged this for ${nameOf(people,h.to_value)} to look at`
+        : `${who} took that flag off`;
       case "need_help_on": return `${who} asked for help`;
       case "need_help_off": return `${who} cleared the help flag`;
       case "trashed": return `${who} moved to Trash`;
@@ -3323,8 +3380,9 @@ function TaskModal(ctx){
         Shared with {links.filter(l=>l.kind==="copy").length===1
           ? String(links.find(l=>l.kind==="copy").who||"someone else").split(" ")[0]
           : `${links.filter(l=>l.kind==="copy").length} others`}</span>}{" "}
-      {t.need_manager && <span className="pill high">Needs manager</span>}{" "}
-      {t.need_help && <span className="pill high">Help requested</span>}{" "}
+      {t.need_manager && !t.needs_from && <span className="pill high">Needs manager</span>}{" "}
+      {t.needs_from && <span className="pill high">Needs {String(nameOf(people,t.needs_from)).split(" ")[0]}</span>}{" "}
+      {t.need_help && !t.needs_from && <span className="pill high">Help requested</span>}{" "}
       {t.recur_rule && <span className="pill">{recurLabel(t)}</span>}
     </div>
     {siblings.length>1 && <div className="note" style={{marginBottom:10}}>
@@ -3356,6 +3414,16 @@ function TaskModal(ctx){
       <label>Your message<textarea autoFocus value={askNote} onChange={e=>setAskNote(e.target.value)} placeholder="Suan has the file locked and I can't pull the numbers — can you get me access, or should I push this to Thursday?"/></label>
       <div className="actions"><button className="btn" onClick={()=>{setAsking(false);setAskNote("");}}>Cancel</button>
         <button className="btn r" onClick={doAsk}>Send to your manager</button></div>
+    </div>}
+    {flagging && <div className="form card" style={{padding:14,marginBottom:12}}>
+      <div><b>What do you want to go through?</b>
+        <div style={{fontSize:13,color:"var(--muted)"}}>
+          Nothing is emailed and the task stays where it is {"\u2014"} it just leads your next
+          1:1 with {ownerName(people,t,{plain:true})}. Leave it blank if you only want it on the agenda.</div></div>
+      <label>Your note<textarea autoFocus value={flagNote} onChange={e=>setFlagNote(e.target.value)}
+        placeholder="Want to agree the wording before this goes out."/></label>
+      <div className="actions"><button className="btn" onClick={()=>{setFlagging(false);setFlagNote("");}}>Cancel</button>
+        <button className="btn r" onClick={doFlagMine}>Put it on our agenda</button></div>
     </div>}
     {finishing && <div className="form card edged edge-warn" style={{padding:14,marginBottom:12}}>
       {openSteps.length>0 && <>
@@ -3399,7 +3467,18 @@ function TaskModal(ctx){
       <label>Why are you skipping this one?<input autoFocus value={skipWhy} onChange={e=>setSkipWhy(e.target.value)} placeholder="Holiday, branch closed, not applicable this month…"/></label>
       <div className="actions"><button className="btn" onClick={()=>setSkipping(false)}>Cancel</button><button className="btn p" onClick={doSkip}>Skip this one</button></div>
     </div>}
-    {!upd && !skipping && !asking && !finishing && t.assignee_id===me.id && !CLOSED(t.status) && <div className="big">
+    {!upd && !skipping && !asking && !flagging && !finishing && isMgr && t.assignee_id!==me.id
+      && !CLOSED(t.status) && <div className="big">
+      {/* The same shortcuts the owner gets, minus the two that only make sense as
+          theirs. Recording progress for somebody meant opening the whole edit form,
+          and there was no way at all to say a task needed you. */}
+      <button className="upd" onClick={()=>setUpd({status:t.status==="not_started"?"working":t.status,waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Update</button>
+      <button className="blk" onClick={()=>setUpd({mode:"blocked",status:"waiting",waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Blocked</button>
+      {t.needs_from===me.id
+        ? <button className="help" title="Take it off your agenda" onClick={dropMyFlag}>Needs me {"\u2713"}</button>
+        : <button className="help" onClick={()=>setFlagging(true)}>Needs me</button>}
+    </div>}
+    {!upd && !skipping && !asking && !flagging && !finishing && t.assignee_id===me.id && !CLOSED(t.status) && <div className="big">
       <button className="done" onClick={()=>finish({status:"done",need_help:false,need_manager:false},"Marked done")}>Done</button>
       <button className="upd" onClick={()=>setUpd({status:t.status==="not_started"?"working":t.status,waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Update</button>
       <button className="blk" onClick={()=>setUpd({mode:"blocked",status:"waiting",waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Blocked</button>
@@ -3783,7 +3862,8 @@ function Recur({f,setF}){
 
 function EditForm({t,people,onCancel,onSave,isMgr,me}){
   const pending = isMgr ? INVITEES : [];
-  const [f,setF] = useState({title:t.title,assignee_id:t.assignee_id||(t.assignee_email?"email:"+t.assignee_email:""),due_date:t.due_date||"",priority:t.priority,context:t.context,details:t.details,definition_of_done:t.definition_of_done,standing_notes:t.standing_notes||"",recur_rule:t.recur_rule||"",recur_day:t.recur_day??"",recur_cap:t.recur_cap??3});
+  const [f,setF] = useState({title:t.title,assignee_id:t.assignee_id||(t.assignee_email?"email:"+t.assignee_email:""),due_date:t.due_date||"",priority:t.priority,context:t.context,details:t.details,definition_of_done:t.definition_of_done,standing_notes:t.standing_notes||"",recur_rule:t.recur_rule||"",recur_day:t.recur_day??"",recur_cap:t.recur_cap??3,
+    status:t.status, waiting_on:t.waiting_on||""});
   return <div className="form card" style={{padding:14,marginBottom:12}}>
     <label>Task<input value={f.title} onChange={e=>setF({...f,title:e.target.value})}/></label>
     <div className="three">
@@ -3792,6 +3872,21 @@ function EditForm({t,people,onCancel,onSave,isMgr,me}){
       <label>Due<input type="date" value={f.due_date} onChange={e=>setF({...f,due_date:e.target.value})}/></label>
       <label>Priority<select value={f.priority} onChange={e=>setF({...f,priority:e.target.value})}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></label>
     </div>
+    {/* Status belongs here because this is where you come looking for it. Done and
+        Skipped are deliberately absent: both have consequences — the unticked-steps
+        prompt, the shared-task question, a skip reason, an email — and a dropdown
+        would quietly bypass all of them. Those stay on the buttons that handle them. */}
+    {!CLOSED(t.status) && <div className="two">
+      <label>Status<select value={f.status} onChange={e=>setF({...f,status:e.target.value})}>
+        <option value="not_started">Not started</option>
+        <option value="working">Working</option>
+        <option value="waiting">Waiting</option>
+        {HASAUDIENCE(t) && <option value="ready_for_review">Ready for review</option>}
+      </select></label>
+      {f.status==="waiting"
+        ? <label>Waiting on<input value={f.waiting_on} onChange={e=>setF({...f,waiting_on:e.target.value})} placeholder="Vendor, customer, a coworker…"/></label>
+        : <div/>}
+    </div>}
     {f.context ? <label>Context
       <div style={{fontSize:13,color:"var(--muted)",fontWeight:400,marginBottom:4}}>No longer asked for on new tasks — clear it if it isn't telling you anything.</div>
       <input value={f.context} onChange={e=>setF({...f,context:e.target.value})}/></label> : null}
@@ -3803,10 +3898,14 @@ function EditForm({t,people,onCancel,onSave,isMgr,me}){
       </div>
       <textarea value={f.standing_notes} onChange={e=>setF({...f,standing_notes:e.target.value})}/></label>}
     <Recur f={f} setF={setF}/>
-    <div className="actions"><button className="btn" onClick={onCancel}>Cancel</button><button className="btn p" onClick={()=>onSave({...f,
+    <div className="actions"><button className="btn" onClick={onCancel}>Cancel</button><button className="btn p" onClick={()=>onSave({...(() => {
+      const {status, waiting_on, ...rest} = f; return rest; })(),
       assignee_id:String(f.assignee_id).startsWith("email:")?null:(f.assignee_id||null),
       assignee_email:String(f.assignee_id).startsWith("email:")?f.assignee_id.slice(6):null,
-      due_date:f.due_date||null,recur_rule:f.recur_rule||null,recur_day:(f.recur_rule && f.recur_rule!=="daily" && f.recur_rule!=="yearly")?(parseInt(f.recur_day)||null):null,recur_cap:Math.max(2, parseInt(f.recur_cap)||3)})}>Save</button></div>
+      due_date:f.due_date||null,recur_rule:f.recur_rule||null,recur_day:(f.recur_rule && f.recur_rule!=="daily" && f.recur_rule!=="yearly")?(parseInt(f.recur_day)||null):null,recur_cap:Math.max(2, parseInt(f.recur_cap)||3),
+      // a closed task's status is not on this form at all, so never send one
+      ...(CLOSED(t.status) ? {} : {status:f.status,
+          waiting_on: f.status==="waiting" ? f.waiting_on : ""})})}>Save</button></div>
   </div>;
 }
 
@@ -4270,12 +4369,26 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
     });
   },[other,showToast]);
   useEffect(()=>{ loadMentions(); },[loadMentions,openTaskId]);
+  // "Not yet": jotted, but not put in front of them. Two calls rather than one because
+  // add_mention already has a two-argument shape other things rely on; the hold goes on
+  // straight after, and a failure there leaves an ordinary visible mention rather than
+  // something you think is hidden and is not.
+  const [holdNew,setHoldNew] = useState(false);
   const addMention = async () => {
     const body = newMention.trim();
     if(!body) return;
-    const {error} = await sb.rpc("add_mention",{p_for:other, p_body:body});
+    const {data,error} = await sb.rpc("add_mention",{p_for:other, p_body:body});
     if(error){ showToast(error.message); return; }
+    if(holdNew && data && data.id){
+      const {error:e2} = await sb.rpc("set_mention_held",{p_id:data.id, p_on:true});
+      if(e2) showToast("Added, but it could not be held back: " + e2.message);
+    }
     setNewMention(""); loadMentions();
+  };
+  const holdMention = async (id,on) => {
+    const {error} = await sb.rpc("set_mention_held",{p_id:id, p_on:on});
+    if(error){ showToast(error.message); return; }
+    loadMentions(); showToast(on ? "Held back \u2014 only you can see it" : "Released \u2014 it is on their agenda too");
   };
   const tickMention = async (id,on) => {
     const {error} = await sb.rpc("mark_mentioned",{p_id:id, p_on:on});
@@ -4329,8 +4442,6 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
     if(error){ showToast(error.message); return; }
     reload(); showToast("Fresh meeting — everything is back on the agenda");
   };
-  // anything covered drops out of the live sections and collects at the bottom
-  const live = (items) => (items||[]).filter(x=>!x.discussed);
   // the shared agenda: what you gave them. Their own work and anything a third person
   // handed them drops to the folded block, unless this is their own view of the meeting
   // or you have asked to see everything with this particular person.
@@ -4356,10 +4467,13 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
   </>;
   // Waiting on you is never folded whatever its origin: a flag, a plea for help or a
   // request to move a date is them asking you, and that IS the meeting.
-  const theirsLive = grouped
+  const theirsAll = grouped
     ? [...(a.overdue||[]), ...(a.open||[]), ...(a.waiting_on_others||[])]
-        .filter(x=>!ONAGENDA(x.origin) && !x.discussed)
+        .filter(x=>!ONAGENDA(x.origin))
     : [];
+  // the summary line counts what is still live; the block itself shows the covered ones
+  // struck through in place, like every other section
+  const theirsLive = theirsAll.filter(x=>!x.discussed);
   const theirsOverdue = grouped
     ? (a.overdue||[]).filter(x=>!ONAGENDA(x.origin) && !x.discussed).length : 0;
   const theirsSelf = theirsLive.filter(x=>x.origin==="self").length;
@@ -4403,19 +4517,45 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
   const inFlight = inFlightAll;
   const watchedFolded = theirsLive.filter(x=>x.watching).length;
   const [openHanded,setOpenHanded] = useState(false);
-  const coveredItems = () => [...(a?.overdue||[]), ...(a?.waiting_on_you||[]), ...(a?.waiting_on_others||[]),
-                              ...(a?.open||[]), ...(a?.they_asked_you||[])].filter(x=>x.discussed);
-  const Sec = ({title,items,render,edge}) => {
-    const rows = live(items);
+  const TODAY = todayISO();
+  const dueCls = (d) => !d ? "" : (d < TODAY ? "late" : d === TODAY ? "today" : "");
+  // One shape for every part of the agenda: a table, so a due date sits in a column you
+  // can read down rather than trailing the title in grey. Covered items stay exactly
+  // where they are, struck through — they used to leap to a block at the foot of the
+  // page the moment you ticked one, which lost your place in the meeting every time.
+  const AgRows = ({rows, sub, who, tick=true}) =>
+    <table className="ttable agt"><thead><tr>
+        {tick && <th className="tickcol"/>}
+        {who && <th className="who">Who</th>}
+        <th className="task">Task</th>
+        <th className="num">Due</th>
+      </tr></thead><tbody>{rows.map((x,i)=>
+      <tr key={x.id||i} data-id={x.id} className={x.discussed?"covered":undefined}>
+        {tick && <td className="tickcol">{x.id && <button className="btn q"
+          title={x.discussed?"Put it back on the agenda":"Covered — tick it off"}
+          style={{padding:"0 4px",color:"var(--muted)",lineHeight:1.3}}
+          onClick={(e)=>{e.stopPropagation(); cover(x.id, !x.discussed);}}>
+          {x.discussed?"↩":"✓"}</button>}</td>}
+        {who && <td className="who">{x.who}</td>}
+        <td className="task" style={x.id?{cursor:"pointer"}:undefined}
+            onClick={()=>open(x.id, rows)} title={x.id?"Open the task":undefined}>
+          <span className="tt">{x.title}</span>
+          {(() => { const m = sub ? sub(x) : null;
+                    return m ? <div className="meta">{m}</div> : null; })()}
+        </td>
+        <td className={"num "+dueCls(x.due)}>{x.due?fmtDate(x.due):"—"}</td>
+      </tr>)}</tbody></table>;
+  // The count is still what is left to talk about; the covered ones are named beside it
+  // so a section that looks short is never mistaken for a section that was empty.
+  const Sec = ({title,items,sub,edge}) => {
+    const rows = items||[];
     if(!rows.length) return null;
-    return <div className={"panel edged "+(edge||"edge-navy")}><h3>{title} ({rows.length})</h3>
-      <div className="ag"><ul>{rows.map((x,i)=>
-        <li key={i} style={x.id?{cursor:"pointer",display:"flex",gap:8,alignItems:"flex-start"}:undefined}>
-          {x.id && <button className="btn q" title="Covered — drop it off this agenda"
-            style={{padding:"0 4px",color:"var(--muted)",lineHeight:1.3}}
-            onClick={(e)=>{e.stopPropagation(); cover(x.id,true);}}>✓</button>}
-          <span style={{flex:1}} onClick={()=>open(x.id, rows)} title={x.id?"Open the task":undefined}>{render(x)}</span>
-        </li>)}</ul></div></div>;
+    const open_n = rows.filter(x=>!x.discussed).length;
+    const done_n = rows.length - open_n;
+    return <div className={"panel edged "+(edge||"edge-navy")}>
+      <h3>{title} ({open_n}){done_n>0 ? <span className="meta" style={{fontWeight:400}}>
+        {"  · "}{done_n} covered</span> : null}</h3>
+      <AgRows rows={rows} sub={sub}/></div>;
   };
   if(!a) return <div className="empty">Building the agenda…</div>;
   if(a.error) return <div className="note">That person doesn't report to you.</div>;
@@ -4445,6 +4585,12 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
           style={{flex:1,border:"1px solid var(--line)",borderRadius:8,padding:"9px 11px",minHeight:42}}/>
         <button className="btn sm p" onClick={addMention} disabled={!newMention.trim()}>Add</button>
       </div>
+      <label style={{display:"flex",gap:8,alignItems:"center",fontSize:13,
+                     color:"var(--muted)",marginBottom:10,marginTop:-4}}>
+        <input type="checkbox" checked={holdNew} onChange={e=>setHoldNew(e.target.checked)}
+          style={{width:"auto"}}/>
+        Not yet {"\u2014"} keep it to myself until I release it
+      </label>
       {mentions && mentions.items.length ? <div className="ag"><ul>{mentions.items.map(x=>
         <li key={x.id} style={{display:"flex",gap:8,alignItems:"flex-start",
               color:x.mentioned?"var(--muted)":undefined}}>
@@ -4453,10 +4599,16 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
             onClick={()=>tickMention(x.id,!x.mentioned)}>{x.mentioned?"↩":"✓"}</button>
           <span style={{flex:1,textDecoration:x.mentioned?"line-through":undefined}}>
             {x.body}
+            {x.held && <span className="pill" style={{marginLeft:6,background:"#f6f3fd",color:"#4a3690"}}>
+              Not yet</span>}
             <span className="meta"> — {x.mine?"you raised this":`${String(x.who).split(" ")[0]} raised this`}
+              {x.held?" · only you can see it":""}
               {x.became_task?" · became a task":""}{x.stale?" · still unsaid after 60 days":""}</span>
           </span>
           {!x.mentioned && <>
+            {x.mine && <button className="btn q" style={{padding:"0 6px",color:"#4a3690",whiteSpace:"nowrap"}}
+              title={x.held ? "Put it on their agenda too" : "Keep it to yourself until you are ready"}
+              onClick={()=>holdMention(x.id, !x.held)}>{x.held ? "Release" : "Not yet"}</button>}
             <button className="btn q" style={{padding:"0 6px",color:"var(--muted)",whiteSpace:"nowrap"}}
               title="Turn it into a real task" onClick={()=>startTaskFromMention && startTaskFromMention(x, other)}>Make it a task</button>
             <button className="btn q" style={{padding:"0 4px",color:"var(--muted)"}}
@@ -4469,24 +4621,23 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
     {askGroups.map(g=>
       <Sec key={g.key||"unaddressed"} edge={g.mine?"edge-red":"edge-grey"}
         title={`Needs ${g.who}${g.mine?" (you)":""}`}
-        items={g.items} render={x=><><b>{x.title}</b>
-        {x.asked?<div className="meta">asked to move it to {fmtDate(x.asked)}</div>:null}
-        {x.note?<div className="meta">"{x.note}"</div>:null}</>}/>)}
-    <Sec edge="edge-warn" title="Not moving" items={stalled} render={x=><><b>{x.title}</b> <span className="meta">{x.__why}</span>{fromAbove(x)}</>}/>
-    <Sec edge="edge-navy" title="Everything else on their plate" items={inFlight} render={x=><>{x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:"no date"}{x.next?` · next: ${x.next}`:""}</span>{fromAbove(x)}</>}/>
+        items={g.items} sub={x=><>
+          {x.asked?<>asked to move it to {fmtDate(x.asked)}{x.note?" · ":""}</>:null}
+          {x.note?<>{"\u201c"}{x.note}{"\u201d"}</>:null}</>}/>)}
+    <Sec edge="edge-warn" title="Not moving" items={stalled}
+      sub={x=><>{x.__why}{fromAbove(x)}</>}/>
+    <Sec edge="edge-navy" title="Everything else on their plate" items={inFlight}
+      sub={x=><>{x.next?`next: ${x.next}`:""}{fromAbove(x)}</>}/>
 
-    {live(a.they_asked_you).length>0 && <div className="panel tint edged edge-grey">
-      <h3>What {first} has handed to other people ({live(a.they_asked_you).length})</h3>
+    {(a.they_asked_you||[]).length>0 && <div className="panel tint edged edge-grey">
+      <h3>What {first} has handed to other people ({(a.they_asked_you||[]).filter(x=>!x.discussed).length})</h3>
       <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{flex:1,fontSize:13,color:"var(--muted)"}}>
           Not {first}{"\u2019"}s own work, and not yours to run {"\u2014"} what {first} is delegating. Here if you want to see how much is going out.</span>
         <button className="btn sm" onClick={()=>setOpenHanded(!openHanded)}>{openHanded?"Hide":"Show"}</button>
       </div>
-      {openHanded && <div className="ag" style={{marginTop:10}}><ul>{live(a.they_asked_you).map((x,i)=>
-        <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-          <span style={{flex:1,cursor:x.id?"pointer":undefined}} onClick={()=>open(x.id, live(a.they_asked_you))}>
-            {x.title} <span className="meta">{x.due?`due ${fmtDate(x.due)}`:"no date"}</span></span>
-        </li>)}</ul></div>}
+      {openHanded && <div style={{marginTop:10}}>
+        <AgRows rows={a.they_asked_you||[]} tick={false}/></div>}
     </div>}
     {downstream.length>0 && <div className="panel tint edged edge-warn">
       <h3>What {first}{"\u2019"}s own people are waiting on ({downstream.length})</h3>
@@ -4495,15 +4646,12 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
           Not yours to answer {"\u2014"} {first}{"\u2019"}s. Worth a look in case you can unblock one of them.</span>
         <button className="btn sm" onClick={()=>setOpenDown(!openDown)}>{openDown?"Hide":"Show"}</button>
       </div>
-      {openDown && <div className="ag" style={{marginTop:10}}><ul>{downstream.map((x,i)=>
-        <li key={i}>
-          <span style={{cursor:x.id?"pointer":undefined}} onClick={()=>open(x.id, downstream)}>
-            <b>{x.who}</b>{" \u2014 "}{x.title}</span>
-          <div className="meta">{x.flag}{x.due?` \u00b7 due ${fmtDate(x.due)}`:""}{x.since?` \u00b7 last moved ${fmtWhen(x.since)}`:""}</div>
-          {x.note?<div className="meta">"{x.note}"</div>:null}
-        </li>)}</ul></div>}
+      {openDown && <div style={{marginTop:10}}>
+        <AgRows rows={downstream} who={true} tick={false} sub={x=><>
+          {x.flag}{x.since?` \u00b7 last moved ${fmtWhen(x.since)}`:""}
+          {x.note?<> {"\u00b7 \u201c"}{x.note}{"\u201d"}</>:null}</>}/></div>}
     </div>}
-    {theirsLive.length>0 && <div className="panel tint edged edge-grey">
+    {theirsAll.length>0 && <div className="panel tint edged edge-grey">
       <h3>{first}{"\u2019"}s own list ({theirsLive.length})</h3>
       <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{flex:1,fontSize:13,color:"var(--muted)"}}>
@@ -4518,28 +4666,18 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
         </span>
         <button className="btn sm" onClick={()=>setOpenTheirs(!openTheirs)}>{openTheirs?"Hide":"Show"}</button>
       </div>
-      {openTheirs && <div className="ag" style={{marginTop:10}}><ul>{theirsLive.map((x,i)=>
-        <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-          <span style={{flex:1,cursor:x.id?"pointer":undefined}}
-            onClick={()=>open(x.id, theirsLive)} title={x.id?"Open the task":undefined}>
-            {x.title}
-            <span className="meta"> {"\u2014 "}{x.due?`due ${fmtDate(x.due)}`:"no date"}
-              {x.origin==="other" && x.by ? ` \u00b7 from ${String(x.by).split(" ")[0]}` : ""}</span>
-          </span>
-        </li>)}</ul></div>}
+      {openTheirs && <div style={{marginTop:10}}>
+        <AgRows rows={theirsAll} sub={x=><>
+          {x.origin==="other" && x.by ? `from ${String(x.by).split(" ")[0]}` : ""}
+          {x.watching ? <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
+            {x.origin==="other" && x.by ? " \u00b7 " : ""}<Eye on={true} size={12}/> watching</span> : null}
+          </>}/></div>}
     </div>}
-    <Sec edge="edge-purple" title="Your private notes" items={a.notes} render={x=><><b>{x.title}</b><div className="meta">{x.body}</div></>}/>
-    {coveredItems().length>0 && <div className="panel edged edge-grey" style={{background:"var(--paper,#f6f7f9)"}}>
-      <h3>Covered in this meeting ({coveredItems().length})</h3>
-      <div className="ag"><ul>{coveredItems().map((x,i)=>
-        <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start",color:"var(--muted)"}}>
-          <button className="btn q" title="Put it back on the agenda"
-            style={{padding:"0 4px",color:"var(--muted)",lineHeight:1.3}}
-            onClick={()=>cover(x.id,false)}>↩</button>
-          <span style={{flex:1,textDecoration:"line-through"}}>{x.title}</span>
-        </li>)}</ul></div>
-      <div style={{fontSize:13,color:"var(--muted)",marginTop:6}}>These stay off the agenda for the rest of the day, however their dates or status change.</div>
-    </div>}
+    {(a.notes||[]).length>0 && <div className="panel edged edge-purple">
+      <h3>Your private notes ({a.notes.length})</h3>
+      <div className="ag"><ul>{a.notes.map((x,i)=>
+        <li key={i} style={{cursor:x.id?"pointer":undefined}} onClick={()=>open(x.id, a.notes)}>
+          <b>{x.title}</b><div className="meta">{x.body}</div></li>)}</ul></div></div>}
     {doneWatched.length>0 && <div className="panel edged edge-navy">
       <h3>Finished, and you were watching ({doneWatched.length})</h3>
       <div style={{fontSize:13,color:"var(--muted)",margin:"-2px 0 8px"}}>
@@ -4571,8 +4709,8 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
       <div style={{fontSize:13,color:"var(--muted)",marginTop:6}}>Reopening keeps the due date and records who did it in the task's history.</div>
     </div>}
     {a.own_view && <div className="note">This is what your manager sees when they open your 1:1, minus any private notes they've written.</div>}
-    {!a.completed.length && !live(stalled).length && !live(inFlight).length
-      && !live(a.waiting_on_you).length && !theirsLive.length &&
+    {!a.completed.length && !stalled.length && !inFlight.length
+      && !(a.waiting_on_you||[]).length && !theirsAll.length &&
       <div className="card"><div className="empty">Nothing to talk about yet — no tasks in this window.</div></div>}
   </>;
 }

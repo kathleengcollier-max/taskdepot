@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="15.7">
+<meta name="app-version" content="15.8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -468,7 +468,11 @@ let INVITEES = [];
 let LINK_COUNTS = {};   // task id -> how many live tasks it is linked to
 let STEP_COUNTS = {};   // task id -> [ticked, total], so a list can show progress
 let WATCHED = new Set();  // tasks you have put an eye on, so their own work reaches you
-let SHARED = new Set();   // one job in several hands, so a list can say so without asking
+// One job in several hands. Keyed by task id: {n, done, names, others}, and only
+// present for tasks with more than one name on them — everything else is an ordinary
+// task and the lists already know how to draw those.
+let HOLDERS = {};
+const HELD_BY = (id) => HOLDERS[id] || null;
 // Watching is on the record: everyone who can see a task can see who is following it,
 // the person doing the work included. { taskId: [{id,name}] }
 let WATCHERS = {};
@@ -572,6 +576,17 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"15.8", d:"October 21, 2026", items:[
+    "One job with three people on it is now one task with three names on it. It used to be three separate tasks linked to each other \u2014 three rows in every list, three due dates that were always identical anyway, and three comment threads of which only one ever had the conversation in it. On the racking layout, all four comments and both drawings sat on Carlos\u2019s copy, so Stephen could not see the discussion about the drawing he was reviewing.",
+    "Everyone on a task gets their own line to tick. The task closes by itself when the last line is ticked, and reopens if anybody unticks theirs. Nobody shares a checkbox \u2014 they share the task.",
+    "Pressing Done on a shared task ticks your line, not everybody\u2019s, and tells you who is still to go. Mark done, which a manager gets, still closes the whole thing.",
+    "Lists show one row reading \u201cCarlos +1\u201d, with a pill saying how far along it is \u2014 \u201c1 of 2 done\u201d \u2014 and the names on hover.",
+    "Who has this adds people to the task instead of minting them a copy each. The owner cannot be taken off there; reassigning the task is how that changes.",
+    "Being put on a task now lets you see it, read its thread, open its files and record progress on it \u2014 and nothing else. The task beside it stays as invisible as it was.",
+    "The split between \u201cshared\u201d and \u201crelated\u201d links is gone, along with the \u21c4 button for fixing a wrong guess. Of the fourteen links in the system, four were filed under the wrong one of the two and one was two weeks of the same recurring task linked by hand. A distinction that needs a repair button is one the app should not be asking you to make.",
+    "Three jobs were merged on the way in: the Comstar pricing review (#66, with Alex, Stephen and Ilah), the racking layout (#150, keeping its comments and drawings) and the First Co warranty brainstorm (#196). The emptied copies are in Trash and can be brought back.",
+    "Comstar #66 has gone from Done back to Working. Alex and Stephen finished; Ilah never did. It only read Done because Alex\u2019s copy was the one you happened to open.",
+  ]},
   {v:"15.7", d:"October 21, 2026", items:[
     "You can set the status on a task that is not your own. Edit now has a Status field \u2014 Not started, Working, Waiting, and Ready for review where a task has an audience \u2014 with Waiting on beside it when you pick Waiting. Until now the only status controls on somebody else\u2019s task were Mark done and Skip, so there was no way to record that a task of theirs was Working or Waiting without pretending to finish it.",
     "Done and Skipped are deliberately not in that dropdown. Both carry consequences \u2014 the unticked-steps prompt, the question about everyone else holding the same task, a skip reason, an email \u2014 and a dropdown would quietly walk past all of them. They stay on the buttons that handle them properly.",
@@ -1520,10 +1535,10 @@ function Shell({me,setMe}){
         sb.rpc("my_watched"),
         sb.rpc("watchers_by_task"),
         sb.rpc("step_counts"),
-        sb.rpc("shared_tasks")
+        sb.rpc("holders_summary")
       ]);
       if(pr.error || tr.error) throw new Error((tr.error||pr.error).message || "read failed");
-      return {p:pr.data||[], t:tr.data||[], inv:(inv&&inv.data)||[], lc:(lc&&lc.data)||{}, wa:(wa&&wa.data)||[], wb:(wb&&wb.data)||{}, sc:(sc&&sc.data)||{}, sh:(sh&&sh.data)||[]};
+      return {p:pr.data||[], t:tr.data||[], inv:(inv&&inv.data)||[], lc:(lc&&lc.data)||{}, wa:(wa&&wa.data)||[], wb:(wb&&wb.data)||{}, sc:(sc&&sc.data)||{}, sh:(sh&&sh.data)||{}};
     };
     const waits = [0, 300, 900, 1800];
     let why = null;
@@ -1535,7 +1550,7 @@ function Shell({me,setMe}){
         // likely a hiccup than a team that deleted everything in the last minute
         if(got.t.length===0 && loadedReal.current && i < waits.length-1){ why = "came back empty"; continue; }
         setPeople(got.p); setTasks(got.t); setInvitees(got.inv); LINK_COUNTS = got.lc; WATCHED = new Set(got.wa||[]);
-        WATCHERS = got.wb || {}; STEP_COUNTS = got.sc || {}; SHARED = new Set(got.sh||[]);
+        WATCHERS = got.wb || {}; STEP_COUNTS = got.sc || {}; HOLDERS = got.sh || {};
         if(got.t.length>0) loadedReal.current = true;
         setLoadState({ok:true});
         return true;
@@ -2454,7 +2469,13 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
       : await sb.from("task_watchers").delete().eq("task_id",t.id).eq("user_id",ME.id);
     if(error){ if(on) WATCHED.delete(t.id); else WATCHED.add(t.id); noteWatch(t, !on, ME); bump(x=>x+1); }
   };
-  const whoOf = (t) => ownerName(people, t);
+  // A job with three people on it is one row with three names, not three rows. The
+  // column stays narrow: the owner in full, the rest as a count you can hover.
+  const whoOf = (t) => {
+    const h = HELD_BY(t.id);
+    const base = ownerName(people, t);
+    return h ? `${base} +${h.others}` : base;
+  };
   const finishedAt = (t) => new Date(t.status==="skipped" ? t.updated_at : (t.completed_at || t.updated_at));
   const ago = (d) => { const days=Math.round((Date.now()-d)/86400000);
     return days<=0 ? "today" : days===1 ? "yesterday" : `${d.toLocaleDateString(undefined,{month:"short",day:"numeric"})} (${days}d ago)`; };
@@ -2497,7 +2518,10 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
                    {mine ? (t.need_help ? "Needs help" : "Needs you") : `Needs ${who}`}</span>;
                })()}
                {GONE_TO_BD(t) && <span className="pill" style={{marginLeft:6,background:"#e0ecff",color:"#1f3a7a"}}>{t.bd_status==="sent"?"Sent to Kathleen's Inbox":"Returned to Kathleen's Inbox"}</span>}
-               {SHARED.has(t.id) && <span className="pill shared" title="The same task is with more than one person">Shared</span>}
+               {(() => { const h = HELD_BY(t.id); if(!h) return null;
+                 return <span className="pill shared"
+                   title={`On this task: ${(h.names||[]).join(", ")}`}>
+                   {h.done} of {h.n} done</span>; })()}
                {LINK_COUNTS[t.id] > 0 && <span className="pill" title="Linked to other tasks"
                  style={{marginLeft:6,background:"#eef3fd",color:"var(--navy)"}}>&#128279; {LINK_COUNTS[t.id]}</span>}
              </>},
@@ -2762,24 +2786,24 @@ function AssignModal(ctx){
     const row = {...f, created_by:me.id, asked_by:(f.assignee_id===me.id && f.asked_by) ? f.asked_by : null,
                  assignee_id:byEmail?null:(f.assignee_id||null), assignee_email:byEmail, due_date:f.due_date||null, parent_id:parent?parent.id:null,
                  recur_rule:f.recur_rule||null, recur_day:(!f.recur_rule||f.recur_rule==="daily"||f.recur_rule==="yearly")?null:(parseInt(f.recur_day)||null), recur_cap:Math.max(2, parseInt(f.recur_cap)||3)};
+    // Several people on one job is now one task with their names on it, not a task
+    // each. The first name is the owner; the rest go on as holders.
     const targets = several.length ? several : [byEmail ? "email:"+byEmail : row.assignee_id];
-    const rows = targets.map(target => String(target||"").startsWith("email:")
-      ? {...row, assignee_id:null, assignee_email:String(target).slice(6)}
-      : {...row, assignee_id:target||null, assignee_email:null});
+    const first = targets[0];
+    const rows = [String(first||"").startsWith("email:")
+      ? {...row, assignee_id:null, assignee_email:String(first).slice(6)}
+      : {...row, assignee_id:first||null, assignee_email:null}];
     const {data:made, error} = await sb.from("tasks").insert(rows).select("id");
     const firstMade = made && made.length ? made[0].id : null;
-    // One job in several hands. Every pair is joined, not a star from the first one —
-    // otherwise the second and third copies never see each other. They are marked as
-    // copies, which is a different thing from two related tasks.
-    if(!error && made && made.length>1){
-      const ids = made.map(x=>x.id);
-      let le = null;
-      for(let i=0;i<ids.length && !le;i++)
-        for(let j=i+1;j<ids.length && !le;j++){
-          const {error:e} = await sb.rpc("link_tasks_as",{p_a:ids[i], p_b:ids[j], p_kind:"copy"});
-          if(e) le = e;
-        }
-      if(le) showToast("Tasks saved, but they couldn't be joined to each other");
+    if(!error && firstMade && targets.length>1){
+      let he = null;
+      for(const target of targets.slice(1)){
+        const mail = String(target||"").startsWith("email:") ? String(target).slice(6) : null;
+        const {error:e} = await sb.rpc("add_holder", mail
+          ? {p_task:firstMade, p_who:null, p_email:mail} : {p_task:firstMade, p_who:target});
+        if(e && !he) he = e;
+      }
+      if(he) showToast("Task saved, but not everyone could be put on it: "+he.message);
     }
     if(!error && steps.length && made && made.length){
       const stepRows = made.flatMap(t => steps.map((body,i)=>({task_id:t.id, body, position:i, created_by:me.id})));
@@ -2789,7 +2813,7 @@ function AssignModal(ctx){
     setBusy(false);
     if(error){ setErr(error.message); return; }
     await load();
-    showToast(rows.length>1 ? `Assigned to ${rows.length} people — their copies are linked to each other`
+    showToast(targets.length>1 ? `One task, ${targets.length} names on it`
       : byEmail ? `Saved for ${byEmail} — it'll be waiting when they sign up`
       : `Assigned to ${nameOf(people,row.assignee_id)}`);
     onClose();
@@ -2913,6 +2937,28 @@ function TaskModal(ctx){
     sb.rpc("linked_tasks",{p_task:t.id}).then(({data})=>setLinks(data||[]));
   },[t.id]);
   useEffect(()=>{loadLinks();},[loadLinks]);
+  // Everyone carrying this one piece of work, each with their own line to tick.
+  const [holders,setHolders] = useState([]);
+  const loadHolders = useCallback(()=>{
+    sb.rpc("holders_for",{p_task:t.id}).then(({data})=>setHolders(Array.isArray(data)?data:[]));
+  },[t.id]);
+  useEffect(()=>{loadHolders();},[loadHolders]);
+  const heldCount = holders.length;
+  const heldDone  = holders.filter(h=>h.done).length;
+  const tickHolder = async (h) => {
+    const {data,error} = await sb.rpc("set_holder_done",{p_id:h.id, p_on:!h.done});
+    if(error){ showToast(error.message); return; }
+    loadHolders(); await ctx.load(); refreshRef.current && refreshRef.current();
+    showToast(data && data.closed   ? "That was the last one \u2014 the task is done"
+            : data && data.reopened ? "Back open"
+            : data ? `${data.done} of ${data.total} done` : "Saved");
+  };
+  const dropHolder = async (h) => {
+    const {data,error} = await sb.rpc("remove_holder",{p_id:h.id});
+    if(error){ showToast(error.message); return; }
+    loadHolders(); await ctx.load();
+    showToast(data && data.closed ? "Off the task \u2014 and that finishes it" : "Off the task");
+  };
   // Whatever is already picked sits at the top, always. Opening this from a suggestion
   // banner pre-picks a task, and the list is capped — so without pinning it, the task
   // she just clicked Merge on could be selected and nowhere on screen.
@@ -3178,43 +3224,36 @@ function TaskModal(ctx){
   };
   const [copyTo,setCopyTo] = useState([]);
   const [copyDue,setCopyDue] = useState("");
-  const doCopy = async (holders) => {
+  // Adding somebody to a job used to mean minting them their own task and linking the
+  // two — three people, three rows, three comment threads of which one had the
+  // conversation in it. They go on this task now.
+  const doHolders = async () => {
     setCopyBusy(true);
-    const ids = copyTo.filter(x=>!String(x).startsWith("email:"));
-    const mails = copyTo.filter(x=>String(x).startsWith("email:")).map(x=>String(x).slice(6));
-    let made = 0, removed = 0, selfDropped = false;
-    if(ids.length){
-      const {data,error} = await sb.rpc("copy_task_to",{src:t.id, people:ids, new_due:copyDue||null});
+    let added = 0, removed = 0;
+    for(const key of copyTo){
+      const mail = String(key).startsWith("email:") ? String(key).slice(6) : null;
+      const {error} = await sb.rpc("add_holder", mail
+        ? {p_task:t.id, p_who:null, p_email:mail} : {p_task:t.id, p_who:key});
       if(error){ setCopyBusy(false); showToast(error.message); return; }
-      made += data||0;
+      added++;
     }
-    if(mails.length){
-      const {data,error} = await sb.rpc("copy_task_to_emails",{src:t.id, emails:mails, new_due:copyDue||null});
-      if(error){ setCopyBusy(false); showToast(error.message); return; }
-      made += data||0;
-    }
-    // removals last, so copies exist before this task can drop off
-    for(const key of drop){
-      const h = (holders||[]).find(x=>x.key===key);
-      if(!h) continue;
-      const {error} = await sb.from("tasks").update({deleted_at:new Date().toISOString()}).eq("id",h.taskId);
+    for(const id of drop){
+      const {error} = await sb.rpc("remove_holder",{p_id:id});
       if(error){ setCopyBusy(false); showToast(error.message); return; }
       removed++;
-      if(key==="self") selfDropped = true;
     }
     setCopyBusy(false);
-    setCopying(false); setCopyTo([]); setDrop([]); setCopyDue("");
-    await ctx.load();
-    if(selfDropped){ onClose(); }
-    else { refresh(); loadLinks(); }
-    showToast([made?`${made} copy${made===1?"":"ies"} made`:null,
-               removed?`${removed} moved to Trash`:null].filter(Boolean).join(" \u00b7 ") || "Nothing changed");
+    setCopying(false); setCopyTo([]); setDrop([]);
+    loadHolders(); await ctx.load(); refresh(); loadLinks();
+    showToast([added?`${added} added`:null, removed?`${removed} taken off`:null]
+      .filter(Boolean).join(" \u00b7 ") || "Nothing changed");
   };
   const [skipWhy,setSkipWhy] = useState("");
   const doSkip = async () => {
     const ok = await update(t.id,{status:"skipped",skip_reason:skipWhy||"No reason given",need_manager:false,need_help:false});
     if(ok){ setSkipping(false); setSkipWhy(""); showToast("Skipped — the next one is unaffected"); }
   };
+  const refreshRef = useRef(null);
   const [tab,setTab] = useState("activity");
   const [edit,setEdit] = useState(false);
   const [upd,setUpd] = useState(null); // employee update form
@@ -3230,6 +3269,7 @@ function TaskModal(ctx){
     setComments(c.data||[]); setHist(h.data||[]); setFiles(f.data||[]);
   },[t.id]);
   useEffect(()=>{refresh();},[refresh, t.updated_at]);
+  useEffect(()=>{ refreshRef.current = refresh; },[refresh]);
 
   const addComment = async () => {
     if(!body.trim()) return;
@@ -3279,13 +3319,16 @@ function TaskModal(ctx){
   // change — but it should never happen by accident, so say so and make it a choice.
   const [finishing,setFinishing] = useState(null);
   const openSteps = steps.filter(x=>!x.done);
-  // Copies are one job in several hands, so finishing yours leaves theirs open. Closing
-  // somebody else's is never automatic; it is offered, unticked, and only to someone the
-  // row policies already let update their task.
-  const openCopies = links.filter(l=>l.kind==="copy" && !CLOSED(l.status));
+  // On a job with more than one name on it, Done means "mine is done", not "everyone's
+  // is". It ticks your own line; the task closes by itself when the last line is ticked.
+  // Closing it outright on everybody's behalf is still there — it is the Mark done
+  // button a manager gets, which is a different sentence.
+  const myLine = holders.find(h=>h.mine && !h.done);
+  const sharedFinish = heldCount > 1 && !!myLine;
+  const othersOpen = holders.filter(h=>!h.done && !h.mine);
   const finish = (patch, msg) => {
-    if(openSteps.length || openCopies.length)
-      setFinishing({patch, msg, tick:openSteps.length>0, alsoClose:[]});
+    if(openSteps.length || sharedFinish)
+      setFinishing({patch, msg, tick:openSteps.length>0, shared:sharedFinish});
     else quick(patch,msg);
   };
   const finishNow = async () => {
@@ -3297,12 +3340,14 @@ function TaskModal(ctx){
       if(error){ showToast(error.message); return; }
       loadSteps();
     }
-    if(f.alsoClose.length){
-      const {error} = await sb.from("tasks")
-        .update({status:"done", completed_at:new Date().toISOString()})
-        .in("id", f.alsoClose);
-      if(error) showToast("Yours is done, but theirs stayed open: "+error.message);
-      else loadLinks();
+    if(f.shared && myLine){
+      const {data,error} = await sb.rpc("set_holder_done",{p_id:myLine.id, p_on:true});
+      if(error){ showToast(error.message); return; }
+      loadHolders(); await ctx.load(); refresh();
+      showToast(data && data.closed
+        ? "That was the last one \u2014 the task is done"
+        : `Yours is done \u2014 ${data.total - data.done} still to go`);
+      return;
     }
     quick(f.patch, f.msg);
   };
@@ -3375,11 +3420,9 @@ function TaskModal(ctx){
     <div style={{marginBottom:10}}>
       <span className={"pill "+t.status}>{STATUS[t.status]}</span>{" "}
       {t.priority==="high" && <span className="pill high">High priority</span>}{" "}
-      {links.some(l=>l.kind==="copy") && <span className="pill shared"
-        title="The same task is with more than one person — see Who has this below">
-        Shared with {links.filter(l=>l.kind==="copy").length===1
-          ? String(links.find(l=>l.kind==="copy").who||"someone else").split(" ")[0]
-          : `${links.filter(l=>l.kind==="copy").length} others`}</span>}{" "}
+      {heldCount>1 && <span className="pill shared"
+        title={"On this task: " + holders.map(h=>h.who).join(", ")}>
+        {heldDone} of {heldCount} done</span>}{" "}
       {t.need_manager && !t.needs_from && <span className="pill high">Needs manager</span>}{" "}
       {t.needs_from && <span className="pill high">Needs {String(nameOf(people,t.needs_from)).split(" ")[0]}</span>}{" "}
       {t.need_help && !t.needs_from && <span className="pill high">Help requested</span>}{" "}
@@ -3438,29 +3481,22 @@ function TaskModal(ctx){
           <span>Tick them all off as well</span>
         </label>
       </>}
-      {openCopies.length>0 && <>
+      {finishing.shared && <>
         <b style={{display:"block",marginTop:openSteps.length?12:0}}>
-          This one is shared. {openCopies.length===1 ? "One other person" : `${openCopies.length} other people`} still
-          {openCopies.length===1 ? " has" : " have"} it open.</b>
+          {othersOpen.length===0
+            ? "You are the last one on this \u2014 ticking yours finishes the task."
+            : `${othersOpen.length===1 ? "One other person" : othersOpen.length+" other people"} ${othersOpen.length===1?"is":"are"} still on this task.`}</b>
         <div className="meta" style={{margin:"3px 0 6px"}}>
-          Finishing yours does not finish theirs. Close theirs too only if the whole job is done.
+          {othersOpen.length===0
+            ? "Everyone else has already ticked theirs off."
+            : <>This ticks your line only. The task closes on its own once the last person ticks theirs
+               {"\u2014"} still waiting on {othersOpen.map(h=>h.who).join(", ")}.</>}
         </div>
-        {openCopies.map(l=>
-          <label key={l.id} className="finishopt">
-            <input type="checkbox" checked={finishing.alsoClose.includes(l.id)}
-              onChange={e=>setFinishing({...finishing,
-                alsoClose: e.target.checked ? [...finishing.alsoClose, l.id]
-                                            : finishing.alsoClose.filter(i=>i!==l.id)})}/>
-            <span>Also mark it done for <b>{l.who||"the other holder"}</b>
-              <span className="meta"> {"\u00b7"} #{l.ref} {"\u00b7"} {STATUS[l.status]||l.status}</span></span>
-          </label>)}
       </>}
       <div className="actions" style={{marginTop:10}}>
         <button className="btn" onClick={()=>setFinishing(null)}>Cancel</button>
         <button className="btn p" onClick={()=>finishNow()}>
-          {finishing.alsoClose.length
-            ? `Finish \u2014 yours and ${finishing.alsoClose.length} more`
-            : "Finish just mine"}</button>
+          {finishing.shared && othersOpen.length ? "Tick mine off" : "Finish"}</button>
       </div>
     </div>}
     {skipping && <div className="form card" style={{padding:14,marginBottom:12}}>
@@ -3588,58 +3624,53 @@ function TaskModal(ctx){
       </div>
     </div>}
     {copying && (() => {
-      // Everyone holding this piece of work: this task, plus the copies linked to it.
-      // Ticked means they have it. Untick to take it off their list — including your own.
-      const copies = links.filter(l=>l.title===t.title);
-      const holders = [{key:"self", taskId:t.id, label:(t.assignee_id===me.id?"You":ownerName(people,t,{plain:true}))+" (this task)"},
-                       ...copies.map(c=>({key:"copy:"+c.id, taskId:c.id, label:c.who||"Unassigned"}))];
-      const heldBy = new Set(copies.map(c=>String(c.who||"").toLowerCase()));
+      const on = new Set(holders.map(h=>h.profile_id).filter(Boolean));
+      const onMail = new Set(holders.map(h=>String(h.email||"").toLowerCase()).filter(Boolean));
       const free = [
-        ...people.filter(p=>p.active && p.id!==t.assignee_id && !heldBy.has(String(p.full_name||"").toLowerCase()))
-                 .map(p=>({k:p.id, label:p.full_name})),
-        ...(INVITEES||[]).filter(i=>String(i.email).toLowerCase()!==String(t.assignee_email||"").toLowerCase()
-                                 && !heldBy.has(String(i.full_name||"").toLowerCase()))
-                 .map(i=>({k:"email:"+i.email, label:(i.full_name||i.email)+" (not signed up yet)"}))];
-      const dropping = holders.filter(h=>drop.includes(h.key));
+        ...people.filter(p=>p.active && !on.has(p.id)).map(p=>({k:p.id, label:p.full_name})),
+        ...(INVITEES||[]).filter(i=>!onMail.has(String(i.email).toLowerCase()))
+             .map(i=>({k:"email:"+i.email, label:(i.full_name||i.email)+" (not signed up yet)"}))];
+      const dropping = holders.filter(h=>drop.includes(h.id));
       return <div className="form card" style={{padding:14,marginBottom:12}}>
         <div><b>Who has this work</b><div style={{fontSize:13,color:"var(--muted)"}}>
-          Add people and each gets their own copy, linked to the others. Untick anyone who shouldn't be
-          carrying it — their copy goes to Trash, where it can still be restored.</div></div>
+          One task, however many names are on it {"\u2014"} one due date, one thread, and a line
+          each to tick off. The owner cannot be taken off here; reassign the task instead.</div></div>
 
         <div>
-          <div className="section-title" style={{marginTop:0}}>Has it now</div>
+          <div className="section-title" style={{marginTop:0}}>On it now</div>
           <div>{holders.map(h=>{
-            const off = drop.includes(h.key);
-            return <button key={h.key} type="button" className="chip"
-              title={off?"Will be moved to Trash":"Tap to take it off their list"}
-              style={off?{textDecoration:"line-through",color:"var(--red)",borderColor:"#f0c7c7"}
-                        :{background:"var(--navy)",color:"#fff",borderColor:"var(--navy)"}}
-              onClick={()=>setDrop(off?drop.filter(x=>x!==h.key):[...drop,h.key])}>
-              {off?"\u21a9 ":"\u2713 "}{h.label}</button>;})}</div>
+            const off = drop.includes(h.id);
+            return <button key={h.id} type="button" className="chip"
+              disabled={h.owner}
+              title={h.owner ? "The owner \u2014 reassign the task to change this"
+                    : off ? "Will come off the task" : "Tap to take them off"}
+              style={h.owner ? {background:"#eef2fa",color:"var(--navy)",borderColor:"#c7d7f5",cursor:"default"}
+                   : off ? {textDecoration:"line-through",color:"var(--red)",borderColor:"#f0c7c7"}
+                   : {background:"var(--navy)",color:"#fff",borderColor:"var(--navy)"}}
+              onClick={()=>{ if(h.owner) return;
+                setDrop(off?drop.filter(x=>x!==h.id):[...drop,h.id]); }}>
+              {h.owner ? "" : off ? "\u21a9 " : "\u2713 "}{h.who}{h.owner?" (owner)":""}</button>;})}</div>
         </div>
 
         {free.length>0 && <div>
-          <div className="section-title" style={{marginTop:0}}>Give it to</div>
+          <div className="section-title" style={{marginTop:0}}>Also put it on</div>
           <div>{free.map(o=><button key={o.k} type="button" className="chip"
             style={copyTo.includes(o.k)?{background:"var(--navy)",color:"#fff",borderColor:"var(--navy)"}:{}}
             onClick={()=>setCopyTo(copyTo.includes(o.k)?copyTo.filter(x=>x!==o.k):[...copyTo,o.k])}>{o.label}</button>)}</div>
         </div>}
 
-        {copyTo.length>0 && <label>Due date for the new copies<input type="date" value={copyDue} onChange={e=>setCopyDue(e.target.value)}/>
-          <span style={{fontSize:13,color:"var(--muted)"}}>Leave blank to keep {fmtDate(t.due_date)}.</span></label>}
-
         {dropping.length>0 && <div className="note" style={{background:"var(--red-soft)",color:"var(--red)"}}>
-          {dropping.map(d=>d.label).join(", ")} {dropping.length===1?"loses":"lose"} this task — it moves to Trash.
-          {drop.includes("self") && " This drawer will close."}
+          {dropping.map(d=>d.who).join(", ")} {dropping.length===1?"comes":"come"} off this task.
+          The task itself stays where it is.
         </div>}
 
         <div className="actions">
           <button className="btn" onClick={()=>{setCopying(false);setCopyTo([]);setDrop([]);}}>Cancel</button>
-          <button className="btn p" disabled={(!copyTo.length && !drop.length) || copyBusy} onClick={()=>doCopy(holders)}>
+          <button className="btn p" disabled={(!copyTo.length && !drop.length) || copyBusy} onClick={doHolders}>
             {copyBusy ? "Saving\u2026"
-             : copyTo.length && drop.length ? `Add ${copyTo.length}, remove ${drop.length}`
-             : copyTo.length ? `Give it to ${copyTo.length} ${copyTo.length===1?"person":"people"}`
-             : `Remove ${drop.length} ${drop.length===1?"person":"people"}`}</button>
+             : copyTo.length && drop.length ? `Add ${copyTo.length}, take off ${drop.length}`
+             : copyTo.length ? `Put it on ${copyTo.length} more`
+             : `Take off ${drop.length}`}</button>
         </div>
       </div>;
     })()}
@@ -3671,18 +3702,11 @@ function TaskModal(ctx){
 
     <div className="panel edge-main"><h3>The task</h3><dl className="kv">
       {(() => {
-        // The same work in several hands is not the same thing as two related tasks.
-        // One asks "has everyone finished?", the other "is the other half moving?".
-        const copies = links.filter(l=>l.kind==="copy");
-        const rel    = links.filter(l=>l.kind!=="copy");
-        const flip = async (l, kind) => {
-          const {error} = await sb.rpc("set_link_kind",{p_a:t.id, p_b:l.id, p_kind:kind});
-          if(error){ showToast(error.message); return; }
-          loadLinks();
-          showToast(kind==="copy" ? "Now a shared task \u2014 one job, more than one person"
-                                  : "Now a separate task \u2014 related, but its own piece of work");
-        };
-        const line = (l, moveTo, moveLabel) =>
+        // Two kinds of link turned out to be one kind too many: a third of them were
+        // filed under the wrong one, which is why there used to be a button for fixing
+        // that. The same work in several hands is no longer a link at all — it is one
+        // task with several names on it — so what is left here is simply "related".
+        const line = (l) =>
           <div key={l.id} className="linkrow">
             <a href="#" onClick={(e)=>{e.preventDefault(); ctx.setOpen(l.id);}}>
               {l.ref ? <span className="refsm">#{l.ref}</span> : null}{l.title}</a>
@@ -3690,22 +3714,37 @@ function TaskModal(ctx){
               <b className={CLOSED(l.status)?"ok":""}>{STATUS[l.status]||l.status}</b>
               {l.due_date?` \u00b7 due ${fmtDate(l.due_date)}`:""}</span>
             <span className="linkacts">
-              <button className="btn q" title={moveLabel} onClick={()=>flip(l,moveTo)}>{"\u21c4"}</button>
-              <button className="btn q" title="Unlink — no connection between them at all" onClick={()=>dropLink(l.id)}>&times;</button>
+              <button className="btn q" title="Unlink \u2014 no connection between them at all"
+                onClick={()=>dropLink(l.id)}>&times;</button>
             </span>
           </div>;
-        const openCopies = copies.filter(l=>!CLOSED(l.status)).length;
         return <>
-          {copies.length>0 && <><dt>Who has this</dt><dd>
+          {heldCount>1 && <><dt>Who has this</dt><dd>
             <div className="meta" style={{marginBottom:5}}>
-              The same task, {copies.length+1} people. {openCopies
-                ? `${openCopies} still open besides this one \u2014 finishing yours does not finish theirs.`
-                : "Everyone else has finished theirs."}
+              One task, {heldCount} people, one due date between them. {heldDone} of {heldCount} ticked off
+              {heldDone<heldCount ? " \u2014 it closes when the last one does." : "."}
             </div>
-            {copies.map(l=>line(l,"related","Make this a separate task"))}
+            {holders.map(h=>
+              <div key={h.id} className="linkrow">
+                <span style={{flex:1,display:"flex",alignItems:"center",gap:8}}>
+                  <button className="btn q" style={{padding:"0 4px",color:h.done?"var(--ok)":"var(--muted)",lineHeight:1.3}}
+                    title={h.done ? `Ticked off${h.done_at?" ":""}\u2014 tap to put it back` : "Tick this one off"}
+                    onClick={()=>tickHolder(h)}>{h.done ? "\u2713" : "\u25cb"}</button>
+                  <span style={{textDecoration:h.done?"line-through":undefined,
+                                color:h.done?"var(--muted)":undefined}}>
+                    {h.who}{h.mine ? " (you)" : ""}
+                    {h.owner ? <span className="meta"> {"\u00b7"} owner</span> : null}
+                    {!h.signed_up ? <span className="meta"> {"\u00b7"} not signed up yet</span> : null}
+                  </span>
+                </span>
+                {!h.owner && <span className="linkacts">
+                  <button className="btn q" title="Take them off this task"
+                    onClick={()=>dropHolder(h)}>&times;</button>
+                </span>}
+              </div>)}
           </dd></>}
-          {rel.length>0 && <><dt>Related to</dt><dd>
-            {rel.map(l=>line(l,"copy","Make this a shared task"))}
+          {links.length>0 && <><dt>Related to</dt><dd>
+            {links.map(line)}
           </dd></>}
         </>;
       })()}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="15.8">
+<meta name="app-version" content="16.0">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -242,6 +242,16 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .agt tr:hover td{background:#eef2fa}
 .agt td.tickcol,.agt th.tickcol{width:26px;padding-right:0}
 .agt td.num,.agt th.num{width:96px;text-align:right}
+/* the rest of the drawer's buttons, which are real but rare */
+.moreWrap{position:relative;display:inline-block}
+.moreMenu{position:absolute;right:0;top:calc(100% + 4px);z-index:40;min-width:206px;
+  background:#fff;border:1px solid var(--line);border-radius:10px;padding:5px;
+  box-shadow:0 10px 30px rgba(20,30,60,.16)}
+.moreMenu button{display:block;width:100%;text-align:left;background:none;border:0;
+  font:inherit;font-size:14px;color:var(--ink);padding:8px 10px;border-radius:7px;cursor:pointer}
+.moreMenu button:hover{background:#eef2fa}
+.moreMenu button.danger{color:var(--red)}
+.moreMenu .sep{height:1px;background:var(--line);margin:5px 2px}
 .agt tr.covered td{color:var(--muted)}
 .agt tr.covered .tt{text-decoration:line-through}
 .agt tr.covered:hover td{background:transparent}
@@ -473,6 +483,17 @@ let WATCHED = new Set();  // tasks you have put an eye on, so their own work rea
 // task and the lists already know how to draw those.
 let HOLDERS = {};
 const HELD_BY = (id) => HOLDERS[id] || null;
+// Is this person on this task at all? Owning it counts, and so does simply being one of
+// the other names on it — otherwise narrowing a list to Jeff hid the warranty task he
+// is on, because Stephen happens to be its owner.
+const ON_TASK = (t, w) => {
+  if(!t || !w) return false;
+  const mail = String(w).startsWith("email:") ? String(w).slice(6).toLowerCase() : null;
+  if(mail ? String(t.assignee_email||"").toLowerCase() === mail : t.assignee_id === w) return true;
+  const h = HELD_BY(t.id);
+  if(!h) return false;
+  return mail ? (h.mails||[]).includes(mail) : (h.ids||[]).includes(w);
+};
 // Watching is on the record: everyone who can see a task can see who is following it,
 // the person doing the work included. { taskId: [{id,name}] }
 let WATCHERS = {};
@@ -576,6 +597,18 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"16.0", d:"October 21, 2026", items:[
+    "Narrowing a list to one person now finds the work they are on, not just the work they own. Filtering All tasks by Jeff missed the First Co warranty brainstorm he is on, because Stephen happens to be its owner \u2014 the filters still asked \u201cis this their task\u201d when the answer had become \u201cis their name on it\u201d. All tasks, Finished and Week ahead all read it the new way.",
+    "Typing somebody\u2019s name into the search box works too, first name or surname, and on a shared task it matches any of the names on it.",
+    "Stephen is on two tasks and owns only one of them. Both turn up when you ask for his.",
+  ]},
+  {v:"15.9", d:"October 21, 2026", items:[
+    "The task drawer had twelve buttons in two flat rows, all at the same volume, so Trash looked exactly as ordinary as Update. What you reach for daily stays out front; the nine real-but-rare ones moved into a single More menu \u2014 Edit, Who has this, Link, Merge, Skip this one, Pause series, Mark as seen, and Trash at the bottom behind a divider, in red.",
+    "Send to my BD Inbox stays out front. It only ever appears for Kathleen, so burying it would have cost her and helped nobody.",
+    "Status now lives on Update and nowhere else. Yesterday\u2019s \u201cI can\u2019t change status\u201d got fixed twice over \u2014 managers gained an Update button and Edit gained a Status field \u2014 and either one alone would have done it. Edit is what the task IS: its name, owner, date, shape. Update is how it is GOING, and it takes a note with the change, so a month later the history says why something went to Waiting.",
+    "Update\u2019s status list grew to match: Not started, Working, Waiting, and Ready for review where the task has an audience. Done and Skipped stay off it, because both carry consequences a dropdown would walk straight past.",
+    "The Blocked button is gone. It was this same form with Waiting pre-picked \u2014 a button standing in for one option of a dropdown, and the same word-versus-status mismatch you spotted in the All tasks filter.",
+  ]},
   {v:"15.8", d:"October 21, 2026", items:[
     "One job with three people on it is now one task with three names on it. It used to be three separate tasks linked to each other \u2014 three rows in every list, three due dates that were always identical anyway, and three comment threads of which only one ever had the conversation in it. On the racking layout, all four comments and both drawings sat on Carlos\u2019s copy, so Stephen could not see the discussion about the drawing he was reviewing.",
     "Everyone on a task gets their own line to tick. The task closes by itself when the last line is ticked, and reopens if anybody unticks theirs. Nobody shares a checkbox \u2014 they share the task.",
@@ -2381,14 +2414,19 @@ function AllTasks(ctx){
   // reference, and typing one returned nothing at all. Now it means both. The task with
   // that number comes first, whatever its status \u2014 type the number of something finished
   // and you still get it \u2014 and everything carrying the number in its words follows.
+  // Typing a person's name is a reasonable way to look for their work, and on a task
+  // with several names on it that means all of them, not just whoever owns it.
+  const peopleOn = (t) => {
+    const h = HELD_BY(t.id);
+    return h ? " " + (h.names||[]).join(" ") : " " + ownerName(people, t, {plain:true});
+  };
   const matchesText = (t) => !searching ? true
     : found ? found.has(t.id)
-    : (t.title+" "+t.context+" "+t.details).toLowerCase().includes(q.trim().toLowerCase());
+    : (t.title+" "+t.context+" "+t.details+peopleOn(t)).toLowerCase()
+        .includes(q.trim().toLowerCase());
   const narrowed = tasks.filter(match)
     .filter(t=>!origin.length || origin.includes(startedAs(t)))
-    .filter(t=>!who.length || who.some(w => String(w).startsWith("email:")
-        ? String(t.assignee_email||"").toLowerCase() === String(w).slice(6)
-        : t.assignee_id === w))
+    .filter(t=>!who.length || who.some(w => ON_TASK(t, w)))
     .filter(matchesText);
   // the direct hit ignores the filters on purpose: asking for a number by itself is asking
   // to be taken to that task, not to be told it does not match your current view
@@ -3509,7 +3547,6 @@ function TaskModal(ctx){
           theirs. Recording progress for somebody meant opening the whole edit form,
           and there was no way at all to say a task needed you. */}
       <button className="upd" onClick={()=>setUpd({status:t.status==="not_started"?"working":t.status,waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Update</button>
-      <button className="blk" onClick={()=>setUpd({mode:"blocked",status:"waiting",waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Blocked</button>
       {t.needs_from===me.id
         ? <button className="help" title="Take it off your agenda" onClick={dropMyFlag}>Needs me {"\u2713"}</button>
         : <button className="help" onClick={()=>setFlagging(true)}>Needs me</button>}
@@ -3517,26 +3554,26 @@ function TaskModal(ctx){
     {!upd && !skipping && !asking && !flagging && !finishing && t.assignee_id===me.id && !CLOSED(t.status) && <div className="big">
       <button className="done" onClick={()=>finish({status:"done",need_help:false,need_manager:false},"Marked done")}>Done</button>
       <button className="upd" onClick={()=>setUpd({status:t.status==="not_started"?"working":t.status,waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Update</button>
-      <button className="blk" onClick={()=>setUpd({mode:"blocked",status:"waiting",waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Blocked</button>
       {HASAUDIENCE(t) && t.status!=="ready_for_review" &&
         <button className="rev" title="Hand it back for a check before it counts as done"
           onClick={()=>quick({status:"ready_for_review"},"Sent for review")}>Ready for review</button>}
       <button className="help" onClick={()=>setAsking(true)}>Need help</button>
     </div>}
     {upd && <div className="form card" style={{padding:14,marginBottom:12}}>
+      {/* Status lives here and only here. Blocked was this form with Waiting pre-picked,
+          which is a button for a dropdown option. Done and Skipped stay off the list:
+          both have consequences — the unticked-steps prompt, the question about everyone
+          else on the task, a skip reason, an email — that a dropdown would walk past. */}
       <div className="two">
-        {upd.mode==="blocked"
-          ? <label>Status<div style={{display:"flex",alignItems:"center",gap:8,minHeight:42}}>
-              <span className="pill waiting">Waiting</span>
-              <span style={{fontSize:13,color:"var(--muted)"}}>Cancel and use Update for anything else.</span>
-            </div></label>
-          : <label>Status<select value={upd.status} onChange={e=>setUpd({...upd,status:e.target.value})}>
-              <option value="working">Working</option>
-              <option value="waiting">Waiting</option>
-            </select></label>}
+        <label>Status<select autoFocus value={upd.status} onChange={e=>setUpd({...upd,status:e.target.value})}>
+          <option value="not_started">Not started</option>
+          <option value="working">Working</option>
+          <option value="waiting">Waiting</option>
+          {HASAUDIENCE(t) && <option value="ready_for_review">Ready for review</option>}
+        </select></label>
         <label>Expected completion<input type="date" value={upd.expected_completion} onChange={e=>setUpd({...upd,expected_completion:e.target.value})}/></label>
       </div>
-      {upd.status==="waiting" && <label>Waiting on<input autoFocus={upd.mode==="blocked"} value={upd.waiting_on} onChange={e=>setUpd({...upd,waiting_on:e.target.value})} placeholder="Vendor, customer, a coworker, Kathleen…"/></label>}
+      {upd.status==="waiting" && <label>Waiting on<input value={upd.waiting_on} onChange={e=>setUpd({...upd,waiting_on:e.target.value})} placeholder="Vendor, customer, a coworker, Kathleen…"/></label>}
       <label>Next action<input value={upd.next_action} onChange={e=>setUpd({...upd,next_action:e.target.value})} placeholder="Call Goodman back Thursday"/></label>
       <label>Add a note (optional)<textarea value={upd.note} onChange={e=>setUpd({...upd,note:e.target.value})}/></label>
       <div className="actions"><button className="btn" onClick={()=>setUpd(null)}>Cancel</button>
@@ -3676,27 +3713,36 @@ function TaskModal(ctx){
     })()}
     {!edit && !skipping && !asking && !replying && !copying && !returning && !sending && !joining && (isMgr || iCreated || t.assignee_id===me.id) &&
      <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
-      {mayAnswer && t.status==="ready_for_review" && <button className="btn p" onClick={()=>finish({status:"done",need_manager:false},"Approved and closed")}>Approve — mark done</button>}
+      {/* Out front: whatever this task's state is actually asking of you right now,
+          plus the one hand-off that is only ever Kathleen's. */}
+      {mayAnswer && t.status==="ready_for_review" && <button className="btn p" onClick={()=>finish({status:"done",need_manager:false},"Approved and closed")}>Approve {"\u2014"} mark done</button>}
       {mayAnswer && t.status==="ready_for_review" && <button className="btn" onClick={()=>quick({status:"working"},"Sent back")}>Send back</button>}
       {mayAnswer && (t.need_manager||t.need_help) && <button className="btn r" onClick={()=>setReplying(true)}>Reply &amp; clear flag</button>}
-      {!CLOSED(t.status) && t.assignee_id!==me.id && <button className="btn" onClick={()=>finish({status:"done"},"Marked done")}>Mark done</button>}
+      {!CLOSED(t.status) && t.assignee_id!==me.id && <button className="btn" onClick={()=>finish({status:"done"},"Mark done")}>Mark done</button>}
       {(isMgr || iCreated) && CLOSED(t.status) && !GONE_TO_BD(t) && <button className="btn" onClick={()=>quick({status:"working",skip_reason:null},"Reopened")}>Reopen</button>}
-      {t.recur_rule && !CLOSED(t.status) && (isMgr || t.assignee_id===me.id) && <button className="btn" onClick={()=>setSkipping(true)}>Skip this one</button>}
-      {isMgr && root && <button className="btn" onClick={()=>update(root.id,{recur_paused:!root.recur_paused}).then(ok=>ok&&showToast(root.recur_paused?"Series resumed":"Series paused — no new ones will be created"))}>{root.recur_paused?"Resume series":"Pause series"}</button>}
-      {canReshape && <button className="btn" onClick={()=>setEdit(true)}>{isMgr?"Edit / reassign":"Edit"}</button>}
       {!canReshape && t.assignee_id===me.id && !CLOSED(t.status) && !t.requested_due &&
         <button className="btn" onClick={()=>setDating(true)}>Need more time</button>}
-
-      {!CLOSED(t.status) && <button className="btn" onClick={()=>{setJoining("link");setJoinPick([]);setJoinQ("");}}>Link to another task</button>}
-      {(isMgr || iCreated) && !CLOSED(t.status) && <button className="btn" onClick={()=>{setJoining("merge");setJoinPick([]);setJoinQ("");}}>Merge another in</button>}
-      {isMgr && (people.filter(p=>p.active && p.id!==t.assignee_id).length + (INVITEES||[]).length)>0 &&
-        <button className="btn" onClick={()=>{setCopying(true);setCopyTo([]);setDrop([]);}}>Who has this</button>}
       {fromBD && !CLOSED(t.status) && <button className="btn" style={{color:"#1f3a7a",borderColor:"#c7d7f5"}} onClick={()=>setReturning(true)}>Return to Kathleen</button>}
       {canSendBD && <button className="btn bd"
-        title="Hand it to your own list — steps, comments and files come with it" onClick={()=>setSending(true)}>Send to my BD Inbox</button>}
-      {isMgr && CLOSED(t.status) && t.assignee_id!==me.id && !t.seen_at && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0) &&
-        <button className="btn" style={{color:"var(--ok)",borderColor:"#bfe3c5"}} onClick={()=>update(t.id,{seen_at:new Date().toISOString()}).then(ok=>ok&&showToast("Seen — one fewer on the Finished count"))}>Mark as seen</button>}
-      {canReshape && <button className="btn" style={{color:"var(--red)"}} onClick={()=>trash(t)}>Trash</button>}
+        title="Hand it to your own list \u2014 steps, comments and files come with it" onClick={()=>setSending(true)}>Send to my BD Inbox</button>}
+
+      <More>
+        {canReshape ? <button onClick={()=>setEdit(true)}>{isMgr?"Edit / reassign":"Edit"}</button> : null}
+        {isMgr && (people.filter(p=>p.active && p.id!==t.assignee_id).length + (INVITEES||[]).length)>0
+          ? <button onClick={()=>{setCopying(true);setCopyTo([]);setDrop([]);}}>Who has this</button> : null}
+        {!CLOSED(t.status)
+          ? <button onClick={()=>{setJoining("link");setJoinPick([]);setJoinQ("");}}>Link to another task</button> : null}
+        {(isMgr || iCreated) && !CLOSED(t.status)
+          ? <button onClick={()=>{setJoining("merge");setJoinPick([]);setJoinQ("");}}>Merge another in</button> : null}
+        {t.recur_rule && !CLOSED(t.status) && (isMgr || t.assignee_id===me.id)
+          ? <button onClick={()=>setSkipping(true)}>Skip this one</button> : null}
+        {isMgr && root
+          ? <button onClick={()=>update(root.id,{recur_paused:!root.recur_paused}).then(ok=>ok&&showToast(root.recur_paused?"Series resumed":"Series paused \u2014 no new ones will be created"))}>{root.recur_paused?"Resume series":"Pause series"}</button> : null}
+        {isMgr && CLOSED(t.status) && t.assignee_id!==me.id && !t.seen_at && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0)
+          ? <button onClick={()=>update(t.id,{seen_at:new Date().toISOString()}).then(ok=>ok&&showToast("Seen \u2014 one fewer on the Finished count"))}>Mark as seen</button> : null}
+        {canReshape ? <div className="sep"/> : null}
+        {canReshape ? <button className="danger" onClick={()=>trash(t)}>Trash</button> : null}
+      </More>
     </div>}
     {edit && <EditForm t={t} people={people} isMgr={isMgr} me={me} onCancel={()=>setEdit(false)} onSave={async p=>{ if(await update(t.id,p)){ setEdit(false); showToast("Saved"); } }}/>}
 
@@ -3899,10 +3945,31 @@ function Recur({f,setF}){
   </div>;
 }
 
+// Twelve buttons at one volume meant Trash looked as ordinary as Update. The three or
+// four you reach for daily stay out front; everything real but rare lives in here.
+function More({children}){
+  const [open,setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(()=>{ if(!open) return;
+    const away = (e) => { if(box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if(e.key==="Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return ()=>{ document.removeEventListener("mousedown", away);
+                 document.removeEventListener("keydown", esc); };
+  },[open]);
+  const items = React.Children.toArray(children).filter(Boolean);
+  if(!items.length) return null;
+  return <span className="moreWrap" ref={box}>
+    <button className="btn" aria-haspopup="true" aria-expanded={open}
+      onClick={()=>setOpen(!open)}>More {"\u25be"}</button>
+    {open && <div className="moreMenu" onClick={()=>setOpen(false)}>{items}</div>}
+  </span>;
+}
+
 function EditForm({t,people,onCancel,onSave,isMgr,me}){
   const pending = isMgr ? INVITEES : [];
-  const [f,setF] = useState({title:t.title,assignee_id:t.assignee_id||(t.assignee_email?"email:"+t.assignee_email:""),due_date:t.due_date||"",priority:t.priority,context:t.context,details:t.details,definition_of_done:t.definition_of_done,standing_notes:t.standing_notes||"",recur_rule:t.recur_rule||"",recur_day:t.recur_day??"",recur_cap:t.recur_cap??3,
-    status:t.status, waiting_on:t.waiting_on||""});
+  const [f,setF] = useState({title:t.title,assignee_id:t.assignee_id||(t.assignee_email?"email:"+t.assignee_email:""),due_date:t.due_date||"",priority:t.priority,context:t.context,details:t.details,definition_of_done:t.definition_of_done,standing_notes:t.standing_notes||"",recur_rule:t.recur_rule||"",recur_day:t.recur_day??"",recur_cap:t.recur_cap??3});
   return <div className="form card" style={{padding:14,marginBottom:12}}>
     <label>Task<input value={f.title} onChange={e=>setF({...f,title:e.target.value})}/></label>
     <div className="three">
@@ -3911,21 +3978,10 @@ function EditForm({t,people,onCancel,onSave,isMgr,me}){
       <label>Due<input type="date" value={f.due_date} onChange={e=>setF({...f,due_date:e.target.value})}/></label>
       <label>Priority<select value={f.priority} onChange={e=>setF({...f,priority:e.target.value})}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></label>
     </div>
-    {/* Status belongs here because this is where you come looking for it. Done and
-        Skipped are deliberately absent: both have consequences — the unticked-steps
-        prompt, the shared-task question, a skip reason, an email — and a dropdown
-        would quietly bypass all of them. Those stay on the buttons that handle them. */}
-    {!CLOSED(t.status) && <div className="two">
-      <label>Status<select value={f.status} onChange={e=>setF({...f,status:e.target.value})}>
-        <option value="not_started">Not started</option>
-        <option value="working">Working</option>
-        <option value="waiting">Waiting</option>
-        {HASAUDIENCE(t) && <option value="ready_for_review">Ready for review</option>}
-      </select></label>
-      {f.status==="waiting"
-        ? <label>Waiting on<input value={f.waiting_on} onChange={e=>setF({...f,waiting_on:e.target.value})} placeholder="Vendor, customer, a coworker…"/></label>
-        : <div/>}
-    </div>}
+    {/* Status lives on Update, not here. Edit is what the task IS — its name, owner,
+        date, shape. Update is how it is GOING, and it takes a note with the change so
+        that a month later the history says why it went to Waiting. Both forms setting
+        status was one fix too many. */}
     {f.context ? <label>Context
       <div style={{fontSize:13,color:"var(--muted)",fontWeight:400,marginBottom:4}}>No longer asked for on new tasks — clear it if it isn't telling you anything.</div>
       <input value={f.context} onChange={e=>setF({...f,context:e.target.value})}/></label> : null}
@@ -3937,14 +3993,11 @@ function EditForm({t,people,onCancel,onSave,isMgr,me}){
       </div>
       <textarea value={f.standing_notes} onChange={e=>setF({...f,standing_notes:e.target.value})}/></label>}
     <Recur f={f} setF={setF}/>
-    <div className="actions"><button className="btn" onClick={onCancel}>Cancel</button><button className="btn p" onClick={()=>onSave({...(() => {
-      const {status, waiting_on, ...rest} = f; return rest; })(),
+    <div className="actions"><button className="btn" onClick={onCancel}>Cancel</button><button className="btn p" onClick={()=>onSave({...f,
       assignee_id:String(f.assignee_id).startsWith("email:")?null:(f.assignee_id||null),
       assignee_email:String(f.assignee_id).startsWith("email:")?f.assignee_id.slice(6):null,
       due_date:f.due_date||null,recur_rule:f.recur_rule||null,recur_day:(f.recur_rule && f.recur_rule!=="daily" && f.recur_rule!=="yearly")?(parseInt(f.recur_day)||null):null,recur_cap:Math.max(2, parseInt(f.recur_cap)||3),
-      // a closed task's status is not on this form at all, so never send one
-      ...(CLOSED(t.status) ? {} : {status:f.status,
-          waiting_on: f.status==="waiting" ? f.waiting_on : ""})})}>Save</button></div>
+})}>Save</button></div>
   </div>;
 }
 
@@ -4063,8 +4116,7 @@ function WeekAhead({tasks,people,today,setOpen,opener,me,isMgr}){
     : "Unassigned";
 
   const mine = tasks.filter(t=>!CLOSED(t.status))
-    .filter(t=>!who ? true : String(who).startsWith("email:")
-      ? String(t.assignee_email||"").toLowerCase()===who.slice(6) : t.assignee_id===who);
+    .filter(t=>!who ? true : ON_TASK(t, who));
 
   const days = [];
   for(let i=1;i<span;i++){
@@ -4770,9 +4822,7 @@ function Finished({tasks,people,today,setOpen,me,setMe,showToast,load}){
   };
   const list = tasks.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id)
     .filter(t=>!origin.length || origin.includes(startedAs(t)))
-    .filter(t=>!who.length || who.some(w => String(w).startsWith("email:")
-        ? String(t.assignee_email||"").toLowerCase() === String(w).slice(6)
-        : t.assignee_id === w))
+    .filter(t=>!who.length || who.some(w => ON_TASK(t, w)))
     .filter(t=>finishedAt(t) >= cutoff())
     .sort((a,b)=>finishedAt(b)-finishedAt(a));
   const unseen = (t) => finishedAt(t) > seen && !t.seen_at;

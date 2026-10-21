@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="16.0">
+<meta name="app-version" content="16.1">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -166,6 +166,14 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .cmt{padding:10px 0;border-top:1px solid var(--line);font-size:14px}
 .cmt .by{color:var(--muted);font-size:12px}
 .cmt.priv{background:#fffbea;padding:10px;border-radius:8px;border:1px dashed #e6d39a;margin-top:8px}
+.cmt.pinned{background:#f4f7ff;border:1px solid #c7d7f5;border-radius:8px;padding:10px;margin-top:8px}
+.cmt.pinned.priv{background:#fffbea;border:1px dashed #e6d39a}
+.cmt .by{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+.cmt .pinbtn{margin-left:auto;background:none;border:0;font:inherit;font-size:12px;
+  color:var(--muted);cursor:pointer;padding:0 2px;border-radius:5px;white-space:nowrap}
+.cmt .pinbtn:hover{color:var(--navy);background:#eef2fa}
+.cmt .pinmark{font-size:11px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;
+  color:#1f3a7a;background:#e0ecff;padding:1px 7px;border-radius:7px}
 .hist{font-size:13px;color:var(--muted);padding:5px 0;border-top:1px solid var(--line)}
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 16px;border-radius:10px;z-index:60;display:flex;gap:14px;align-items:center;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:92vw}
 .toast button{background:transparent;border:0;color:#9fc0ff;font-weight:600;cursor:pointer}
@@ -597,6 +605,11 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"16.1", d:"October 21, 2026", items:[
+    "You can pin a comment to the top of a task. The thing worth remembering about a job is rarely the newest thing said about it \u2014 the account number, the agreed wording, the reason it is being done this way \u2014 and it used to sink as the thread grew. Pin it and it stays on top however much is written after.",
+    "Pin a second one and the two sit together, in the order you pinned them rather than the order they were written. Unpin drops a comment back where it belongs in the thread, with its own date intact.",
+    "You can pin anything on a task you run, and your own comments anywhere. A pinned private note stays private and stays looking private \u2014 pinning only ever moves it for the one person who can see it.",
+  ]},
   {v:"16.0", d:"October 21, 2026", items:[
     "Narrowing a list to one person now finds the work they are on, not just the work they own. Filtering All tasks by Jeff missed the First Co warranty brainstorm he is on, because Stephen happens to be its owner \u2014 the filters still asked \u201cis this their task\u201d when the answer had become \u201cis their name on it\u201d. All tasks, Finished and Week ahead all read it the new way.",
     "Typing somebody\u2019s name into the search box works too, first name or surname, and on a shared task it matches any of the names on it.",
@@ -3309,6 +3322,13 @@ function TaskModal(ctx){
   useEffect(()=>{refresh();},[refresh, t.updated_at]);
   useEffect(()=>{ refreshRef.current = refresh; },[refresh]);
 
+  const pinComment = async (c) => {
+    const on = !c.pinned_at;
+    const {error} = await sb.rpc("pin_comment",{p_id:c.id, p_on:on});
+    if(error){ showToast(error.message); return; }
+    refresh();
+    showToast(on ? "Pinned to the top of this task" : "Unpinned");
+  };
   const addComment = async () => {
     if(!body.trim()) return;
     const {error} = await sb.from("task_comments").insert({task_id:t.id,author_id:me.id,body,is_private:priv});
@@ -3881,13 +3901,25 @@ function TaskModal(ctx){
       <button className={tab==="history"?"on":""} onClick={()=>setTab("history")}>History</button>
     </div>
     {tab==="activity" && <div>
-      {comments.map(c=><div key={c.id} className={"cmt"+(c.is_private?" priv":"")}><div className="by">
-        {nameOf(people,c.author_id)} {"\u00b7"} {fmtWhen(c.created_at)}{c.is_private?" \u00b7 private manager note":""}
+      {/* Pinned first, then the rest newest-first as before. The order is computed here
+          rather than asked of the server, so a pin moves the moment you click it. */}
+      {[...comments].sort((a,b)=>
+          (b.pinned_at?1:0)-(a.pinned_at?1:0)
+          || (a.pinned_at && b.pinned_at ? String(a.pinned_at).localeCompare(String(b.pinned_at)) : 0)
+        ).map(c=><div key={c.id}
+          className={"cmt"+(c.is_private?" priv":"")+(c.pinned_at?" pinned":"")}><div className="by">
+        {c.pinned_at ? <span className="pinmark">Pinned</span> : null}
+        <span>{nameOf(people,c.author_id)} {"\u00b7"} {fmtWhen(c.created_at)}{c.is_private?" \u00b7 private manager note":""}</span>
         {c.merged_from ? (() => {
           const src = (ALL_TASKS||[]).find(x=>x.id===c.merged_from);
           return <span className="frommerge" title="This came across when two tasks were merged, keeping the date it was written">
             {"\u21aa "}{src ? `from #${src.ref} ${src.title}` : "from a merged task"}</span>;
         })() : null}
+        {(c.author_id===me.id || isMgr || iCreated) &&
+          <button className="pinbtn" title={c.pinned_at
+              ? "Let it fall back into the thread"
+              : "Keep it at the top of this thread, however much is said after it"}
+            onClick={()=>pinComment(c)}>{c.pinned_at ? "Unpin" : "\ud83d\udccc Pin"}</button>}
       </div>{richText(c.body)}</div>)}
       <div className="form" style={{marginTop:10}}>
         <textarea value={body} onChange={e=>setBody(e.target.value)} placeholder={priv?"Private note only you can see":"Add a comment"}/>

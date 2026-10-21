@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="16.1">
+<meta name="app-version" content="16.2">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -605,6 +605,13 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"16.2", d:"October 21, 2026", items:[
+    "A task has one date again. Expected completion is gone from the task drawer; there is just Due. Two dates meant two answers to the same question, and only one of them was ever kept up.",
+    "The numbers made the case: of 179 live tasks only 15 carried an expected date at all. Three of those just repeated the due date, and five sat in the past while the task was still open \u2014 a second number nobody maintained, quietly contradicting the first.",
+    "If something is going to be late, Need more time still asks to move the due date, with a reason and a yes or no. That is the better tool for it: a silently edited second date left no trail, and nobody saw it.",
+    "The 15 old values are kept in the database as history, and the emails that quote a task have stopped mentioning a date the app no longer shows.",
+    "Edit is back in the main row of the drawer. Moving it into More yesterday was a trim too far \u2014 renaming or reassigning a task is not a rare thing.",
+  ]},
   {v:"16.1", d:"October 21, 2026", items:[
     "You can pin a comment to the top of a task. The thing worth remembering about a job is rarely the newest thing said about it \u2014 the account number, the agreed wording, the reason it is being done this way \u2014 and it used to sink as the thread grew. Pin it and it stays on top however much is written after.",
     "Pin a second one and the two sit together, in the order you pinned them rather than the order they were written. Unpin drops a comment back where it belongs in the thread, with its own date intact.",
@@ -3566,14 +3573,14 @@ function TaskModal(ctx){
       {/* The same shortcuts the owner gets, minus the two that only make sense as
           theirs. Recording progress for somebody meant opening the whole edit form,
           and there was no way at all to say a task needed you. */}
-      <button className="upd" onClick={()=>setUpd({status:t.status==="not_started"?"working":t.status,waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Update</button>
+      <button className="upd" onClick={()=>setUpd({status:t.status==="not_started"?"working":t.status,waiting_on:t.waiting_on,next_action:t.next_action,note:""})}>Update</button>
       {t.needs_from===me.id
         ? <button className="help" title="Take it off your agenda" onClick={dropMyFlag}>Needs me {"\u2713"}</button>
         : <button className="help" onClick={()=>setFlagging(true)}>Needs me</button>}
     </div>}
     {!upd && !skipping && !asking && !flagging && !finishing && t.assignee_id===me.id && !CLOSED(t.status) && <div className="big">
       <button className="done" onClick={()=>finish({status:"done",need_help:false,need_manager:false},"Marked done")}>Done</button>
-      <button className="upd" onClick={()=>setUpd({status:t.status==="not_started"?"working":t.status,waiting_on:t.waiting_on,next_action:t.next_action,expected_completion:t.expected_completion||"",note:""})}>Update</button>
+      <button className="upd" onClick={()=>setUpd({status:t.status==="not_started"?"working":t.status,waiting_on:t.waiting_on,next_action:t.next_action,note:""})}>Update</button>
       {HASAUDIENCE(t) && t.status!=="ready_for_review" &&
         <button className="rev" title="Hand it back for a check before it counts as done"
           onClick={()=>quick({status:"ready_for_review"},"Sent for review")}>Ready for review</button>}
@@ -3584,21 +3591,20 @@ function TaskModal(ctx){
           which is a button for a dropdown option. Done and Skipped stay off the list:
           both have consequences — the unticked-steps prompt, the question about everyone
           else on the task, a skip reason, an email — that a dropdown would walk past. */}
-      <div className="two">
+      <div>
         <label>Status<select autoFocus value={upd.status} onChange={e=>setUpd({...upd,status:e.target.value})}>
           <option value="not_started">Not started</option>
           <option value="working">Working</option>
           <option value="waiting">Waiting</option>
           {HASAUDIENCE(t) && <option value="ready_for_review">Ready for review</option>}
         </select></label>
-        <label>Expected completion<input type="date" value={upd.expected_completion} onChange={e=>setUpd({...upd,expected_completion:e.target.value})}/></label>
       </div>
       {upd.status==="waiting" && <label>Waiting on<input value={upd.waiting_on} onChange={e=>setUpd({...upd,waiting_on:e.target.value})} placeholder="Vendor, customer, a coworker, Kathleen…"/></label>}
       <label>Next action<input value={upd.next_action} onChange={e=>setUpd({...upd,next_action:e.target.value})} placeholder="Call Goodman back Thursday"/></label>
       <label>Add a note (optional)<textarea value={upd.note} onChange={e=>setUpd({...upd,note:e.target.value})}/></label>
       <div className="actions"><button className="btn" onClick={()=>setUpd(null)}>Cancel</button>
         <button className="btn p" onClick={async()=>{
-          const ok = await update(t.id,{status:upd.status,waiting_on:upd.status==="waiting"?upd.waiting_on:"",next_action:upd.next_action,expected_completion:upd.expected_completion||null});
+          const ok = await update(t.id,{status:upd.status,waiting_on:upd.status==="waiting"?upd.waiting_on:"",next_action:upd.next_action});
           if(ok){ if(upd.note.trim()) await sb.from("task_comments").insert({task_id:t.id,author_id:me.id,body:upd.note,is_private:false}); setUpd(null); refresh(); showToast("Updated"); }
         }}>Save update</button></div>
     </div>}
@@ -3746,8 +3752,9 @@ function TaskModal(ctx){
       {canSendBD && <button className="btn bd"
         title="Hand it to your own list \u2014 steps, comments and files come with it" onClick={()=>setSending(true)}>Send to my BD Inbox</button>}
 
+      {canReshape && <button className="btn" onClick={()=>setEdit(true)}>{isMgr?"Edit / reassign":"Edit"}</button>}
+
       <More>
-        {canReshape ? <button onClick={()=>setEdit(true)}>{isMgr?"Edit / reassign":"Edit"}</button> : null}
         {isMgr && (people.filter(p=>p.active && p.id!==t.assignee_id).length + (INVITEES||[]).length)>0
           ? <button onClick={()=>{setCopying(true);setCopyTo([]);setDrop([]);}}>Who has this</button> : null}
         {!CLOSED(t.status)
@@ -3817,7 +3824,7 @@ function TaskModal(ctx){
       <dt>Assigned by</dt><dd>{DELEGATED(t) ? `${nameOf(people,t.created_by)} assigned it` : t.asked_by ? `${nameOf(people,t.asked_by)} asked for it` : t.assignee_id ? "Their own task" : "Not assigned yet"}{t.bd_task_id ? <span style={{marginLeft:8,fontSize:11,fontWeight:700,color:"#1f3a7a",background:"#e0ecff",padding:"1px 7px",borderRadius:7}}>{t.bd_status==="returned"?"returned to Kathleen's Inbox":t.bd_status==="sent"?"sent to Kathleen's Inbox":"from Kathleen's Inbox"}</span> : null}</dd>
       <dt>Assigned to</dt><dd>{t.assignee_id ? nameOf(people,t.assignee_id)
         : t.assignee_email ? `${(INVITEES.find(i=>i.email===String(t.assignee_email).toLowerCase())||{}).full_name || t.assignee_email} — waiting for them to sign up (${t.assignee_email})` : "Unassigned"}{t.assignee_id && t.created_by!==t.assignee_id ? ` · assigned by ${nameOf(people,t.created_by)}` : t.assignee_id ? " · self-assigned" : ""}</dd>
-      <dt>Due</dt><dd>{fmtDate(t.due_date)}{t.expected_completion && t.expected_completion!==t.due_date ? ` (expected ${fmtDate(t.expected_completion)})` : ""}</dd>
+      <dt>Due</dt><dd>{fmtDate(t.due_date)}</dd>
       {t.status==="waiting" && <><dt>Waiting on</dt><dd>{t.waiting_on||"—"}</dd></>}
       {t.next_action && <><dt>Next action</dt><dd>{t.next_action}</dd></>}
       {t.context && <><dt>Context</dt><dd>{t.context}</dd></>}

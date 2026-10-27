@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="16.5">
+<meta name="app-version" content="16.9">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -81,6 +81,12 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .big button{border:0;border-radius:var(--radius);padding:16px 6px;font-weight:700;font-size:15px;cursor:pointer;color:#fff}
 .big .done{background:var(--ok)} .big .upd{background:var(--navy)} .big .blk{background:var(--warn)} .big .help{background:var(--red)}
 .big .rev{background:#5b3fa0}
+/* The quiet one in a row of loud ones: it asks for nothing and sends nothing, so it
+   should not shout like Need help. .big button forces white text for the coloured
+   blocks, so anything in here needs a colour of its own or it is white on white. */
+.big .raise{background:#eef2fa;color:var(--navy);box-shadow:inset 0 0 0 1px #c7d7f5;
+  font-weight:600}
+.big .raise:hover{background:#e3ebf8}
 .form{display:grid;gap:12px}
 .form label{display:grid;gap:5px;font-size:13px;color:var(--muted);font-weight:500}
 .form input,.form select,.form textarea{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#fff;width:100%}
@@ -608,6 +614,26 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"16.9", d:"October 27, 2026", items:[
+    "Raise at our 1:1 now says whose 1:1. It always went to the person you report to and never asked, which was fine until you wondered which way it had gone \u2014 so the form names them: \u201cPut this on your 1:1 with Eliseth\u201d, and the button\u2019s tooltip says the same.",
+    "It also says what happens when something needs to go further up: it goes one level, and the person who gets it can raise it at theirs. No picker, because picking who hears about your work is not a decision worth making twice a week.",
+  ]},
+  {v:"16.8", d:"October 27, 2026", items:[
+    "Fixed: Raise at our 1:1 was invisible. The button was there, full width and clickable, in white text on a white background \u2014 the row of big buttons forces white text so the coloured blocks read, and this one had been given a white background to go with it.",
+    "It now has a colour of its own: quiet navy on pale blue, deliberately softer than the red Need help beside it, because it asks for nothing and sends nothing.",
+  ]},
+  {v:"16.7", d:"October 27, 2026", items:[
+    "You can fix a typo in your own comment. Edit sits on the comment\u2019s own line, opens it in place, and saves without posting a second comment that just says \u201c* schedule\u201d.",
+    "Your own, and nobody else\u2019s \u2014 not even a manager\u2019s on their own task. A comment is attributed speech, and quietly rewriting words somebody has already acted on is a different thing from correcting your own.",
+    "An edited comment says so, and hovering the mark gives the time. What it first said is kept in the database, so a thread that somebody acted on can still be checked against the original.",
+    "A comment cannot be emptied by editing it to nothing.",
+  ]},
+  {v:"16.6", d:"October 27, 2026", items:[
+    "A 1:1 now remembers its own meetings. Previously, at the foot of the agenda and folded away, holds everything the two of you have already talked about \u2014 what was said and when, and what got dropped without ever being said \u2014 for the last four months.",
+    "Until now a mention left the app the moment it was ticked off. Five had already gone that way between Kathleen and Eliseth \u2014 \u201cLex is signed up on Task Depot\u201d, \u201call the ladies except Blanca were able to get in\u201d \u2014 still in the database, reachable from nowhere. A tool for running 1:1s that forgets every 1:1 had the wrong default.",
+    "Anything raised from a task keeps its task, so you can open it from the history too. And something held back stays yours alone even after it has been dropped.",
+    "Nothing in Previously is on the agenda. It is there to be looked at, not worked through.",
+  ]},
   {v:"16.5", d:"October 27, 2026", items:[
     "Raise at our 1:1 \u2014 a way to put one of your own tasks on your manager\u2019s agenda without claiming to be stuck. It sits beside Need help on the task, takes a line of context, and does nothing else: no email, no flag, no status change, and the task stays exactly where it is.",
     "This was the only thing missing. A task you set yourself folds into \u201ctheir own list\u201d on a 1:1 by design, so the one route onto the shared agenda was Need help \u2014 which parks the task in Waiting and emails your manager that you are blocked. Crying wolf to get onto an agenda.",
@@ -3359,6 +3385,17 @@ function TaskModal(ctx){
   useEffect(()=>{refresh();},[refresh, t.updated_at]);
   useEffect(()=>{ refreshRef.current = refresh; },[refresh]);
 
+  // Only ever your own, and the change is visible. A comment is attributed speech, and
+  // somebody quietly rewriting words that others have already acted on is a different
+  // thing from fixing your own typo.
+  const [editingC,setEditingC] = useState(null);   // {id, body}
+  const saveComment = async () => {
+    const c = editingC; if(!c) return;
+    const {data,error} = await sb.rpc("edit_comment",{p_id:c.id, p_body:c.body});
+    if(error){ showToast(error.message); return; }
+    setEditingC(null); refresh();
+    if(!(data && data.unchanged)) showToast("Edited");
+  };
   const pinComment = async (c) => {
     const on = !c.pinned_at;
     const {error} = await sb.rpc("pin_comment",{p_id:c.id, p_on:on});
@@ -3554,15 +3591,18 @@ function TaskModal(ctx){
         <button className="btn r" onClick={doAsk}>Send to your manager</button></div>
     </div>}
     {raising && <div className="form card" style={{padding:14,marginBottom:12}}>
-      <div><b>What do you want to go through?</b>
+      <div><b>Put this on your 1:1 with {String(nameOf(people,me.manager_id)).split(" ")[0]}</b>
         <div style={{fontSize:13,color:"var(--muted)"}}>
-          This goes on your next 1:1 under Worth mentioning, with the task attached.
+          It goes to {nameOf(people,me.manager_id)} under Worth mentioning, with the task attached.
           Nothing is emailed, the task stays exactly where it is, and nobody is marked as
-          needing anything. Leave it blank and the task{"\u2019"}s own name is the line.</div></div>
+          needing anything. Leave it blank and the task{"\u2019"}s own name is the line.
+          {" "}It only ever goes to the person you report to {"\u2014"} if it needs to go further
+          up, they can raise it at theirs.</div></div>
       <label>Your note<textarea autoFocus value={raiseNote} onChange={e=>setRaiseNote(e.target.value)}
         placeholder="Want to walk you through where the PM schedule landed."/></label>
       <div className="actions"><button className="btn" onClick={()=>{setRaising(false);setRaiseNote("");}}>Cancel</button>
-        <button className="btn p" onClick={doRaise}>Put it on our 1:1</button></div>
+        <button className="btn p" onClick={doRaise}>
+          Put it on our 1:1</button></div>
     </div>}
     {flagging && <div className="form card" style={{padding:14,marginBottom:12}}>
       <div><b>What do you want to go through?</b>
@@ -3626,8 +3666,8 @@ function TaskModal(ctx){
         <button className="rev" title="Hand it back for a check before it counts as done"
           onClick={()=>quick({status:"ready_for_review"},"Sent for review")}>Ready for review</button>}
       <button className="help" onClick={()=>setAsking(true)}>Need help</button>
-      {me.manager_id && <button className="btn" style={{gridColumn:"1 / -1"}}
-        title="Put it on your next 1:1 \u2014 no email, nothing moves"
+      {me.manager_id && <button className="raise" style={{gridColumn:"1 / -1"}}
+        title={`Put it on your next 1:1 with ${nameOf(people,me.manager_id)} \u2014 no email, nothing moves`}
         onClick={()=>setRaising(true)}>Raise at our 1:1</button>}
     </div>}
     {upd && <div className="form card" style={{padding:14,marginBottom:12}}>
@@ -3979,12 +4019,28 @@ function TaskModal(ctx){
           return <span className="frommerge" title="This came across when two tasks were merged, keeping the date it was written">
             {"\u21aa "}{src ? `from #${src.ref} ${src.title}` : "from a merged task"}</span>;
         })() : null}
+        {c.edited_at ? <span className="meta" title={"Edited "+fmtWhen(c.edited_at)}>{"\u00b7"} edited</span> : null}
+        {c.author_id===me.id && !editingC &&
+          <button className="pinbtn" title="Fix a typo \u2014 it will show as edited"
+            onClick={()=>setEditingC({id:c.id, body:c.body})}>Edit</button>}
         {(c.author_id===me.id || isMgr || iCreated) &&
           <button className="pinbtn" title={c.pinned_at
               ? "Let it fall back into the thread"
               : "Keep it at the top of this thread, however much is said after it"}
             onClick={()=>pinComment(c)}>{c.pinned_at ? "Unpin" : "\ud83d\udccc Pin"}</button>}
-      </div>{richText(c.body)}</div>)}
+      </div>
+      {editingC && editingC.id===c.id
+        ? <div className="form" style={{marginTop:6}}>
+            <textarea autoFocus value={editingC.body}
+              onChange={e=>setEditingC({...editingC, body:e.target.value})}/>
+            <div className="actions">
+              <button className="btn" onClick={()=>setEditingC(null)}>Cancel</button>
+              <button className="btn p" onClick={saveComment}
+                disabled={!editingC.body.trim()}>Save</button>
+            </div>
+          </div>
+        : richText(c.body)}
+      </div>)}
     </div>}
     {tab==="files" && <div className="att">
       {files.map(f=><div key={f.id} style={{display:"flex",alignItems:"center",gap:8}}><a href="#" style={{flex:1}} onClick={e=>{e.preventDefault();openFile(f);}}>{f.file_name} <span style={{color:"var(--muted)",fontSize:12}}>· {nameOf(people,f.uploader_id)}</span></a>
@@ -4577,6 +4633,16 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
     });
   },[other,showToast]);
   useEffect(()=>{ loadMentions(); },[loadMentions,openTaskId]);
+  // What the two of you have already been through. Until now a mention left the app the
+  // moment it was ticked off, so a 1:1 tool forgot every meeting it had ever helped with.
+  const [past,setPast] = useState([]);
+  const [openPast,setOpenPast] = useState(false);
+  useEffect(()=>{ let live = true;
+    sb.rpc("mentions_history",{p_person:other}).then(({data,error})=>{
+      if(!live || error) return; setPast(Array.isArray(data)?data:[]);
+    });
+    return ()=>{live=false;};
+  },[other, openTaskId, mentions]);
   // "Not yet": jotted, but not put in front of them. Two calls rather than one because
   // add_mention already has a two-argument shape other things rely on; the hold goes on
   // straight after, and a failure there leaves an ordinary visible mention rather than
@@ -4923,6 +4989,28 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
       <div style={{fontSize:13,color:"var(--muted)",marginTop:6}}>Reopening keeps the due date and records who did it in the task's history.</div>
     </div>}
     {a.own_view && <div className="note">This is what your manager sees when they open your 1:1, minus any private notes they've written.</div>}
+    {past.length>0 && <div className="panel tint edged edge-purple">
+      <h3>Previously ({past.length})</h3>
+      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{flex:1,fontSize:13,color:"var(--muted)"}}>
+          What the two of you have already talked about, and what got dropped without being
+          said. Here so the meeting has a memory {"\u2014"} nothing here is on the agenda.</span>
+        <button className="btn sm" onClick={()=>setOpenPast(!openPast)}>{openPast?"Hide":"Show"}</button>
+      </div>
+      {openPast && <div className="ag" style={{marginTop:10}}><ul>{past.map(x=>
+        <li key={x.id} style={{display:"flex",gap:8,alignItems:"flex-start",color:"var(--muted)"}}>
+          <span style={{flex:1}}>
+            {x.body}
+            {x.about && <a href="#" style={{marginLeft:6,color:"var(--navy)",fontWeight:600}}
+              onClick={(e)=>{e.preventDefault(); setOpen && setOpen(x.about.id);}}>
+              #{x.about.ref} {x.about.title}</a>}
+            <span className="meta"> {"\u2014"} {x.mine?"you raised this":`${String(x.who).split(" ")[0]} raised this`}
+              {" \u00b7 "}{x.said ? `said ${fmtDate(String(x.at).slice(0,10))}`
+                                   : `dropped ${fmtDate(String(x.at).slice(0,10))}`}
+              {x.became_task?" \u00b7 became a task":""}</span>
+          </span>
+        </li>)}</ul></div>}
+    </div>}
     {!a.completed.length && !stalled.length && !inFlight.length
       && !(a.waiting_on_you||[]).length && !theirsAll.length &&
       <div className="card"><div className="empty">Nothing to talk about yet — no tasks in this window.</div></div>}

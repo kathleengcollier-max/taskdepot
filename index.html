@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="16.2">
+<meta name="app-version" content="16.5">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -251,8 +251,11 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .agt td.tickcol,.agt th.tickcol{width:26px;padding-right:0}
 .agt td.num,.agt th.num{width:96px;text-align:right}
 /* the rest of the drawer's buttons, which are real but rare */
-.moreWrap{position:relative;display:inline-block}
-.moreMenu{position:absolute;right:0;top:calc(100% + 4px);z-index:40;min-width:206px;
+.moreWrap{display:inline-block}
+/* Fixed, not absolute, and placed from the button's own position. Anchored inside the
+   drawer it opened leftwards out of the drawer's edge, where overflow:auto sliced it in
+   half. A fixed element is not clipped by any ancestor's overflow. */
+.moreMenu{position:fixed;z-index:60;min-width:206px;max-width:min(260px, calc(100vw - 16px));
   background:#fff;border:1px solid var(--line);border-radius:10px;padding:5px;
   box-shadow:0 10px 30px rgba(20,30,60,.16)}
 .moreMenu button{display:block;width:100%;text-align:left;background:none;border:0;
@@ -605,6 +608,21 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"16.5", d:"October 27, 2026", items:[
+    "Raise at our 1:1 \u2014 a way to put one of your own tasks on your manager\u2019s agenda without claiming to be stuck. It sits beside Need help on the task, takes a line of context, and does nothing else: no email, no flag, no status change, and the task stays exactly where it is.",
+    "This was the only thing missing. A task you set yourself folds into \u201ctheir own list\u201d on a 1:1 by design, so the one route onto the shared agenda was Need help \u2014 which parks the task in Waiting and emails your manager that you are blocked. Crying wolf to get onto an agenda.",
+    "It lands under Worth mentioning with the task attached, so the number and name are right there on the agenda and one click opens it. It ticks off as said like any other mention, and Not yet works on it too.",
+    "A mention raised from a task no longer offers Make it a task, since it already has one.",
+    "Eliseth had already worked this out the hard way \u2014 four of the five mentions in the system are hers, and one she had linked to her forklift task by hand.",
+  ]},
+  {v:"16.4", d:"October 27, 2026", items:[
+    "Fixed: the More menu in the task drawer opened half off the edge. It hung its right side on the button and grew leftwards, straight out of the drawer, where the drawer\u2019s own scrolling sliced it in half \u2014 so most of what was in it could not be read, let alone clicked.",
+    "It now works out where it can actually go: under the button when there is room, above it when there is not, and never past either edge of the screen. It follows the button if the drawer scrolls underneath it.",
+  ]},
+  {v:"16.3", d:"October 27, 2026", items:[
+    "The box for writing a comment is now at the top of the Activity tab, above the thread rather than below it. On a task with thirty notes on it you had to scroll past all thirty to reach it \u2014 on the one screen that already shows you the newest first, so everything you scrolled past was older than what you had just read.",
+    "A count sits between the two: \u201c12 notes\u201d, so it is obvious where the box ends and the thread starts.",
+  ]},
   {v:"16.2", d:"October 21, 2026", items:[
     "A task has one date again. Expected completion is gone from the task drawer; there is just Due. Two dates meant two answers to the same question, and only one of them was ever kept up.",
     "The numbers made the case: of 179 live tasks only 15 carried an expected date at all. Three of those just repeated the due date, and five sat in the past while the task was still open \u2014 a second number nobody maintained, quietly contradicting the first.",
@@ -3272,6 +3290,18 @@ function TaskModal(ctx){
     if(error){ showToast(error.message); return; }
     await ctx.load(); showToast("Flag off");
   };
+  // The quiet sibling of Need help. Same destination — your manager — but it claims
+  // nothing: no email, no flag, no status change. A task you own folds away into "their
+  // own list" on a 1:1 by design, so without this the only way onto the shared agenda
+  // was to say you were stuck when you were not.
+  const [raising,setRaising] = useState(false);
+  const [raiseNote,setRaiseNote] = useState("");
+  const doRaise = async () => {
+    const {error} = await sb.rpc("raise_task",{p_task:t.id, p_note:raiseNote});
+    if(error){ showToast(error.message); return; }
+    setRaising(false); setRaiseNote("");
+    showToast("On the agenda for your next 1:1 \u2014 nothing was sent");
+  };
   const [replyNote,setReplyNote] = useState("");
   const doReply = async () => {
     const {data,error} = await sb.rpc("resolve_help",{p_task:t.id, p_note:replyNote});
@@ -3523,6 +3553,17 @@ function TaskModal(ctx){
       <div className="actions"><button className="btn" onClick={()=>{setAsking(false);setAskNote("");}}>Cancel</button>
         <button className="btn r" onClick={doAsk}>Send to your manager</button></div>
     </div>}
+    {raising && <div className="form card" style={{padding:14,marginBottom:12}}>
+      <div><b>What do you want to go through?</b>
+        <div style={{fontSize:13,color:"var(--muted)"}}>
+          This goes on your next 1:1 under Worth mentioning, with the task attached.
+          Nothing is emailed, the task stays exactly where it is, and nobody is marked as
+          needing anything. Leave it blank and the task{"\u2019"}s own name is the line.</div></div>
+      <label>Your note<textarea autoFocus value={raiseNote} onChange={e=>setRaiseNote(e.target.value)}
+        placeholder="Want to walk you through where the PM schedule landed."/></label>
+      <div className="actions"><button className="btn" onClick={()=>{setRaising(false);setRaiseNote("");}}>Cancel</button>
+        <button className="btn p" onClick={doRaise}>Put it on our 1:1</button></div>
+    </div>}
     {flagging && <div className="form card" style={{padding:14,marginBottom:12}}>
       <div><b>What do you want to go through?</b>
         <div style={{fontSize:13,color:"var(--muted)"}}>
@@ -3568,7 +3609,7 @@ function TaskModal(ctx){
       <label>Why are you skipping this one?<input autoFocus value={skipWhy} onChange={e=>setSkipWhy(e.target.value)} placeholder="Holiday, branch closed, not applicable this month…"/></label>
       <div className="actions"><button className="btn" onClick={()=>setSkipping(false)}>Cancel</button><button className="btn p" onClick={doSkip}>Skip this one</button></div>
     </div>}
-    {!upd && !skipping && !asking && !flagging && !finishing && isMgr && t.assignee_id!==me.id
+    {!upd && !skipping && !asking && !flagging && !raising && !finishing && isMgr && t.assignee_id!==me.id
       && !CLOSED(t.status) && <div className="big">
       {/* The same shortcuts the owner gets, minus the two that only make sense as
           theirs. Recording progress for somebody meant opening the whole edit form,
@@ -3578,13 +3619,16 @@ function TaskModal(ctx){
         ? <button className="help" title="Take it off your agenda" onClick={dropMyFlag}>Needs me {"\u2713"}</button>
         : <button className="help" onClick={()=>setFlagging(true)}>Needs me</button>}
     </div>}
-    {!upd && !skipping && !asking && !flagging && !finishing && t.assignee_id===me.id && !CLOSED(t.status) && <div className="big">
+    {!upd && !skipping && !asking && !flagging && !raising && !finishing && t.assignee_id===me.id && !CLOSED(t.status) && <div className="big">
       <button className="done" onClick={()=>finish({status:"done",need_help:false,need_manager:false},"Marked done")}>Done</button>
       <button className="upd" onClick={()=>setUpd({status:t.status==="not_started"?"working":t.status,waiting_on:t.waiting_on,next_action:t.next_action,note:""})}>Update</button>
       {HASAUDIENCE(t) && t.status!=="ready_for_review" &&
         <button className="rev" title="Hand it back for a check before it counts as done"
           onClick={()=>quick({status:"ready_for_review"},"Sent for review")}>Ready for review</button>}
       <button className="help" onClick={()=>setAsking(true)}>Need help</button>
+      {me.manager_id && <button className="btn" style={{gridColumn:"1 / -1"}}
+        title="Put it on your next 1:1 \u2014 no email, nothing moves"
+        onClick={()=>setRaising(true)}>Raise at our 1:1</button>}
     </div>}
     {upd && <div className="form card" style={{padding:14,marginBottom:12}}>
       {/* Status lives here and only here. Blocked was this form with Waiting pre-picked,
@@ -3737,7 +3781,7 @@ function TaskModal(ctx){
         </div>
       </div>;
     })()}
-    {!edit && !skipping && !asking && !replying && !copying && !returning && !sending && !joining && (isMgr || iCreated || t.assignee_id===me.id) &&
+    {!edit && !skipping && !asking && !raising && !replying && !copying && !returning && !sending && !joining && (isMgr || iCreated || t.assignee_id===me.id) &&
      <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
       {/* Out front: whatever this task's state is actually asking of you right now,
           plus the one hand-off that is only ever Kathleen's. */}
@@ -3908,6 +3952,19 @@ function TaskModal(ctx){
       <button className={tab==="history"?"on":""} onClick={()=>setTab("history")}>History</button>
     </div>
     {tab==="activity" && <div>
+      {/* The box to write in comes first. It used to sit under the whole thread, so
+          adding a line to a task with thirty comments on it meant scrolling past all
+          thirty to reach it — on the one screen where the thread is newest-first and
+          you had already read the top of it. */}
+      <div className="form" style={{marginBottom:12}}>
+        <textarea value={body} onChange={e=>setBody(e.target.value)} placeholder={priv?"Private note only you can see":"Add a comment"}/>
+        <div className="actions" style={{justifyContent:"space-between"}}>
+          {isMgr ? <label style={{display:"flex",gap:6,alignItems:"center",fontSize:14}}><input type="checkbox" checked={priv} onChange={e=>setPriv(e.target.checked)} style={{width:"auto"}}/>Private note <span style={{color:"var(--muted)",fontSize:12}}>(only you can see it)</span></label> : <span/>}
+          <button className="btn p" onClick={addComment} disabled={!body.trim()}>Post</button>
+        </div>
+      </div>
+      {comments.length>0 && <div className="section-title" style={{marginTop:0}}>
+        {comments.length} {comments.length===1?"note":"notes"}</div>}
       {/* Pinned first, then the rest newest-first as before. The order is computed here
           rather than asked of the server, so a pin moves the moment you click it. */}
       {[...comments].sort((a,b)=>
@@ -3928,13 +3985,6 @@ function TaskModal(ctx){
               : "Keep it at the top of this thread, however much is said after it"}
             onClick={()=>pinComment(c)}>{c.pinned_at ? "Unpin" : "\ud83d\udccc Pin"}</button>}
       </div>{richText(c.body)}</div>)}
-      <div className="form" style={{marginTop:10}}>
-        <textarea value={body} onChange={e=>setBody(e.target.value)} placeholder={priv?"Private note only you can see":"Add a comment"}/>
-        <div className="actions" style={{justifyContent:"space-between"}}>
-          {isMgr ? <label style={{display:"flex",gap:6,alignItems:"center",fontSize:14}}><input type="checkbox" checked={priv} onChange={e=>setPriv(e.target.checked)} style={{width:"auto"}}/>Private note <span style={{color:"var(--muted)",fontSize:12}}>(only you can see it)</span></label> : <span/>}
-          <button className="btn p" onClick={addComment} disabled={!body.trim()}>Post</button>
-        </div>
-      </div>
     </div>}
     {tab==="files" && <div className="att">
       {files.map(f=><div key={f.id} style={{display:"flex",alignItems:"center",gap:8}}><a href="#" style={{flex:1}} onClick={e=>{e.preventDefault();openFile(f);}}>{f.file_name} <span style={{color:"var(--muted)",fontSize:12}}>· {nameOf(people,f.uploader_id)}</span></a>
@@ -3988,21 +4038,49 @@ function Recur({f,setF}){
 // four you reach for daily stay out front; everything real but rare lives in here.
 function More({children}){
   const [open,setOpen] = useState(false);
+  const [at,setAt] = useState(null);
   const box = useRef(null);
-  useEffect(()=>{ if(!open) return;
-    const away = (e) => { if(box.current && !box.current.contains(e.target)) setOpen(false); };
+  const btn = useRef(null);
+  const menu = useRef(null);
+  // Work out where it can actually go: under the button if there is room, above it if
+  // not, and never past either edge of the screen. Measured rather than assumed, because
+  // the drawer is only 560px wide and the button moves as buttons come and go.
+  const place = useCallback(()=>{
+    const b = btn.current; if(!b) return;
+    const r = b.getBoundingClientRect();
+    const w = (menu.current && menu.current.offsetWidth) || 206;
+    const h = (menu.current && menu.current.offsetHeight) || 240;
+    const pad = 8;
+    let left = r.left;
+    if(left + w > window.innerWidth - pad) left = window.innerWidth - w - pad;
+    if(left < pad) left = pad;
+    const below = window.innerHeight - r.bottom - pad;
+    const flip = below < h && r.top > below;
+    setAt({left, top: flip ? Math.max(pad, r.top - h - 4) : r.bottom + 4});
+  },[]);
+  useEffect(()=>{ if(!open){ setAt(null); return; }
+    place();                       // once with the real size on screen
+    const away = (e) => { if(box.current && !box.current.contains(e.target)
+                           && !(menu.current && menu.current.contains(e.target))) setOpen(false); };
     const esc = (e) => { if(e.key==="Escape") setOpen(false); };
     document.addEventListener("mousedown", away);
     document.addEventListener("keydown", esc);
+    window.addEventListener("resize", place);
+    // the drawer scrolls under it, so follow the button rather than drift away from it
+    window.addEventListener("scroll", place, true);
     return ()=>{ document.removeEventListener("mousedown", away);
-                 document.removeEventListener("keydown", esc); };
-  },[open]);
+                 document.removeEventListener("keydown", esc);
+                 window.removeEventListener("resize", place);
+                 window.removeEventListener("scroll", place, true); };
+  },[open, place]);
   const items = React.Children.toArray(children).filter(Boolean);
   if(!items.length) return null;
   return <span className="moreWrap" ref={box}>
-    <button className="btn" aria-haspopup="true" aria-expanded={open}
+    <button className="btn" ref={btn} aria-haspopup="true" aria-expanded={open}
       onClick={()=>setOpen(!open)}>More {"\u25be"}</button>
-    {open && <div className="moreMenu" onClick={()=>setOpen(false)}>{items}</div>}
+    {open && <div className="moreMenu" ref={menu} onClick={()=>setOpen(false)}
+      style={at ? {left:at.left, top:at.top} : {visibility:"hidden", left:0, top:0}}>
+      {items}</div>}
   </span>;
 }
 
@@ -4731,6 +4809,12 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
             {x.body}
             {x.held && <span className="pill" style={{marginLeft:6,background:"#f6f3fd",color:"#4a3690"}}>
               Not yet</span>}
+            {/* Raised from a task, so the task comes with it — otherwise you would be
+                reading a line about a job you then have to go and find. */}
+            {x.about && <a href="#" className="meta" style={{marginLeft:6,color:"var(--navy)",fontWeight:600}}
+              title={x.about.open ? "Open the task" : "Open the task — it is already closed"}
+              onClick={(e)=>{e.preventDefault(); setOpen && setOpen(x.about.id);}}>
+              #{x.about.ref} {x.about.title}{!x.about.open ? " · done" : ""}</a>}
             <span className="meta"> — {x.mine?"you raised this":`${String(x.who).split(" ")[0]} raised this`}
               {x.held?" · only you can see it":""}
               {x.became_task?" · became a task":""}{x.stale?" · still unsaid after 60 days":""}</span>
@@ -4739,8 +4823,8 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
             {x.mine && <button className="btn q" style={{padding:"0 6px",color:"#4a3690",whiteSpace:"nowrap"}}
               title={x.held ? "Put it on their agenda too" : "Keep it to yourself until you are ready"}
               onClick={()=>holdMention(x.id, !x.held)}>{x.held ? "Release" : "Not yet"}</button>}
-            <button className="btn q" style={{padding:"0 6px",color:"var(--muted)",whiteSpace:"nowrap"}}
-              title="Turn it into a real task" onClick={()=>startTaskFromMention && startTaskFromMention(x, other)}>Make it a task</button>
+            {!x.about && <button className="btn q" style={{padding:"0 6px",color:"var(--muted)",whiteSpace:"nowrap"}}
+              title="Turn it into a real task" onClick={()=>startTaskFromMention && startTaskFromMention(x, other)}>Make it a task</button>}
             <button className="btn q" style={{padding:"0 4px",color:"var(--muted)"}}
               title="Drop it — never needed saying" onClick={()=>dropMention(x.id)}>×</button>
           </>}

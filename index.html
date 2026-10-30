@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="16.9">
+<meta name="app-version" content="17.0">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -256,6 +256,24 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .agt tr:hover td{background:#eef2fa}
 .agt td.tickcol,.agt th.tickcol{width:26px;padding-right:0}
 .agt td.num,.agt th.num{width:96px;text-align:right}
+.ttable td.pickcol,.ttable th.pickcol{width:34px;padding-right:0}
+.tl th,.tl td{text-align:center}
+.tl th.who,.tl td.who{text-align:left;position:sticky;left:0;background:#fff;z-index:1}
+.tl thead th.who{background:#f6f7f9}
+.tl td.tl-late,.tl th.tl-late{background:#fff7f6}
+.tl .tl-cell{border:0;border-radius:7px;min-width:30px;padding:4px 8px;font:inherit;
+  font-weight:700;font-size:13px;cursor:pointer;color:var(--navy);background:#eef2fa}
+.tl .tl-cell:hover{outline:2px solid var(--navy);outline-offset:1px}
+.tl .tl-cell.late{background:var(--red);color:#fff}
+.tl .tl-cell.later{background:#eceff4;color:var(--muted)}
+.tl .tl-none{color:#cdd4e0}
+.tl tr.tl-total td{border-top:2px solid var(--line);font-weight:700}
+.tl tr.tl-total td.who{background:#f6f7f9}
+.ttable tr.r-picked td{background:#eef2fa}
+.bulkbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;
+  padding:10px 12px;border:1px solid #c7d7f5;background:#f4f7ff;border-radius:10px}
+.bulkbar .n{font-weight:700;color:var(--navy)}
+.bulkbar input[type=date]{border:1px solid var(--line);border-radius:8px;padding:7px 10px}
 /* the rest of the drawer's buttons, which are real but rare */
 .moreWrap{display:inline-block}
 /* Fixed, not absolute, and placed from the button's own position. Anchored inside the
@@ -607,13 +625,24 @@ const HASAUDIENCE = (t) => !!(t.asked_by || (t.created_by && t.assignee_id && t.
 const GROUP_EDGE = {
   "Waiting on a decision from you":"edge-red", "Ready for your review":"edge-navy",
   "Asked you for help":"edge-red",             "Stuck waiting on someone else":"edge-warn",
-  "Due now, and gone quiet":"edge-warn",       "Overdue":"edge-red"};
+  "Due now, and gone quiet":"edge-warn",       "Overdue":"edge-red",
+  "Due soon, and gone quiet":"edge-warn",
+  "Overdue — with people who have no login":"edge-grey"};
 const CLOSED = (st) => st==="done" || st==="skipped";
 // Delegated = it belongs to someone other than whoever created it. Covers people
 // who haven't signed up yet, where the owner is held as an email address.
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"17.0", d:"October 30, 2026", items:[
+    "Timeline \u2014 a new screen. Every open task on one calendar, a row per person and a column per week, so a pile-up on one date or one person is a shape you can see rather than a number you have to work out. Four weeks, eight, a quarter or six months. Darker is busier; click a cell to open the first of them and arrow through the rest.",
+    "Late has a column of its own at the left, in red, because that is what it is. Later holds anything past the window or with no date at all.",
+    "Home stops hiding the overdue tasks you can do something about inside the ones you cannot. Of 41 overdue, 25 belong to the nine people with no login \u2014 unreachable from in here \u2014 and 14 are Eliseth\u2019s and Alexis\u2019s. They are two separate blocks now, and the second one is the one that is actually yours.",
+    "Pick several tasks on All tasks and move them all to one date, or close them together. Forty-one overdue tasks used to be forty-one drawers to open, which is why the sweep never happened. Anything already closed in your selection is named and left alone.",
+    "An overdue task on My Day now asks rather than just sitting there in red. One card at the top: the task, how late it is, and It\u2019s done / Still happening / Not now. Red is not a question, which is why nothing ever moved.",
+    "A task going quiet is caught earlier. The app only noticed silence when something was due within a day; it now speaks up a week out after a fortnight with no word \u2014 which is seven of your tasks today. Deliberately not sooner: quiet for ten days would flag more than half your open list, and a warning that common is wallpaper.",
+    "Mark as seen is back on the main row of the drawer. It is the one thing you do to a finished task, and it is how the Finished count comes down \u2014 it should not have been in More.",
+  ]},
   {v:"16.9", d:"October 27, 2026", items:[
     "Raise at our 1:1 now says whose 1:1. It always went to the person you report to and never asked, which was fine until you wondered which way it had gone \u2014 so the form names them: \u201cPut this on your 1:1 with Eliseth\u201d, and the button\u2019s tooltip says the same.",
     "It also says what happens when something needs to go further up: it goes one level, and the person who gets it can raise it at theirs. No picker, because picking who hears about your work is not a decision worth making twice a week.",
@@ -1514,8 +1543,19 @@ function attention(t, today) {
   if (asked && t.need_manager) return {why:"Needs you", tone:"", rank:0, group:"Waiting on a decision from you"};
   if (asked && t.status === "ready_for_review") return {why:"Ready for your review", tone:"navy", rank:1, group:"Ready for your review"};
   if (asked && t.need_help) return {why:"Asked for help", tone:"", rank:1.5, group:"Asked you for help"};
-  if (overdue) return {why:`Overdue ${overdue} day${overdue>1?"s":""}`, tone:"", rank:5, group:"Overdue"};
+  // Overdue with somebody who cannot log in is a different problem from overdue with
+  // somebody who can: you cannot chase it in the app, and blending the two hid the ones
+  // you could act on inside a pile you could not. 25 of 41 were the unreachable kind.
+  const noLogin = !t.assignee_id && !!t.assignee_email;
+  if (overdue) return {why:`Overdue ${overdue} day${overdue>1?"s":""}`, tone:"", rank:noLogin?6:5,
+    group: noLogin ? "Overdue \u2014 with people who have no login" : "Overdue"};
   if (t.status === "waiting" && stale >= 3) return {why:`Waiting on ${t.waiting_on||"someone"} ${Math.floor(stale)} days`, tone:"warn", rank:2, group:"Stuck waiting on someone else"};
+  // Silence only matters when a date is coming. Quiet on its own would flag 23 of your
+  // 42 open-and-not-yet-late tasks \u2014 more than half, which is how a warning becomes
+  // wallpaper. A week out and a fortnight silent is 8, and every one of them is real.
+  if (due && daysBetween(today, due) <= 7 && stale >= 14)
+    return {why:`Due ${daysBetween(today,due)===0?"today":daysBetween(today,due)===1?"tomorrow":`in ${daysBetween(today,due)} days`}, nothing for ${Math.floor(stale)} days`,
+            tone:"warn", rank:3.5, group:"Due soon, and gone quiet"};
   if (due && daysBetween(today, due) <= 1 && stale >= 2) return {why: due===today ? "Due today, no update" : "Due tomorrow, no update", tone:"warn", rank:3, group:"Due now, and gone quiet"};
   return null;
 }
@@ -1691,7 +1731,7 @@ function Shell({me,setMe}){
   const freshDone = isMgr ? live.filter(t=>CLOSED(t.status) && t.assignee_id!==me.id && !t.seen_at
       && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0)).length : 0;
   const nav = isMgr
-    ? [["home","Home",attnCount],["all","All tasks"],["week","Week ahead"],["dupes","Duplicates",dupeCount],["repeating","Repeating"],["finished","Finished",freshDone],["reports","Reports"],["ones","1:1s"],["people","People"],["intake","Email intake"],["settings","Settings"],["trash","Trash"]]
+    ? [["home","Home",attnCount],["all","All tasks"],["week","Week ahead"],["timeline","Timeline"],["dupes","Duplicates",dupeCount],["repeating","Repeating"],["finished","Finished",freshDone],["reports","Reports"],["ones","1:1s"],["people","People"],["intake","Email intake"],["settings","Settings"],["trash","Trash"]]
     : [["myday","My day"],["all","All my tasks"],["week","Week ahead"],["ones","1:1s"],["settings","Settings"]];
 
   return <>
@@ -1721,6 +1761,7 @@ function Shell({me,setMe}){
       {view==="trash" && <Trash {...ctx} trashed={tasks.filter(t=>t.deleted_at)}/>}
       {view==="myday" && <MyDay {...ctx}/>}
       {view==="week" && <WeekAhead {...ctx}/>}
+      {view==="timeline" && <Timeline {...ctx}/>}
       {view==="repeating" && <Repeating {...ctx}/>}
       {view==="finished" && isMgr && <Finished {...ctx} setMe={setMe}/>}
       {view==="reports" && isMgr && <Reports {...ctx}/>}
@@ -2390,6 +2431,9 @@ function NeedList({holderKey,holderLabel,tasks,me,onClose,showToast}){
 // ---------- all tasks ----------
 function AllTasks(ctx){
   const {tasks,people,today,isMgr,me} = ctx;
+  // picked rows, for the bulk bar. Declared up here rather than beside the list it acts
+  // on, so the list assembly below stays a plain expression other things can borrow.
+  const [pick,setPick] = useState([]);
   // The filters stick. Resetting to "everything" every visit meant narrowing the list
   // was work you redid each time, so nobody did it. The search box deliberately does
   // NOT persist \u2014 coming back to a stale search term reads as missing data.
@@ -2526,7 +2570,10 @@ function AllTasks(ctx){
     </div>}
     {needFor && <NeedList holderKey={needFor} holderLabel={labelFor(needFor)} tasks={tasks}
       me={me} showToast={ctx.showToast} onClose={()=>setNeedFor(null)}/>}
+    {isMgr && <BulkBar pick={pick} setPick={setPick} list={list} people={people}
+      update={ctx.update} load={ctx.load} showToast={ctx.showToast}/>}
     <TaskTable list={list} people={people} today={today} setOpen={ctx.opener(list)} isMgr={isMgr} empty="No tasks match."
+      pick={isMgr?pick:null} setPick={isMgr?setPick:null}
       cols={searching
         ? (isMgr?["who","title","matched","snippet","status","due"]:["title","matched","snippet","status","due"])
         : (isMgr?["who","title","status","origin","entered","due","updated"]:["title","status","origin","entered","due","updated"])}/>
@@ -2553,10 +2600,57 @@ function AllTasks(ctx){
   </>;
 }
 
+// Forty-one overdue tasks is forty-one drawers to open, which is why nobody ever does
+// the sweep. Tick the rows, give them one date, or close them together.
+function BulkBar({pick,setPick,list,people,update,load,showToast}){
+  const [date,setDate] = useState("");
+  const [busy,setBusy] = useState(false);
+  const shown = new Set(list.map(t=>t.id));
+  const chosen = (pick||[]).filter(id=>shown.has(id));
+  useEffect(()=>{ // never leave a selection pointing at rows that have scrolled out of the filter
+    if((pick||[]).some(id=>!shown.has(id))) setPick(chosen);
+  },[list]);
+  if(!chosen.length) return null;
+  const rows = list.filter(t=>chosen.includes(t.id));
+  const openOnes = rows.filter(t=>!CLOSED(t.status));
+  const run = async (patch, what) => {
+    setBusy(true);
+    let ok = 0, failed = 0;
+    for(const t of openOnes){
+      const done = await update(t.id, patch);
+      done ? ok++ : failed++;
+    }
+    setBusy(false); setPick([]); await load();
+    showToast(failed ? `${what} ${ok}, but ${failed} would not budge` : `${what} ${ok}`);
+  };
+  return <div className="bulkbar">
+    <span className="n">{chosen.length} picked</span>
+    {openOnes.length < rows.length &&
+      <span className="meta">{rows.length-openOnes.length} already closed, and will be left alone</span>}
+    <span style={{flex:1}}/>
+    <input type="date" value={date} onChange={e=>setDate(e.target.value)} title="A new due date for all of them"/>
+    <button className="btn sm p" disabled={!date || busy || !openOnes.length}
+      onClick={()=>run({due_date:date}, "Moved")}>Move {openOnes.length} to this date</button>
+    <button className="btn sm" disabled={busy || !openOnes.length}
+      title="Close them without an email or a finish prompt"
+      onClick={()=>{ if(window.confirm(`Mark ${openOnes.length} task${openOnes.length===1?"":"s"} done? There is no finish prompt and no email.`))
+        run({status:"done", need_help:false, need_manager:false}, "Closed"); }}>Mark done</button>
+    <button className="btn sm" onClick={()=>setPick([])}>Clear</button>
+  </div>;
+}
+
 // One table for every list in the app. `cols` picks the columns; `actions` adds a
 // right-hand cell of buttons; rows open the drawer unless `actions` says otherwise.
-function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
+function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why,pick,setPick}){
   const [sort,setSort] = useState(null);
+  // Selection is optional and off everywhere except All tasks: a checkbox column on a
+  // list you only ever read is noise.
+  const picking = !!setPick;
+  const chosen = new Set(pick||[]);
+  const toggle = (e,id) => { e.stopPropagation();
+    const next = new Set(chosen);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setPick([...next]); };
   // WATCHED is a plain Set shared across the app, so nudge React when it changes
   const [,bump] = useState(0);
   const canWatch = !!(ME && (ME.role==="owner" || ME.role==="manager"));
@@ -2665,13 +2759,20 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why}){
   if(!list.length) return <div className="card"><div className="empty">{empty||"Nothing here."}</div></div>;
   return <div className="card tablewrap">
     <table className="ttable"><thead><tr>
+      {picking && <th className="pickcol" title="Pick them all, or none">
+        <input type="checkbox" style={{width:"auto"}}
+          checked={rows.length>0 && rows.every(t=>chosen.has(t.id))}
+          onChange={e=>setPick(e.target.checked ? rows.map(t=>t.id) : [])}/></th>}
       {keys.map(k=><th key={k} className={COLS[k].cls||""} title="Sort by this column"
         onClick={()=>setSort(sort && sort.k===k ? (sort.dir===1?{k,dir:-1}:null) : {k,dir:1})}>
         {COLS[k].label}{sort && sort.k===k ? <span className="sortmark">{sort.dir===1?"\u25B4":"\u25BE"}</span> : null}</th>)}
       {actions && <th className="num"></th>}
     </tr></thead><tbody>
       {rows.map(t=><tr key={t.id} onClick={()=>setOpen && setOpen(t.id, rows)} style={setOpen?undefined:{cursor:"default"}}
-        className={ASKING(t) ? "r-asking" : WATCHED.has(t.id) ? "r-watching" : ""}>
+        className={[chosen.has(t.id)?"r-picked":"", ASKING(t) ? "r-asking" : WATCHED.has(t.id) ? "r-watching" : ""].filter(Boolean).join(" ")}>
+        {picking && <td className="pickcol" onClick={e=>e.stopPropagation()}>
+          <input type="checkbox" style={{width:"auto"}} checked={chosen.has(t.id)}
+            onChange={e=>toggle(e,t.id)}/></td>}
         {keys.map(k=><td key={k} className={[COLS[k].cls||"",COLS[k].cellCls?COLS[k].cellCls(t):""].join(" ").trim()}>{COLS[k].cell(t)}</td>)}
         {actions && <td className="num" onClick={e=>e.stopPropagation()}>{actions(t)}</td>}
       </tr>)}
@@ -2837,8 +2938,30 @@ function MyDay(ctx){
   const review = rest.filter(t=>t.status==="ready_for_review");
   const upcoming = rest.filter(t=>!dueToday.includes(t) && t.status!=="waiting" && t.status!=="ready_for_review");
   const groups = [["Waiting on your manager",flagged],["Due today or overdue",dueToday],["Waiting on someone else",waiting],["Waiting for your manager's review",review],["Upcoming",upcoming],["Handed to your manager",handedUp]];
+  // An overdue task used to sit here in red and wait to be noticed. Red is not a
+  // question, so nothing happened: of 41 overdue, almost none had been re-dated or
+  // closed. Ask instead, one at a time, of the person who knows the answer.
+  const stuck = rest.filter(t=>t.due_date && t.due_date < today && !t.requested_due)
+    .sort((a,b)=>String(a.due_date).localeCompare(String(b.due_date)));
+  const [asked,setAsked] = useState([]);       // put aside for now, this visit only
+  const next = stuck.find(t=>!asked.includes(t.id));
+  const daysLate = next ? Math.max(1, Math.round((new Date(today) - new Date(next.due_date))/86400000)) : 0;
   return <>
     <div className="h"><h2>My day</h2><span className="sub">{fmtDate(today)} · {mine.length} open</span></div>
+    {next && <div className="card edged edge-warn" style={{marginBottom:12}}>
+      <div style={{fontWeight:700,marginBottom:2}}>{next.title}</div>
+      <div className="meta" style={{marginBottom:10}}>
+        Was due {fmtDate(next.due_date)} {"\u2014"} {daysLate} day{daysLate===1?"":"s"} ago.
+        {stuck.length>1 ? ` ${stuck.length-1} more like this.` : ""}</div>
+      <div className="actions" style={{justifyContent:"flex-start"}}>
+        <button className="btn p" onClick={async()=>{
+          if(await update(next.id,{status:"done",need_help:false,need_manager:false}))
+            ctx.showToast("Done \u2014 off your list");
+        }}>It{"\u2019"}s done</button>
+        <button className="btn" onClick={()=>ctx.setOpen(next.id)}>Still happening {"\u2014"} open it</button>
+        <button className="btn" onClick={()=>setAsked([...asked, next.id])}>Not now</button>
+      </div>
+    </div>}
     {mine.length===0 && handedUp.length===0 && <div className="card"><div className="empty">Nothing on your plate right now. Tap + Add task to give yourself one.</div></div>}
     {groups.map(([l,list])=> list.length ? <React.Fragment key={l}>
       <div className="section-title">{l} ({list.length})</div>
@@ -3830,6 +3953,11 @@ function TaskModal(ctx){
       {mayAnswer && (t.need_manager||t.need_help) && <button className="btn r" onClick={()=>setReplying(true)}>Reply &amp; clear flag</button>}
       {!CLOSED(t.status) && t.assignee_id!==me.id && <button className="btn" onClick={()=>finish({status:"done"},"Mark done")}>Mark done</button>}
       {(isMgr || iCreated) && CLOSED(t.status) && !GONE_TO_BD(t) && <button className="btn" onClick={()=>quick({status:"working",skip_reason:null},"Reopened")}>Reopen</button>}
+      {/* Out front rather than in More: it is the one thing you do on a finished task,
+          and it is how the Finished count comes down. */}
+      {isMgr && CLOSED(t.status) && t.assignee_id!==me.id && !t.seen_at && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0) &&
+        <button className="btn" style={{color:"var(--ok)",borderColor:"#bfe3c5"}}
+          onClick={()=>update(t.id,{seen_at:new Date().toISOString()}).then(ok=>ok&&showToast("Seen \u2014 one fewer on the Finished count"))}>Mark as seen</button>}
       {!canReshape && t.assignee_id===me.id && !CLOSED(t.status) && !t.requested_due &&
         <button className="btn" onClick={()=>setDating(true)}>Need more time</button>}
       {fromBD && !CLOSED(t.status) && <button className="btn" style={{color:"#1f3a7a",borderColor:"#c7d7f5"}} onClick={()=>setReturning(true)}>Return to Kathleen</button>}
@@ -3849,8 +3977,6 @@ function TaskModal(ctx){
           ? <button onClick={()=>setSkipping(true)}>Skip this one</button> : null}
         {isMgr && root
           ? <button onClick={()=>update(root.id,{recur_paused:!root.recur_paused}).then(ok=>ok&&showToast(root.recur_paused?"Series resumed":"Series paused \u2014 no new ones will be created"))}>{root.recur_paused?"Resume series":"Pause series"}</button> : null}
-        {isMgr && CLOSED(t.status) && t.assignee_id!==me.id && !t.seen_at && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0)
-          ? <button onClick={()=>update(t.id,{seen_at:new Date().toISOString()}).then(ok=>ok&&showToast("Seen \u2014 one fewer on the Finished count"))}>Mark as seen</button> : null}
         {canReshape ? <div className="sep"/> : null}
         {canReshape ? <button className="danger" onClick={()=>trash(t)}>Trash</button> : null}
       </More>
@@ -4362,6 +4488,96 @@ function WeekAhead({tasks,people,today,setOpen,opener,me,isMgr}){
       {later.length} more due after {fmtDate(days[days.length-1].iso)}.</div>}
     {!overdue.length && !undated.length && !dueToday.length && days.every(d=>!d.list.length) &&
       <div className="card" style={{marginTop:12}}><div className="empty">Nothing due in this window.</div></div>}
+  </>;
+}
+
+// Week ahead answers "what is this week". This answers "how does the whole lot line
+// up" — every open task on one calendar, a row per person, so a pile-up on one date or
+// one person is a shape you can see rather than a number you have to work out.
+function Timeline({tasks,people,today,setOpen,opener,me,isMgr}){
+  const [weeks,setWeeks] = useState(8);
+  const [who,setWho] = useState([]);
+  const open = tasks.filter(t=>!CLOSED(t.status));
+  const nameFor = (t) => t.assignee_id ? nameOf(people,t.assignee_id)
+    : t.assignee_email ? ((INVITEES.find(i=>i.email===String(t.assignee_email).toLowerCase())||{}).full_name || t.assignee_email)
+    : "Unassigned";
+  const keyFor = (t) => t.assignee_id || (t.assignee_email ? "email:"+String(t.assignee_email).toLowerCase() : "none");
+  const shown = open.filter(t=>!who.length || who.includes(keyFor(t)));
+
+  // Monday of this week, then one column per week. Anything already late piles into a
+  // column of its own on the left, because that is exactly what it is.
+  const monday = (() => { const d=new Date(today+"T00:00:00");
+    d.setDate(d.getDate() - ((d.getDay()+6)%7)); return d; })();
+  const iso = (d) => { const x=new Date(d); x.setMinutes(x.getMinutes()-x.getTimezoneOffset());
+    return x.toISOString().slice(0,10); };
+  const cols = [];
+  for(let i=0;i<weeks;i++){ const a=new Date(monday); a.setDate(a.getDate()+i*7);
+    const b=new Date(a); b.setDate(b.getDate()+6);
+    cols.push({from:iso(a), to:iso(b), label:a.toLocaleDateString(undefined,{month:"short",day:"numeric"})}); }
+  const lastDay = cols[cols.length-1].to;
+
+  const rowsBy = new Map();
+  for(const t of shown){
+    const k = keyFor(t);
+    if(!rowsBy.has(k)) rowsBy.set(k, {k, who:nameFor(t), late:[], later:[], cells:cols.map(()=>[])});
+    const r = rowsBy.get(k);
+    if(!t.due_date) r.later.push(t);
+    else if(t.due_date < today) r.late.push(t);
+    else if(t.due_date > lastDay) r.later.push(t);
+    else { const n = cols.findIndex(c=>t.due_date>=c.from && t.due_date<=c.to);
+           if(n>=0) r.cells[n].push(t); else r.later.push(t); }
+  }
+  const rows = [...rowsBy.values()].sort((a,b)=>
+    (b.late.length - a.late.length) || a.who.localeCompare(b.who));
+  const peopleOpts = [...new Set(open.map(keyFor))].map(k=>{
+    const t = open.find(x=>keyFor(x)===k); return {k, label:nameFor(t)}; })
+    .sort((a,b)=>a.label.localeCompare(b.label));
+  const busiest = Math.max(1, ...rows.flatMap(r=>r.cells.map(c=>c.length)));
+  const cell = (items, tone) => {
+    if(!items.length) return <span className="tl-none">{"\u00b7"}</span>;
+    const heat = Math.min(1, items.length / busiest);
+    return <button className={"tl-cell "+(tone||"")} title={items.map(t=>`#${t.ref} ${t.title}`).join("\n")}
+      style={tone?undefined:{background:`rgba(31,58,122,${0.10 + heat*0.42})`,
+                             color: heat>0.55 ? "#fff" : "var(--navy)"}}
+      onClick={()=>setOpen(items[0].id, items.map(t=>t.id))}>{items.length}</button>;
+  };
+  return <>
+    <div className="h"><h2>Timeline</h2>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+        <span className="sub">{shown.length} open</span>
+        {isMgr && <MultiPick allLabel="Everyone" value={who} onChange={setWho} options={peopleOpts}/>}
+        <select value={weeks} onChange={e=>setWeeks(parseInt(e.target.value))}
+          style={{padding:"6px 8px",borderRadius:8,border:"1px solid var(--line)"}}>
+          <option value={4}>4 weeks</option><option value={8}>8 weeks</option>
+          <option value={13}>a quarter</option><option value={26}>6 months</option></select>
+      </div></div>
+    <div className="card tablewrap">
+      <table className="ttable tl"><thead><tr>
+        <th className="who">Person</th>
+        <th className="tl-late">Late</th>
+        {cols.map(c=><th key={c.from} className="num"
+          title={`${c.from} to ${c.to}`}>{c.label}</th>)}
+        <th className="num">Later</th>
+      </tr></thead><tbody>
+        {rows.map(r=><tr key={r.k}>
+          <td className="who">{r.who}</td>
+          <td className="tl-late">{cell(r.late,"late")}</td>
+          {r.cells.map((items,i)=><td key={i} className="num">{cell(items)}</td>)}
+          <td className="num">{cell(r.later,"later")}</td>
+        </tr>)}
+        {rows.length>1 && <tr className="tl-total">
+          <td className="who">Everyone</td>
+          <td className="tl-late">{cell(rows.flatMap(r=>r.late),"late")}</td>
+          {cols.map((c,i)=><td key={i} className="num">{cell(rows.flatMap(r=>r.cells[i]))}</td>)}
+          <td className="num">{cell(rows.flatMap(r=>r.later),"later")}</td>
+        </tr>}
+      </tbody></table>
+    </div>
+    <div className="note" style={{marginTop:10}}>
+      Each number is how many land in that week. Darker is busier. Click one to open the
+      first of them, then arrow through the rest. <b>Late</b> is already past its date;
+      <b> Later</b> is beyond the window, or has no date at all.
+    </div>
   </>;
 }
 

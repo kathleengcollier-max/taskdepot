@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="17.0">
+<meta name="app-version" content="17.2">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -50,7 +50,6 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
   box-shadow:0 1px 2px rgba(20,26,40,.05), 0 10px 22px -16px rgba(20,26,40,.3)}
 /* a Home group carries the colour of why it needs you, set by its Fold */
 .edge-red>.card,.edge-warn>.card,.edge-navy>.card,.edge-ok>.card,.edge-purple>.card,.edge-grey>.card{border-left:4px solid var(--edge,#c3cbdb)}
-.attn{border-left:4px solid var(--red)}
 .row{display:grid;grid-template-columns:1fr auto;gap:8px 14px;padding:12px 14px;border-top:1px solid var(--line);cursor:pointer;align-items:center}
 .row:first-child{border-top:0}
 .row:hover{background:#fafbfd}
@@ -79,7 +78,7 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
 .btn.sm{padding:5px 10px;font-size:13px}
 .big{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin:8px 0 4px}
 .big button{border:0;border-radius:var(--radius);padding:16px 6px;font-weight:700;font-size:15px;cursor:pointer;color:#fff}
-.big .done{background:var(--ok)} .big .upd{background:var(--navy)} .big .blk{background:var(--warn)} .big .help{background:var(--red)}
+.big .done{background:var(--ok)} .big .upd{background:var(--navy)} .big .help{background:var(--red)}
 .big .rev{background:#5b3fa0}
 /* The quiet one in a row of loud ones: it asks for nothing and sends nothing, so it
    should not shout like Need help. .big button forces white text for the coloured
@@ -241,9 +240,7 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 80px}
   body{background:#fff}
   main{padding:0;max-width:100%}
   .panel{break-inside:avoid;border:1px solid #999}
-  .agenda-print{display:block!important}
 }
-.agenda-print{display:none}
 .ag h4{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:16px 0 6px}
 .ag ul{margin:0;padding-left:18px} .ag li{margin-bottom:5px;font-size:14px;border-radius:6px;padding:3px 6px;margin-left:-6px}
 .ag li[style*="pointer"]:hover{background:#eef2fa}
@@ -634,6 +631,14 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"17.2", d:"November 1, 2026", items:[
+    "Housekeeping only, nothing to see. Three style rules that no longer matched anything on screen — leftovers from the Blocked button and an old print layout — came out.",
+  ]},
+  {v:"17.1", d:"October 31, 2026", items:[
+    "The search box at the top of Home now finds the same things as the one on All tasks. It only ever read titles, while All tasks asked the server and therefore also read details, comments, steps, the definition of done and standing notes \u2014 so typing \u201cpaint\u201d found nothing here and found #227 there, because the word is in a comment and a step on it, not in its name. Two boxes, two answers, and nothing on screen to say which you were getting.",
+    "Title matches still appear the instant you type, because those come from what is already loaded. Anything found deeper follows a moment later, below them, saying where it matched \u2014 \u201cmatched in comment\u201d.",
+    "The empty state used to tell you to go and search somewhere else. It no longer needs to.",
+  ]},
   {v:"17.0", d:"October 30, 2026", items:[
     "Timeline \u2014 a new screen. Every open task on one calendar, a row per person and a column per week, so a pile-up on one date or one person is a shape you can see rather than a number you have to work out. Four weeks, eight, a quarter or six months. Darker is busier; click a cell to open the first of them and arrow through the rest.",
     "Late has a column of its own at the left, in red, because that is what it is. Later holds anything past the window or with no date at all.",
@@ -1894,6 +1899,27 @@ function ManagerHome(ctx){
     try{ return localStorage.getItem("td_jump_done")==="1"; }catch(e){ return false; }
   });
   const setJD = (v) => { setJumpDone(v); try{ localStorage.setItem("td_jump_done", v?"1":"0"); }catch(e){} };
+  // This box used to read titles and nothing else, while All tasks asked the server and
+  // therefore also read details, comments, steps, the definition of done and standing
+  // notes. Typing "paint" here found nothing and there found #227, because the word is
+  // in a comment and a step on it. Two boxes, two answers, no way to tell which you were
+  // getting. It asks the server too now — behind the instant title matches, the same way
+  // the Brain Dump lookup below does, so typing never waits on a round trip.
+  const [deepHits,setDeepHits] = useState(null);
+  const deepSeq = useRef(0);
+  useEffect(()=>{
+    const q = jump.trim();
+    if(q.length < 2){ setDeepHits(null); return; }
+    const mine = ++deepSeq.current;
+    const timer = setTimeout(()=>{
+      sb.rpc("search_all",{q, include_closed:true}).then(({data,error})=>{
+        if(mine !== deepSeq.current) return;      // an answer about an older keystroke
+        setDeepHits(error ? null
+          : new Map((data||[]).map(r=>[r.task_id,{hit:r.hit_kind, snippet:r.snippet}])));
+      }).catch(()=>{ if(mine === deepSeq.current) setDeepHits(null); });
+    }, 250);
+    return ()=>clearTimeout(timer);
+  },[jump]);
   const jumpAll = (() => {
     const q = jump.trim().toLowerCase();
     if(q.length < 2 && jumpRef === null) return [];
@@ -1905,7 +1931,15 @@ function ManagerHome(ctx){
     // with \"1050\" in it could not be found by typing 1050. The task with that number
     // leads; titles carrying it follow.
     const byNumber = jumpRef !== null ? live.filter(x=>x.ref === jumpRef) : [];
-    return [...byNumber, ...byTitle.filter(x=>!byNumber.some(r=>r.id===x.id))];
+    // matched somewhere other than the title: after the obvious hits, each saying where
+    const seen = new Set([...byNumber, ...byTitle].map(x=>x.id));
+    const deeper = deepHits
+      ? live.filter(x=>deepHits.has(x.id) && !seen.has(x.id))
+            .map(x=>({...x, __hit:(deepHits.get(x.id)||{}).hit}))
+            .sort((a,b)=>(CLOSED(a.status)?1:0)-(CLOSED(b.status)?1:0)
+                       || String(a.due_date||"9").localeCompare(String(b.due_date||"9")))
+      : [];
+    return [...byNumber, ...byTitle.filter(x=>!byNumber.some(r=>r.id===x.id)), ...deeper];
   })();
   const jumpHits   = (jumpDone ? jumpAll : jumpAll.filter(x=>!CLOSED(x.status))).slice(0,8);
   const jumpHidden = jumpDone ? 0 : jumpAll.filter(x=>CLOSED(x.status)).length;
@@ -1976,15 +2010,17 @@ function ManagerHome(ctx){
             <span className="refsm">#{x.ref}</span>
             <span className="jt">{x.title}</span>
             <span className="meta">{ownerName(people,x)}{" \u00b7 "}{STATUS[x.status]||x.status}
-              {x.due_date?` \u00b7 due ${fmtDate(x.due_date)}`:""}</span>
+              {x.due_date?` \u00b7 due ${fmtDate(x.due_date)}`:""}
+              {x.__hit?<span style={{color:"var(--navy)",fontWeight:600}}>{" \u00b7 "}matched in {String(x.__hit).toLowerCase()}</span>:null}</span>
           </button>)
           : <div className="empty" style={{padding:"10px 12px"}}>
               {jumpHidden > 0
                 ? (jumpRef !== null
                     ? `Task #${jumpRef} is finished \u2014 tick the box above to open it.`
                     : `${jumpHidden} finished task${jumpHidden>1?"s":""} match, but open work only is on \u2014 tick the box above.`)
-                : <>{jumpRef !== null ? `No task #${jumpRef}.` : "Nothing open with that in the title."}
-                   {" "}The All tasks search also reads comments and steps.</>}</div>}
+                : (jumpRef !== null ? `No task #${jumpRef}.`
+                    : deepHits === null ? "Looking\u2026"
+                    : "Nothing matches, in a title or anywhere else.")}</div>}
         {jumpHits.length>0 && jumpHidden>0 && <div className="jumpfoot">
           {jumpHidden} finished {jumpHidden>1?"ones":"one"} also match{jumpHidden>1?"":"es"}, hidden by the box above.
         </div>}

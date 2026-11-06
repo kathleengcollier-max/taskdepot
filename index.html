@@ -5430,6 +5430,11 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
   const inFlight = inFlightAll;
   const watchedFolded = theirsLive.filter(x=>x.watching).length;
   const [openHanded,setOpenHanded] = useState(false);
+  // The two finished blocks fold the same way as the three above them. They are a record,
+  // not an agenda: by the time you are reading the meeting you want the live work first,
+  // and a long tail of closed items pushed it off the screen.
+  const [openDoneWatched,setOpenDoneWatched] = useState(false);
+  const [openDoneRest,setOpenDoneRest] = useState(false);
   const TODAY = todayISO();
   const dueCls = (d) => !d ? "" : (d < TODAY ? "late" : d === TODAY ? "today" : "");
   // One shape for every part of the agenda: a table, so a due date sits in a column you
@@ -5597,12 +5602,16 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
       <div className="ag"><ul>{a.notes.map((x,i)=>
         <li key={i} style={{cursor:x.id?"pointer":undefined}} onClick={()=>open(x.id, a.notes)}>
           <b>{x.title}</b><div className="meta">{x.body}</div></li>)}</ul></div></div>}
-    {doneWatched.length>0 && <div className="panel edged edge-navy">
+    {doneWatched.length>0 && <div className="panel tint edged edge-navy">
       <h3>Finished, and you were watching ({doneWatched.length})</h3>
-      <div style={{fontSize:13,color:"var(--muted)",margin:"-2px 0 8px"}}>
-        Closed, but you asked to follow them, so they stay here however long ago it was,
-        until you drop the eye.</div>
-      <div className="ag"><ul>{doneWatched.map((x,i)=>
+      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{flex:1,fontSize:13,color:"var(--muted)"}}>
+          Closed, but you asked to follow them, so they stay here however long ago it was,
+          until you drop the eye.</span>
+        <button className="btn sm" onClick={()=>setOpenDoneWatched(!openDoneWatched)}>
+          {openDoneWatched?"Hide":"Show"}</button>
+      </div>
+      {openDoneWatched && <div className="ag" style={{marginTop:10}}><ul>{doneWatched.map((x,i)=>
         <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
           <span style={{flex:1,cursor:x.id?"pointer":undefined}}
             onClick={()=>open(x.id, doneWatched)} title={x.id?"Open the task":undefined}>
@@ -5610,11 +5619,18 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
           <button className="btn sm" style={{whiteSpace:"nowrap"}}
             title="Take the eye off it — it drops out of this list"
             onClick={(e)=>{e.stopPropagation(); stopWatching(x.id, x.title);}}>Done looking</button>
-        </li>)}</ul></div>
+        </li>)}</ul></div>}
     </div>}
-    {doneRest.length>0 && <div className="panel edged edge-ok">
+    {doneRest.length>0 && <div className="panel tint edged edge-ok">
       <h3>Finished in the last {a.since_days} days ({doneRest.length})</h3>
-      <div className="ag"><ul>{doneRest.map((x,i)=>
+      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{flex:1,fontSize:13,color:"var(--muted)"}}>
+          Done and dusted {"—"} here so you can say well done, or put one back if it
+          turned out not to be. Reopening keeps the due date and records who did it.</span>
+        <button className="btn sm" onClick={()=>setOpenDoneRest(!openDoneRest)}>
+          {openDoneRest?"Hide":"Show"}</button>
+      </div>
+      {openDoneRest && <div className="ag" style={{marginTop:10}}><ul>{doneRest.map((x,i)=>
         <li key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
           <span style={{flex:1,cursor:x.id?"pointer":undefined}}
             onClick={()=>open(x.id, doneRest)} title={x.id?"Open the task":undefined}>{x.title}
@@ -5624,8 +5640,7 @@ function Agenda({personId,pairWith,withWhom,people,onBack,showToast,setOpen,open
             ? <span className="meta" style={{whiteSpace:"nowrap"}}>back with Kathleen</span>
             : <button className="btn q" style={{padding:"0 6px",color:"var(--muted)",whiteSpace:"nowrap"}}
                 title="Put it back to Working" onClick={(e)=>{e.stopPropagation(); reopen(x.id, x.title);}}>↻ Reopen</button>}
-        </li>)}</ul></div>
-      <div style={{fontSize:13,color:"var(--muted)",marginTop:6}}>Reopening keeps the due date and records who did it in the task's history.</div>
+        </li>)}</ul></div>}
     </div>}
     {a.own_view && <div className="note">This is what your manager sees when they open your 1:1, minus any private notes they've written.</div>}
     {past.length>0 && <div className="panel tint edged edge-purple">

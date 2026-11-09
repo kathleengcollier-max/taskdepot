@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="18.5">
+<meta name="app-version" content="18.6">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -684,6 +684,11 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"18.6", d:"November 10, 2026", items:[
+    "\u201cFill in the form for me\u201d no longer wipes what you already typed. It used to clear the form and lay its answer over the top, so filling in who it goes to and the date before pressing the button threw both away. Now what you typed wins and it only fills the blanks.",
+    "It tells you what it did \u2014 which fields it filled, and which it left as you had them.",
+    "Where it read something different from what you put, it offers its answer as a one-click swap rather than silently discarding either version. So if you set Friday and the email actually said Tuesday, you get to see that.",
+  ]},
   {v:"18.5", d:"November 9, 2026", items:[
     "Merge now asks which task stays. It used to always keep the one you happened to have open, which is often the newer, emptier copy. You pick, and the panel shows both side by side \u2014 owner, date, status, step count \u2014 so you can see what you are choosing between.",
     "Worth knowing: merging has never been lossy. Comments, files and steps from both tasks end up on the one you keep. The choice only decides which title, owner, due date and number survive. The panel now says so.",
@@ -3145,6 +3150,7 @@ function AssignModal(ctx){
     setSteps([...steps, ...lines]); setStepText("");
   };
   const [f,setF] = useState(prefill ? {...blank, ...prefill} : blank); const [ai,setAi] = useState(""); const [busy,setBusy]=useState(false); const [err,setErr]=useState("");
+  const [aiNote,setAiNote] = useState(null);   // what the capture box filled, and what it left alone
   // Work goes down or sideways-to-yourself, never up. Putting something on your
   // manager's plate is Need help or a 1:1 mention, which keeps it tied to the task.
   const staff = ctx.isOwner
@@ -3157,8 +3163,35 @@ function AssignModal(ctx){
       const roster = Object.fromEntries(staff.map(p=>[p.full_name,p.id]));
       const {data,error} = await sb.functions.invoke("ai",{body:{action:"capture",text:ai,roster,today}});
       if(error) throw error; if(data.error) throw new Error(data.error);
-      const t = data.task; setF({...blank, ...Object.fromEntries(Object.entries(t).filter(([k,v])=>v!==null && k in blank))});
+      const t = data.task;
+      // What you typed wins. This used to reset the form to blank and then lay the AI's
+      // answer over it, so filling in the owner and the date before pressing the button
+      // threw both away. You are telling it the parts you already know; it fills the rest.
+      const LABEL = {title:"title", assignee_id:"who it goes to", due_date:"the date",
+                     priority:"priority", details:"details",
+                     definition_of_done:"what done looks like", standing_notes:"notes",
+                     context:"context", recur_rule:"the repeat"};
+      const next = {...f};
+      const filled = [], kept = [];
+      for(const [k,v] of Object.entries(t)){
+        if(!(k in blank) || v === null || v === "") continue;
+        const mineIsSet = String(f[k] ?? "") !== "" && String(f[k] ?? "") !== String(blank[k] ?? "");
+        if(mineIsSet){
+          // only worth mentioning when it actually read something different
+          if(String(v) !== String(f[k])) kept.push({k, label:LABEL[k]||k, theirs:v});
+        } else {
+          next[k] = v;
+          // don't claim to have filled something in when its answer matches the default
+          if(LABEL[k] && String(v) !== String(blank[k] ?? "")) filled.push(LABEL[k]);
+        }
+      }
+      setF(next);
+      setAiNote({filled, kept});
     }catch(e){ setErr(e.message||String(e)); } finally{ setBusy(false); }
+  };
+  const takeSuggestion = (k, v) => {
+    setF(prev=>({...prev, [k]:v}));
+    setAiNote(n=>n ? {...n, kept:n.kept.filter(x=>x.k!==k)} : n);
   };
   const save = async () => {
     if(!f.title.trim()) { setErr("A task needs a title."); return; }
@@ -3219,7 +3252,24 @@ function AssignModal(ctx){
     {isMgr && <div className="ai">
       <div style={{fontWeight:600,marginBottom:6}}>Or just describe it</div>
       <textarea placeholder='"Ilah needs to get an updated freight quote from Goodman for the Anaheim equipment order by Friday." Or paste an email.' value={ai} onChange={e=>setAi(e.target.value)}/>
+      <div style={{fontSize:12,color:"var(--muted)",marginTop:-2,marginBottom:6}}>
+        Anything you have already filled in below is kept — it only fills the blanks.
+      </div>
       <div className="actions"><button className="btn" disabled={busy||!ai.trim()} onClick={capture}>{busy?"Reading…":"Fill in the form for me"}</button></div>
+      {aiNote && (aiNote.filled.length>0 || aiNote.kept.length>0) &&
+       <div className="note" style={{marginTop:10}}>
+        {aiNote.filled.length>0 && <div>Filled in {aiNote.filled.join(", ")}.</div>}
+        {aiNote.kept.length>0 && <div style={{marginTop:aiNote.filled.length?6:0}}>
+          Left {aiNote.kept.map(x=>x.label).join(" and ")} as you had {aiNote.kept.length>1?"them":"it"}.
+          {aiNote.kept.map(x=><span key={x.k} style={{marginLeft:8,display:"inline-block"}}>
+            <button className="btn sm" onClick={()=>takeSuggestion(x.k, x.theirs)}>
+              Use {x.k==="assignee_id"
+                    ? (ownerName(people,{assignee_id:x.theirs}) || "its answer")
+                    : x.k==="due_date" ? fmtDate(x.theirs)
+                    : String(x.theirs).length>28 ? String(x.theirs).slice(0,28)+"…" : String(x.theirs)}
+            </button></span>)}
+        </div>}
+      </div>}
     </div>}
     <div className="form" style={{marginTop:14}}>
       <label>Task<input autoFocus value={f.title} onChange={e=>setF({...f,title:e.target.value})} placeholder="Get updated freight quote from Goodman"/></label>

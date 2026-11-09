@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="18.4">
+<meta name="app-version" content="18.5">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -684,6 +684,13 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"18.5", d:"November 9, 2026", items:[
+    "Merge now asks which task stays. It used to always keep the one you happened to have open, which is often the newer, emptier copy. You pick, and the panel shows both side by side \u2014 owner, date, status, step count \u2014 so you can see what you are choosing between.",
+    "Worth knowing: merging has never been lossy. Comments, files and steps from both tasks end up on the one you keep. The choice only decides which title, owner, due date and number survive. The panel now says so.",
+    "If you merge the task you are looking at INTO another one, the drawer moves over to the survivor instead of leaving you on a page that is now in the Trash.",
+    "Tasks from a meeting can now land on a task you already have. If a proposal looks like something already on your list, the row says so and offers to add it as a note on that task instead of making a second copy. You can also point any row at an existing task by hand.",
+    "Adding to an existing task changes nothing about it \u2014 not its owner, not its due date. The recap is a note about the work, not a new instruction.",
+  ]},
   {v:"18.4", d:"November 9, 2026", items:[
     "Tasks from a meeting \u2014 a new button on the 1:1s screen. Paste the write-up your notetaker emails you after a meeting and it proposes the tasks, with owners, supporting detail and any dates the recap implies.",
     "It proposes, it never creates. Every row has a tick, an editable title, an owner and a date, and nothing is assigned and nobody is told until you press Create.",
@@ -3312,6 +3319,10 @@ function TaskModal(ctx){
   const [drop,setDrop] = useState([]);        // holders being taken off it
   const [copyBusy,setCopyBusy] = useState(false);
   const [joining,setJoining] = useState(null);      // "link" | "merge"
+  // Which of the two survives a merge. The database has always taken a loser and a keeper;
+  // the dialog just never offered the choice, so the task you happened to have open won by
+  // default — and that is often the newer, emptier one.
+  const [keepThis,setKeepThis] = useState(true);
   const [joinQ,setJoinQ] = useState("");
   const [joinPick,setJoinPick] = useState([]);   // several at once when linking
   const [joinBusy,setJoinBusy] = useState(false);
@@ -3383,12 +3394,19 @@ function TaskModal(ctx){
       setJoining(null); setJoinPick([]); setJoinQ(""); loadLinks();
       showToast(`Linked to ${data} task${data===1?"":"s"}`);
     } else {
-      const {data,error} = await sb.rpc("merge_tasks",{p_from:joinPick[0], p_into:t.id});
+      const other = joinPick[0];
+      const keeper = keepThis ? t.id : other;
+      const loser  = keepThis ? other : t.id;
+      const {data,error} = await sb.rpc("merge_tasks",{p_from:loser, p_into:keeper});
       setJoinBusy(false);
       if(error){ showToast(error.message); return; }
-      setJoining(null); setJoinPick([]); setJoinQ("");
-      await ctx.load(); refresh(); loadLinks();
-      showToast(`Merged in — ${data.comments} comment(s), ${data.files} file(s), ${data.steps} step(s) came across`);
+      setJoining(null); setJoinPick([]); setJoinQ(""); setKeepThis(true);
+      await ctx.load();
+      // If the task you were looking at is the one that folded in, it is now in Trash.
+      // Staying on it would show a deleted task, so the drawer moves to the survivor.
+      if(!keepThis) ctx.setOpen(keeper);
+      else { refresh(); loadLinks(); }
+      showToast(`Merged — ${data.comments} comment(s), ${data.files} file(s), ${data.steps} step(s) came across`);
     }
   };
   // things that look like the same work — shared order number, or near-identical wording
@@ -4029,17 +4047,17 @@ function TaskModal(ctx){
         <div style={{display:"flex",gap:6}}>
           <button className="btn sm" onClick={()=>linkHint(h.id)}>Link</button>
           {(isMgr || iCreated) && !CLOSED(t.status) &&
-            <button className="btn sm" onClick={()=>{setJoining("merge"); setJoinPick([h.id]); setJoinQ("");}}>Merge…</button>}
+            <button className="btn sm" onClick={()=>{setJoining("merge"); setJoinPick([h.id]); setJoinQ(""); setKeepThis(true);}}>Merge…</button>}
           <button className="btn sm" onClick={()=>dismissHint(h.id)}>Not related</button>
         </div>
       </div>)}
     </div>}
     {joining && <div className="form card" style={{padding:14,marginBottom:12,borderColor:"#c7d7f5",background:"#f7f9ff"}}>
-      <div><b>{joining==="link" ? "Link this to another task" : "Merge another task into this one"}</b>
+      <div><b>{joining==="link" ? "Link this to another task" : "Merge two tasks into one"}</b>
         <div style={{fontSize:13,color:"var(--muted)"}}>
           {joining==="link"
             ? "Both tasks stay, each showing the other. For different work that belongs to the same job. Tick as many as you like."
-            : "For the same work that arrived twice. Its comments, files and steps move onto this task and it goes to Trash — restorable, not destroyed."}
+            : "For the same work that arrived twice. Comments, files and steps from both end up on the one you keep; the other goes to Trash — restorable, not destroyed."}
         </div></div>
       <input autoFocus value={joinQ} onChange={e=>setJoinQ(e.target.value)} placeholder="Find the other task, or type its number — 137 or #137"/>
       <div style={{maxHeight:220,overflowY:"auto",border:"1px solid var(--line)",borderRadius:8}}>
@@ -4063,12 +4081,51 @@ function TaskModal(ctx){
               ? `No task #${joinRef} that you can merge into this one \u2014 check the number, or search by words instead.`
               : "Nothing matches."}</div>}
       </div>
+      {/* Which one survives. Everything moves either way, so this is not a choice about
+          losing content — it decides which title, owner, due date and number the single
+          remaining task wears. Worth saying, because "merge" sounds lossy and is not. */}
+      {joining==="merge" && joinPick.length>0 && (() => {
+        const other = joinable.find(x=>x.id===joinPick[0]);
+        if(!other) return null;
+        const Side = ({task, mine, on}) => <button type="button" onClick={()=>setKeepThis(mine)}
+          style={{flex:1,minWidth:220,textAlign:"left",font:"inherit",cursor:"pointer",
+                  padding:"10px 12px",borderRadius:9,
+                  border:"2px solid "+(on?"var(--navy)":"var(--line)"),
+                  background:on?"#eef3fd":"#fff"}}>
+          <div style={{fontSize:12,fontWeight:700,color:on?"var(--navy)":"var(--muted)",
+                       textTransform:"uppercase",letterSpacing:.5}}>
+            {on ? "◉ Keep this one" : "○ Keep this one"}</div>
+          <div style={{fontWeight:600,marginTop:4}}>
+            {task.ref ? <span className="refsm">#{task.ref}</span> : null}{task.title}</div>
+          <div className="meta">{ownerName(people,task)}
+            {" · "}{task.due_date?`due ${fmtDate(task.due_date)}`:"no date"}
+            {" · "}{STATUS[task.status]}
+            {STEP_COUNTS[task.id] ? ` · ${STEP_COUNTS[task.id].total} step(s)` : ""}</div>
+        </button>;
+        return <div style={{marginTop:4}}>
+          <div style={{fontSize:13,color:"var(--muted)",marginBottom:6}}>
+            Which one stays? Comments, files and steps come across either way {"—"} this
+            picks the title, owner, due date and number that survive.
+          </div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            <Side task={t} mine={true} on={keepThis}/>
+            <Side task={other} mine={false} on={!keepThis}/>
+          </div>
+          {!keepThis && <div className="note" style={{marginTop:8}}>
+            This task folds into #{other.ref} and goes to Trash. The drawer will move over to it.
+          </div>}
+        </div>;
+      })()}
       <div className="actions">
-        <button className="btn" disabled={joinBusy} onClick={()=>{setJoining(null);setJoinPick([]);setJoinQ("");}}>Cancel</button>
+        <button className="btn" disabled={joinBusy}
+          onClick={()=>{setJoining(null);setJoinPick([]);setJoinQ("");setKeepThis(true);}}>Cancel</button>
         <button className="btn p" disabled={!joinPick.length||joinBusy} onClick={doJoin}>
           {joinBusy ? "Working…"
             : joining==="link" ? `Link ${joinPick.length||""} task${joinPick.length===1?"":"s"}`
-            : "Merge it in"}</button>
+            : (() => { const other = joinable.find(x=>x.id===joinPick[0]);
+                 return keepThis
+                   ? (other && other.ref ? `Merge #${other.ref} into this one` : "Merge it in")
+                   : (other && other.ref ? `Merge this into #${other.ref}` : "Merge into that one"); })()}</button>
       </div>
     </div>}
     {copying && (() => {
@@ -4172,7 +4229,7 @@ function TaskModal(ctx){
         {!CLOSED(t.status)
           ? <button onClick={()=>{setJoining("link");setJoinPick([]);setJoinQ("");}}>Link to another task</button> : null}
         {(isMgr || iCreated) && !CLOSED(t.status)
-          ? <button onClick={()=>{setJoining("merge");setJoinPick([]);setJoinQ("");}}>Merge another in</button> : null}
+          ? <button onClick={()=>{setJoining("merge");setJoinPick([]);setJoinQ("");setKeepThis(true);}}>Merge with another task</button> : null}
         {t.recur_rule && !CLOSED(t.status) && (isMgr || t.assignee_id===me.id)
           ? <button onClick={()=>setSkipping(true)}>Skip this one</button> : null}
         {isMgr && root
@@ -5161,7 +5218,33 @@ function Repeating({showToast,setOpen,tasks,isMgr,update}){
 // bullets are not tasks, the same job listed under both "Action Items" and "Next Steps"
 // is one task rather than two, and "check this weekly" is a flag for a human rather than
 // a recurrence to set silently.
-function Recap({me, people, invitees, isOwner, today, onClose, showToast, load}){
+// Word overlap against the open list, ignoring the words every task title contains. Crude
+// on purpose: it only has to be good enough to put a "you may already have this" prompt in
+// front of someone, who then decides. A wrong suggestion costs a glance; a missed one costs
+// a duplicate task, so it leans towards offering.
+const RECAP_STOP = new Set(("the a an and or of to for on in at with from by is are be "+
+  "review check update send make get set complete completed do done task tasks new all "+
+  "this that these those it its their his her them we you i").split(" "));
+const recapWords = (s) => [...new Set(String(s||"").toLowerCase()
+  .replace(/[^a-z0-9$ ]+/g," ").split(/\s+/)
+  .filter(w=>w.length>2 && !RECAP_STOP.has(w)))];
+function recapMatch(title, tasks){
+  const mine = recapWords(title);
+  if(mine.length < 2) return null;
+  let best = null;
+  for(const x of tasks){
+    if(CLOSED(x.status)) continue;
+    const theirs = recapWords(x.title);
+    if(!theirs.length) continue;
+    const shared = mine.filter(w=>theirs.includes(w));
+    if(shared.length < 2) continue;
+    const score = shared.length / Math.min(mine.length, theirs.length);
+    if(score >= 0.5 && (!best || score > best.score)) best = {task:x, score, shared};
+  }
+  return best;
+}
+
+function Recap({me, people, invitees, isOwner, today, onClose, showToast, load, tasks}){
   const [text,setText] = useState("");
   const [busy,setBusy] = useState(false);
   const [err,setErr] = useState("");
@@ -5192,9 +5275,16 @@ function Recap({me, people, invitees, isOwner, today, onClose, showToast, load})
       const items = (data && data.items) || [];
       if(!items.length){ setErr("Nothing in there looked like a task anyone has to do."); setBusy(false); return; }
       setOut(data);
-      setRows(items.map((it,i)=>({
+      setRows(items.map((it,i)=>{
+        const hit = recapMatch(it.title, tasks||[]);
+        return {
         key: "r"+i,
         take: true,
+        mode: "new",            // "new" = make a task; "into" = add to one you already have
+        into: null,             // the task it folds into when mode is "into"
+        suggest: hit ? hit.task : null,
+        picking: false,
+        pickQ: "",
         title: String(it.title||"").slice(0,200),
         who: knownValue(it.assignee) ? it.assignee : "",
         due: /^\d{4}-\d{2}-\d{2}$/.test(String(it.due_date||"")) ? it.due_date : "",
@@ -5205,16 +5295,20 @@ function Recap({me, people, invitees, isOwner, today, onClose, showToast, load})
         confidence: String(it.confidence||""),
         sources: Array.isArray(it.sources) ? it.sources : [],
         guessedWho: knownValue(it.assignee),
-      })));
+      };}));
     }catch(e){ setErr(e.message || String(e)); }
     finally{ setBusy(false); }
   };
 
   const set = (key, patch) => setRows(rs=>rs.map(r=>r.key===key?{...r,...patch}:r));
-  const chosen = rows.filter(r=>r.take);
-  const missingWho = chosen.filter(r=>!r.who).length;
-  const missingDue = chosen.filter(r=>!r.due).length;
-  const missingTitle = chosen.filter(r=>!r.title.trim()).length;
+  const chosen  = rows.filter(r=>r.take);
+  const making  = chosen.filter(r=>r.mode==="new");
+  const folding = chosen.filter(r=>r.mode==="into" && r.into);
+  // only a row that is becoming a NEW task needs an owner and a date; one going onto a
+  // task you already have inherits both from the task it lands on
+  const missingWho   = making.filter(r=>!r.who).length;
+  const missingDue   = making.filter(r=>!r.due).length;
+  const missingTitle = making.filter(r=>!r.title.trim()).length;
 
   const create = async () => {
     if(!chosen.length) return;
@@ -5224,7 +5318,7 @@ function Recap({me, people, invitees, isOwner, today, onClose, showToast, load})
     setSaving(true); setErr("");
     const from = (out && out.meeting && out.meeting.title) ? out.meeting.title : "a meeting";
     const when = (out && out.meeting && out.meeting.date) ? out.meeting.date : "";
-    const payload = chosen.map(r=>{
+    const payload = making.map(r=>{
       const mail = String(r.who).startsWith("email:") ? String(r.who).slice(6) : null;
       const trail = `— from ${from}${when?` on ${fmtDate(when)}`:""}`;
       return {
@@ -5239,11 +5333,32 @@ function Recap({me, people, invitees, isOwner, today, onClose, showToast, load})
         status: "not_started",
       };
     });
-    const {data,error} = await sb.from("tasks").insert(payload).select("ref");
+    let madeRefs = [];
+    if(payload.length){
+      const {data,error} = await sb.from("tasks").insert(payload).select("ref");
+      if(error){ setSaving(false); setErr(error.message); return; }
+      madeRefs = (data||[]).map(x=>"#"+x.ref);
+    }
+
+    // Rows you pointed at a task you already have become a comment on it rather than a
+    // second copy of it. Nothing about that task changes — no silent re-dating, no
+    // reassignment — because the recap is a note about the work, not a new instruction.
+    let folded = 0, foldErr = null;
+    for(const r of folding){
+      const trail = `— from ${from}${when?` on ${fmtDate(when)}`:""}`;
+      const body = [r.title.trim(), r.details.trim(), trail].filter(Boolean).join("\n\n");
+      const {error} = await sb.from("task_comments")
+        .insert({task_id:r.into.id, author_id:me.id, is_private:false, body});
+      if(error){ if(!foldErr) foldErr = error.message; } else folded++;
+    }
     setSaving(false);
-    if(error){ setErr(error.message); return; }
-    const refs = (data||[]).map(x=>"#"+x.ref).join(", ");
-    showToast(`${payload.length} task${payload.length>1?"s":""} created: ${refs}`);
+    if(foldErr && !folded && !madeRefs.length){ setErr(foldErr); return; }
+
+    const bits = [];
+    if(madeRefs.length) bits.push(`${madeRefs.length} created: ${madeRefs.join(", ")}`);
+    if(folded) bits.push(`${folded} added to ${folded===1?"a task":"tasks"} you already had`);
+    showToast(bits.join(" · ") || "Nothing to do");
+    if(foldErr) showToast("Some notes could not be added: "+foldErr);
     await load();
     onClose();
   };
@@ -5289,7 +5404,53 @@ function Recap({me, people, invitees, isOwner, today, onClose, showToast, load})
             <div style={{flex:1,minWidth:0}}>
               <input value={r.title} onChange={e=>set(r.key,{title:e.target.value})}
                 style={{width:"100%",fontWeight:600}} maxLength={200}/>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8,alignItems:"center"}}>
+
+              {/* Landing on a task you already have, instead of making a second one. The
+                  owner and date come from that task, so this row stops asking for them. */}
+              {r.mode==="into" && r.into && <div className="note"
+                style={{margin:"8px 0 0",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                <span style={{flex:1}}>Goes onto <b>#{r.into.ref} {r.into.title}</b> as a note.
+                  Nothing on that task changes {"—"} not its owner, not its date.</span>
+                <button className="btn sm" onClick={()=>set(r.key,{mode:"new",into:null})}>
+                  Make a new task instead</button>
+              </div>}
+
+              {r.mode==="new" && r.suggest && !r.picking && <div className="note"
+                style={{margin:"8px 0 0",background:"#fff8e6",borderLeftColor:"var(--warn)",
+                        display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                <span style={{flex:1}}>You may already have this:
+                  <b> #{r.suggest.ref} {r.suggest.title}</b></span>
+                <button className="btn sm" onClick={()=>set(r.key,{mode:"into",into:r.suggest})}>
+                  Add to it instead</button>
+                <button className="btn sm" onClick={()=>set(r.key,{suggest:null})}>Not the same</button>
+              </div>}
+
+              {r.picking && <div className="card" style={{margin:"8px 0 0",padding:10}}>
+                <input autoFocus value={r.pickQ} onChange={e=>set(r.key,{pickQ:e.target.value})}
+                  placeholder="Find the task this belongs to — words, or a number"
+                  style={{width:"100%"}}/>
+                <div style={{maxHeight:160,overflowY:"auto",marginTop:8}}>
+                  {(() => {
+                    const q = r.pickQ.trim().toLowerCase();
+                    const num = (q.match(/^#?\s*(\d{1,6})$/)||[])[1];
+                    const open = (tasks||[]).filter(x=>!CLOSED(x.status));
+                    const hits = open.filter(x=> num ? String(x.ref)===num
+                      : q.length>=2 && String(x.title||"").toLowerCase().includes(q)).slice(0,12);
+                    if(!q) return <div className="empty" style={{padding:8}}>Start typing.</div>;
+                    if(!hits.length) return <div className="empty" style={{padding:8}}>Nothing open matches.</div>;
+                    return hits.map(x=><div key={x.id} className="pickrow"
+                      style={{gridTemplateColumns:"1fr auto"}}
+                      onClick={()=>set(r.key,{mode:"into",into:x,picking:false,pickQ:""})}>
+                      <span className="pt"><span className="refsm">#{x.ref}</span>{x.title}</span>
+                      <span className="pw">{ownerName(people,x)}</span>
+                    </div>);
+                  })()}
+                </div>
+                <div className="actions"><button className="btn sm"
+                  onClick={()=>set(r.key,{picking:false,pickQ:""})}>Cancel</button></div>
+              </div>}
+
+              {r.mode==="new" && <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8,alignItems:"center"}}>
                 <select value={r.who} onChange={e=>set(r.key,{who:e.target.value})}
                   style={{padding:"6px 8px",borderRadius:8,
                           border:"1px solid "+(r.who?"var(--line)":"var(--red)")}}>
@@ -5308,7 +5469,9 @@ function Recap({me, people, invitees, isOwner, today, onClose, showToast, load})
                 {r.confidence === "low" && <span className="pill" style={{background:"#fdeeee",color:"var(--red)"}}
                   title="Inferred rather than plainly stated. Worth a second look.">worth checking</span>}
                 {!r.guessedWho && <span className="pill">nobody named</span>}
-              </div>
+                {!r.suggest && !r.picking && <button className="btn sm"
+                  onClick={()=>set(r.key,{picking:true})}>Add to an existing task…</button>}
+              </div>}
               <textarea rows={2} value={r.details} onChange={e=>set(r.key,{details:e.target.value})}
                 placeholder="Supporting detail (optional)"
                 style={{width:"100%",marginTop:8,fontSize:13}}/>
@@ -5333,7 +5496,12 @@ function Recap({me, people, invitees, isOwner, today, onClose, showToast, load})
           <div style={{display:"flex",gap:8}}>
             <button className="btn" onClick={onClose}>Cancel</button>
             <button className="btn p" disabled={saving || !chosen.length} onClick={create}>
-              {saving ? "Creating…" : `Create ${chosen.length} task${chosen.length===1?"":"s"}`}</button>
+              {saving ? "Saving…" : (() => {
+                const a = making.length, b = folding.length;
+                if(a && b) return `Create ${a}, add ${b} to existing`;
+                if(b) return `Add ${b} to existing task${b===1?"":"s"}`;
+                return `Create ${a} task${a===1?"":"s"}`;
+              })()}</button>
           </div>
         </div>
       </>}

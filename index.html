@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="18.2">
+<meta name="app-version" content="18.4">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -684,6 +684,20 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"18.4", d:"November 9, 2026", items:[
+    "Tasks from a meeting \u2014 a new button on the 1:1s screen. Paste the write-up your notetaker emails you after a meeting and it proposes the tasks, with owners, supporting detail and any dates the recap implies.",
+    "It proposes, it never creates. Every row has a tick, an editable title, an owner and a date, and nothing is assigned and nobody is told until you press Create.",
+    "It merges the same job listed twice. Recap tools tend to put the work under Action Items at the top and Next Steps at the bottom in different words; those become one task, and you can open Where this came from to see every line it merged.",
+    "It will not invent a due date. If the recap says nothing about when, the row says so in red and you set it yourself.",
+    "Something described as ongoing \u2014 \u201ccheck invoice delivery weekly\u201d \u2014 is flagged as sounding recurring rather than quietly turned into a repeating series. That is a decision for you, on the Repeating screen.",
+    "It also shows what it deliberately left out, so you can check the half of the judgement you otherwise cannot see.",
+  ]},
+  {v:"18.3", d:"November 7, 2026", items:[
+    "Timeline and Reports are now one menu item, Overview, with two tabs \u2014 Ahead and Back. They were four items apart and answer the same kind of question: not \u201cwhat do I do next\u201d but \u201cwhat is the shape of things\u201d.",
+    "Click anyone in the Back tab\u2019s by-person table and the Ahead board opens narrowed to them. Their \u201c3 overdue\u201d and the week it all lands used to be two screens and a memory test apart.",
+    "Week ahead stays where it is. It is a screen you work in rather than one you look at, you use it daily, and it is the only one of the three your team can see too.",
+    "Old Timeline and Reports links still work and land on the right tab.",
+  ]},
   {v:"18.2", d:"November 7, 2026", items:[
     "Worth mentioning \u2014 a ticked item now drops into Previously after two hours instead of ten. It stays put while you are in the meeting so the list does not jump under your hand, and the agenda is clean again by the time you next open it.",
     "Raise at our 1:1 no longer stacks copies. Pressing it again on a task that is already waiting to be discussed updates the one that is there and says so, rather than adding another. A task that has already been talked about can still be raised fresh \u2014 that is a new conversation, not a double press.",
@@ -5137,12 +5151,203 @@ function Repeating({showToast,setOpen,tasks,isMgr,update}){
   </>;
 }
 
+// ---------- Tasks out of a meeting recap ----------
+// A notetaker emails a write-up after every 1:1. It already contains the tasks; they are
+// just wearing prose. This reads a pasted recap and PROPOSES — it never creates anything
+// on its own, because a recap is a lossy record of a conversation and the cost of a wrong
+// task landing on a real person's list is much higher than the cost of a tick.
+//
+// Three things it has to get right, which is what the prompt is built around: topic
+// bullets are not tasks, the same job listed under both "Action Items" and "Next Steps"
+// is one task rather than two, and "check this weekly" is a flag for a human rather than
+// a recurrence to set silently.
+function Recap({me, people, invitees, isOwner, today, onClose, showToast, load}){
+  const [text,setText] = useState("");
+  const [busy,setBusy] = useState(false);
+  const [err,setErr] = useState("");
+  const [out,setOut] = useState(null);      // {meeting, items, skipped}
+  const [rows,setRows] = useState([]);
+  const [saving,setSaving] = useState(false);
+  const [shownSrc,setShownSrc] = useState(null);
+
+  const staff = isOwner ? people.filter(p=>p.active)
+                        : people.filter(p=>p.active && (p.id===me.id || p.manager_id===me.id));
+  const roster = {};
+  for(const p of staff) roster[p.full_name] = p.id;
+  for(const i of (invitees||[])) if(!roster[i.full_name||i.email]) roster[i.full_name||i.email] = "email:"+i.email;
+
+  const whoOpts = [
+    ...staff.map(p=>({v:p.id, label:p.id===me.id?"Me":p.full_name})),
+    ...(invitees||[]).map(i=>({v:"email:"+i.email, label:(i.full_name||i.email)+" (no login yet)"})),
+  ];
+  const knownValue = (v) => !!v && whoOpts.some(o=>o.v===v);
+
+  const read = async () => {
+    if(text.trim().length < 40){ setErr("Paste a bit more — that is too short to be a meeting."); return; }
+    setBusy(true); setErr(""); setOut(null);
+    try{
+      const {data,error} = await sb.functions.invoke("ai",{body:{action:"recap", text, roster, today}});
+      if(error) throw error;
+      if(data && data.error) throw new Error(data.error);
+      const items = (data && data.items) || [];
+      if(!items.length){ setErr("Nothing in there looked like a task anyone has to do."); setBusy(false); return; }
+      setOut(data);
+      setRows(items.map((it,i)=>({
+        key: "r"+i,
+        take: true,
+        title: String(it.title||"").slice(0,200),
+        who: knownValue(it.assignee) ? it.assignee : "",
+        due: /^\d{4}-\d{2}-\d{2}$/.test(String(it.due_date||"")) ? it.due_date : "",
+        details: String(it.details||""),
+        dueReason: String(it.due_reason||""),
+        repeats: !!it.repeats,
+        repeatHint: String(it.repeat_hint||""),
+        confidence: String(it.confidence||""),
+        sources: Array.isArray(it.sources) ? it.sources : [],
+        guessedWho: knownValue(it.assignee),
+      })));
+    }catch(e){ setErr(e.message || String(e)); }
+    finally{ setBusy(false); }
+  };
+
+  const set = (key, patch) => setRows(rs=>rs.map(r=>r.key===key?{...r,...patch}:r));
+  const chosen = rows.filter(r=>r.take);
+  const missingWho = chosen.filter(r=>!r.who).length;
+  const missingDue = chosen.filter(r=>!r.due).length;
+  const missingTitle = chosen.filter(r=>!r.title.trim()).length;
+
+  const create = async () => {
+    if(!chosen.length) return;
+    if(missingTitle){ setErr("Every task you are keeping needs a title."); return; }
+    if(missingWho){ setErr("Give each one to someone — a task with no owner gets forgotten."); return; }
+    if(missingDue){ setErr("Set a date on each one. Without a due date it can never be overdue, so nobody is reminded."); return; }
+    setSaving(true); setErr("");
+    const from = (out && out.meeting && out.meeting.title) ? out.meeting.title : "a meeting";
+    const when = (out && out.meeting && out.meeting.date) ? out.meeting.date : "";
+    const payload = chosen.map(r=>{
+      const mail = String(r.who).startsWith("email:") ? String(r.who).slice(6) : null;
+      const trail = `— from ${from}${when?` on ${fmtDate(when)}`:""}`;
+      return {
+        title: r.title.trim(),
+        details: (r.details.trim() ? r.details.trim()+"\n\n" : "") + trail,
+        context: "",
+        assignee_id: mail ? null : r.who,
+        assignee_email: mail,
+        created_by: me.id,
+        due_date: r.due,
+        priority: "normal",
+        status: "not_started",
+      };
+    });
+    const {data,error} = await sb.from("tasks").insert(payload).select("ref");
+    setSaving(false);
+    if(error){ setErr(error.message); return; }
+    const refs = (data||[]).map(x=>"#"+x.ref).join(", ");
+    showToast(`${payload.length} task${payload.length>1?"s":""} created: ${refs}`);
+    await load();
+    onClose();
+  };
+
+  return <div className="modalbg" style={{zIndex:60}} onClick={onClose}>
+    <div className="modal" style={{maxWidth:880}} onClick={e=>e.stopPropagation()}>
+      <div className="spine"><span>From a meeting</span>
+        <span className="spine-sub">Nothing is created until you say so</span></div>
+
+      {!out && <>
+        <h2>Paste the write-up</h2>
+        <div className="note" style={{marginBottom:10}}>
+          The whole email is fine — headers, links, footers and all. It reads the action
+          items and next steps, merges the ones that say the same thing twice, and ignores
+          the background sections.
+        </div>
+        <div className="form"><label>Meeting recap
+          <textarea rows={12} value={text} autoFocus
+            onChange={e=>setText(e.target.value)}
+            placeholder={"Paste the notetaker email here…"}/></label></div>
+        {err && <div className="note" style={{borderLeftColor:"var(--red)",color:"var(--red)"}}>{err}</div>}
+        <div className="actions">
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn p" disabled={busy || text.trim().length<40} onClick={read}>
+            {busy ? "Reading…" : "Read it"}</button>
+        </div>
+      </>}
+
+      {out && <>
+        <h2>{(out.meeting && out.meeting.title) ? out.meeting.title : "Proposed tasks"}</h2>
+        <div className="note" style={{marginBottom:10}}>
+          {rows.length} proposed{out.meeting && out.meeting.date ? ` from ${fmtDate(out.meeting.date)}` : ""}.
+          Untick anything you would rather just do yourself. Nothing is assigned and nobody
+          is told until you press Create.
+        </div>
+
+        {rows.map(r=><div key={r.key} className="card edged"
+          style={{"--edge": r.take ? "#2f6f4f" : "var(--line)", marginBottom:10, padding:"12px 14px",
+                  opacity: r.take ? 1 : 0.55}}>
+          <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+            <input type="checkbox" checked={r.take} style={{marginTop:7}}
+              onChange={()=>set(r.key,{take:!r.take})}/>
+            <div style={{flex:1,minWidth:0}}>
+              <input value={r.title} onChange={e=>set(r.key,{title:e.target.value})}
+                style={{width:"100%",fontWeight:600}} maxLength={200}/>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8,alignItems:"center"}}>
+                <select value={r.who} onChange={e=>set(r.key,{who:e.target.value})}
+                  style={{padding:"6px 8px",borderRadius:8,
+                          border:"1px solid "+(r.who?"var(--line)":"var(--red)")}}>
+                  <option value="">Who does this?</option>
+                  {whoOpts.map(o=><option key={o.v} value={o.v}>{o.label}</option>)}
+                </select>
+                <input type="date" value={r.due} onChange={e=>set(r.key,{due:e.target.value})}
+                  style={{padding:"6px 8px",borderRadius:8,
+                          border:"1px solid "+(r.due?"var(--line)":"var(--red)")}}/>
+                {r.due && r.dueReason && <span className="pill" title="Where this date came from">{r.dueReason}</span>}
+                {!r.due && <span className="pill" style={{background:"#fdeeee",color:"var(--red)"}}>
+                  no date in the recap</span>}
+                {r.repeats && <span className="pill" style={{background:"var(--warn)",color:"#3a2c00"}}
+                  title="The recap describes this as ongoing. It is created as a one-off — set the repeat on the Repeating screen if you want it.">
+                  sounds recurring{r.repeatHint?`: ${r.repeatHint}`:""}</span>}
+                {r.confidence === "low" && <span className="pill" style={{background:"#fdeeee",color:"var(--red)"}}
+                  title="Inferred rather than plainly stated. Worth a second look.">worth checking</span>}
+                {!r.guessedWho && <span className="pill">nobody named</span>}
+              </div>
+              <textarea rows={2} value={r.details} onChange={e=>set(r.key,{details:e.target.value})}
+                placeholder="Supporting detail (optional)"
+                style={{width:"100%",marginTop:8,fontSize:13}}/>
+              {r.sources.length>0 && <div style={{marginTop:6}}>
+                <button className="btn sm" onClick={()=>setShownSrc(shownSrc===r.key?null:r.key)}>
+                  {shownSrc===r.key ? "Hide" : "Where this came from"} ({r.sources.length})</button>
+                {shownSrc===r.key && <ul style={{margin:"8px 0 0",paddingLeft:18,fontSize:13,color:"var(--muted)"}}>
+                  {r.sources.map((s,i)=><li key={i}>{s}</li>)}</ul>}
+              </div>}
+            </div>
+          </div>
+        </div>)}
+
+        {(out.skipped||[]).length>0 && <div className="note" style={{marginBottom:10}}>
+          <b>Deliberately left out:</b> {(out.skipped||[]).join("; ")}.
+        </div>}
+
+        {err && <div className="note" style={{borderLeftColor:"var(--red)",color:"var(--red)"}}>{err}</div>}
+
+        <div className="actions" style={{justifyContent:"space-between"}}>
+          <button className="btn" onClick={()=>{setOut(null); setErr("");}}>Back to the text</button>
+          <div style={{display:"flex",gap:8}}>
+            <button className="btn" onClick={onClose}>Cancel</button>
+            <button className="btn p" disabled={saving || !chosen.length} onClick={create}>
+              {saving ? "Creating…" : `Create ${chosen.length} task${chosen.length===1?"":"s"}`}</button>
+          </div>
+        </div>
+      </>}
+    </div>
+  </div>;
+}
+
 function OneOnOnes(ctx){
   const {me,people,showToast,setOpen,openTaskId,isOwner} = ctx;
   const [list,setList] = useState(null);
   const [pick,setPick] = useState(null);
   const [nonce,setNonce] = useState(0);
   const [busy,setBusy] = useState(null);
+  const [recap,setRecap] = useState(false);
   useEffect(()=>{ let live=true;
     sb.rpc("my_one_on_ones").then(({data,error})=>{
       if(!live) return;
@@ -5192,8 +5397,10 @@ function OneOnOnes(ctx){
 
   const team = list.team || [];
   return <>
-    <div className="h"><h2>1:1s</h2><span className="sub">{team.length + (list.manager?1:0)} to prepare for</span></div>
+    <div className="h"><h2>1:1s</h2><span className="sub">{team.length + (list.manager?1:0)} to prepare for</span>
+      <button className="btn sm p" onClick={()=>setRecap(true)}>Tasks from a meeting</button></div>
     <div className="note" style={{marginBottom:10}}>Each agenda is built from the work itself — finished since last time, overdue, waiting on someone, still open — so there is nothing to write up beforehand.</div>
+    {recap && <Recap {...ctx} onClose={()=>setRecap(false)}/>}
 
     {list.manager && <>
       <div className="section-title">Your own list</div>

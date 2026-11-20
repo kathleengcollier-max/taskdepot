@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="19.1">
+<meta name="app-version" content="19.2">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -684,6 +684,9 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"19.2", d:"November 20, 2026", items:[
+    "Move the date now appears only on a task somebody else gave you. If you can already edit the task you have the date field inside Update, and having both meant two ways to change one date with different consequences \u2014 one counting as slippage, one not. The slip count now means exactly one thing: the person doing the work moved a date they did not set.",
+  ]},
   {v:"19.1", d:"November 20, 2026", items:[
     "Anyone doing the work can move their own due date. Open the task, press Move the date, pick a new one and say why \u2014 it moves straight away, and whoever assigned it gets an email saying you moved it and what the reason was.",
     "Need more time is gone. It asked permission, and permission was granted 8 times out of 8 \u2014 the gate never once said no, it just cost two round trips and a wait.",

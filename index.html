@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="19.0">
+<meta name="app-version" content="19.1">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -684,6 +684,16 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"19.1", d:"November 20, 2026", items:[
+    "Anyone doing the work can move their own due date. Open the task, press Move the date, pick a new one and say why \u2014 it moves straight away, and whoever assigned it gets an email saying you moved it and what the reason was.",
+    "Need more time is gone. It asked permission, and permission was granted 8 times out of 8 \u2014 the gate never once said no, it just cost two round trips and a wait.",
+    "Slippage is now visible instead. The first time a date is pushed the original is remembered, and the task carries \u201cMoved 3 times \u2014 originally due Nov 3\u201d on its row and in the drawer.",
+    "Home has a new group, Keeps slipping, for anything whose date has moved three times or more. Three moves is not a late task, it is one that was scoped wrong or is stuck on something nobody has named \u2014 and that is a conversation, not a reminder.",
+    "Overdue still measures against the date as it stands today, because that is the real commitment. Without the slip count a task could retreat from its deadline indefinitely and never once show up as late.",
+    "Pulling a date forward is free \u2014 no count, no email. Nobody minds good news.",
+    "Moving a date on a task you created yourself tells nobody, because there is nobody to tell.",
+    "A manager changing a date through Update is the assigner revising their own ask, so it does not count as slippage. Only the doer moving it does.",
+  ]},
   {v:"19.0", d:"November 20, 2026", items:[
     "Update and Edit / reassign are one button now. Everything Edit did lives inside Update, behind a fold called \u201cAlso change the task itself\u201d \u2014 title, owner, due date, priority, details, repeat. One fewer button in that row.",
     "The quick path is untouched: open Update, change the status, add a note, save. The fold stays shut unless you open it, and a plain status change still writes only the status fields.",
@@ -2895,6 +2905,11 @@ function TaskTable({list,people,today,setOpen,cols,isMgr,empty,actions,why,pick,
                  style={{marginLeft:6,background:"#eef3fd",color:"var(--navy)"}}>&#128279; {LINK_COUNTS[t.id]}</span>}
                {/* Your project, on your screen only. It comes from a map built per signed-in
                    person, so the name cannot appear for whoever is holding the task. */}
+               {t.push_count >= 2 && <span className="pill" style={{marginLeft:6,
+                   background:t.push_count>=3?"var(--warn)":"#f1f3f7",
+                   color:t.push_count>=3?"#3a2c00":"var(--muted)"}}
+                   title={`The date has moved ${t.push_count} times${t.original_due?` \u2014 originally due ${fmtDate(t.original_due)}`:""}`}>
+                 moved {t.push_count}&times;</span>}
                {(() => { const p = PROJECTS_OF(t.id); if(!p || !p.names.length) return null;
                  return <span className="pmark" title={"In your project"+(p.names.length>1?"s":"")+": "+p.names.join(", ")}>
                    {p.names.length===1 ? p.names[0] : p.names.length+" projects"}</span>; })()}
@@ -3119,7 +3134,7 @@ function MyDay(ctx){
   // An overdue task used to sit here in red and wait to be noticed. Red is not a
   // question, so nothing happened: of 41 overdue, almost none had been re-dated or
   // closed. Ask instead, one at a time, of the person who knows the answer.
-  const stuck = rest.filter(t=>t.due_date && t.due_date < today && !t.requested_due)
+  const stuck = rest.filter(t=>t.due_date && t.due_date < today)
     .sort((a,b)=>String(a.due_date).localeCompare(String(b.due_date)));
   const [asked,setAsked] = useState([]);       // put aside for now, this visit only
   const next = stuck.find(t=>!asked.includes(t.id));
@@ -4378,9 +4393,12 @@ function TaskModal(ctx){
       {isMgr && CLOSED(t.status) && t.assignee_id!==me.id && !t.seen_at && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0) &&
         <button className="btn" style={{color:"var(--ok)",borderColor:"#bfe3c5"}}
           onClick={()=>update(t.id,{seen_at:new Date().toISOString()}).then(ok=>ok&&showToast("Seen \u2014 one fewer on the Finished count"))}>Mark as seen</button>}
-      {/* Anyone doing the work, including a manager on their own task. Moving a date you
-          own is not an event, so no email goes anywhere in that case. */}
-      {ON_TASK(t, me.id) && !CLOSED(t.status) &&
+      {/* Only where the date is somebody else's ask. If you can reshape the task you
+          already have the date field inside Update, and having both would mean two ways
+          to change one date with different consequences — one counting as slippage and
+          one not. That would make the slip count mean two things at once, which is worse
+          than not having it. So: this button is for a date you did not set. */}
+      {ON_TASK(t, me.id) && !canReshape && !CLOSED(t.status) &&
         <button className="btn" onClick={()=>{setDating(true);setWantDate(t.due_date||"");setWantWhy("");}}>Move the date</button>}
       {fromBD && !CLOSED(t.status) && <button className="btn" style={{color:"#1f3a7a",borderColor:"#c7d7f5"}} onClick={()=>setReturning(true)}>Return to Kathleen</button>}
       {canSendBD && <button className="btn bd"

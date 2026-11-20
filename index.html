@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Task Depot</title>
-<meta name="app-version" content="18.6">
+<meta name="app-version" content="19.0">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f3a7a">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -684,6 +684,13 @@ const CLOSED = (st) => st==="done" || st==="skipped";
 const DELEGATED = (t) => !!t.created_by && (
   (!!t.assignee_id && t.assignee_id !== t.created_by) || !!t.assignee_email);
 const CHANGELOG = [
+  {v:"19.0", d:"November 20, 2026", items:[
+    "Update and Edit / reassign are one button now. Everything Edit did lives inside Update, behind a fold called \u201cAlso change the task itself\u201d \u2014 title, owner, due date, priority, details, repeat. One fewer button in that row.",
+    "The quick path is untouched: open Update, change the status, add a note, save. The fold stays shut unless you open it, and a plain status change still writes only the status fields.",
+    "The real gain is the note. Update has always taken one and Edit never did, so 139 date changes and 57 reassignments on record have no \u201cwhy\u201d attached anywhere. Now every change can carry a reason.",
+    "Why: over 90 days, 37 times someone saved one of those two forms and opened the other within a minute, average gap 52 seconds. That is about once every three days spent walking between them.",
+    "Nothing changes for anyone who cannot reshape a task \u2014 the fold simply does not appear, so a report sees exactly the form they saw before.",
+  ]},
   {v:"18.6", d:"November 10, 2026", items:[
     "\u201cFill in the form for me\u201d no longer wipes what you already typed. It used to clear the form and lay its answer over the top, so filling in who it goes to and the date before pressing the button threw both away. Now what you typed wins and it only fills the blanks.",
     "It tells you what it did \u2014 which fields it filled, and which it left as you had them.",
@@ -1654,6 +1661,14 @@ function attention(t, today) {
   const noLogin = !t.assignee_id && !!t.assignee_email;
   if (overdue) return {why:`Overdue ${overdue} day${overdue>1?"s":""}`, tone:"", rank:noLogin?6:5,
     group: noLogin ? "Overdue \u2014 with people who have no login" : "Overdue"};
+  // Anyone doing the work can move their own date now, which is right \u2014 but it means a
+  // task can slide indefinitely and never once show up as overdue. Three moves is not a
+  // late task, it is a task that was scoped wrong or is stuck on something nobody has
+  // named, and that is a conversation rather than a reminder. Ranked below overdue
+  // because nothing here has actually missed a date; it just keeps retreating from one.
+  if (t.push_count >= 3) return {
+    why: `Date moved ${t.push_count} times${t.original_due?`, first due ${fmtDate(t.original_due)}`:""}`,
+    tone: "warn", rank: 4.5, group: "Keeps slipping"};
   if (t.status === "waiting" && stale >= 3) return {why:`Waiting on ${t.waiting_on||"someone"} ${Math.floor(stale)} days`, tone:"warn", rank:2, group:"Stuck waiting on someone else"};
   // Silence only matters when a date is coming. Quiet on its own would flag 23 of your
   // 42 open-and-not-yet-late tasks \u2014 more than half, which is how a warning becomes
@@ -3341,6 +3356,25 @@ function TaskModal(ctx){
   const parent = t.parent_id ? tasks.find(p=>p.id===t.parent_id) : null;
   const siblings = t.series_id ? tasks.filter(x=>x.series_id===t.series_id && !CLOSED(x.status)).sort((a,b)=>(a.due_date||"").localeCompare(b.due_date||"")) : [];
   const root = t.series_id ? tasks.find(x=>x.id===t.series_id) : null;
+  // One form now covers both how the task is GOING and what it IS, so opening it seeds
+  // both halves. resetShape is the task as it stands, used to seed and to undo.
+  const resetShape = () => ({
+    title: t.title,
+    assignee_id: t.assignee_id || (t.assignee_email ? "email:"+t.assignee_email : ""),
+    due_date: t.due_date || "",
+    priority: t.priority,
+    context: t.context,
+    details: t.details,
+    standing_notes: t.standing_notes || "",
+    recur_rule: t.recur_rule || "",
+    recur_day: t.recur_day ?? "",
+    recur_cap: t.recur_cap ?? 3,
+  });
+  const openUpd = () => setUpd({
+    status: t.status === "not_started" ? "working" : t.status,
+    waiting_on: t.waiting_on, next_action: t.next_action, note: "",
+    open: false, ...resetShape(),
+  });
   const [skipping,setSkipping] = useState(false);
   // Filing this task into your own projects. Private: the person holding the task sees
   // nothing of it, which is why it lives quietly in More rather than on the main row.
@@ -3643,17 +3677,19 @@ function TaskModal(ctx){
   const [dating,setDating] = useState(false);
   const [wantDate,setWantDate] = useState("");
   const [wantWhy,setWantWhy] = useState("");
+  // Moving the date is now the doer's to make, not to ask for. The gate it replaces was
+  // approved 8 times out of 8, so it only ever cost two round trips. The email still goes
+  // out — the function writes a comment, and a comment already reaches whoever assigned it.
   const askDate = async () => {
     if(!wantDate){ showToast("Pick a date first"); return; }
-    const {error} = await sb.rpc("request_due_change",{p_task:t.id, p_date:wantDate, p_reason:wantWhy});
+    const {data,error} = await sb.rpc("push_due_date",{p_task:t.id, p_date:wantDate, p_reason:wantWhy});
     if(error){ showToast(error.message); return; }
     setDating(false); setWantDate(""); setWantWhy("");
-    await ctx.load(); showToast("Asked — they'll get an email");
-  };
-  const answerDate = async (accept) => {
-    const {error} = await sb.rpc("answer_due_change",{p_task:t.id, p_accept:accept, p_note:""});
-    if(error){ showToast(error.message); return; }
-    await ctx.load(); showToast(accept?"Date moved":"Date kept");
+    await ctx.load(); refresh();
+    const n = data && data.pushes;
+    showToast(n > 1
+      ? `Moved \u2014 ${nameOf(people,t.created_by)} has been emailed. That is ${n} times this one has shifted.`
+      : `Moved \u2014 ${nameOf(people,t.created_by)} has been emailed`);
   };
   const [askNote,setAskNote] = useState("");
   const doAsk = async () => {
@@ -3738,7 +3774,6 @@ function TaskModal(ctx){
   };
   const refreshRef = useRef(null);
   const [tab,setTab] = useState("activity");
-  const [edit,setEdit] = useState(false);
   const [upd,setUpd] = useState(null); // employee update form
   const [comments,setComments] = useState([]); const [hist,setHist] = useState([]); const [files,setFiles]=useState([]);
   const [body,setBody] = useState(""); const [priv,setPriv] = useState(false);
@@ -3933,22 +3968,34 @@ function TaskModal(ctx){
       <b>{siblings.length} open</b> in this recurring series — {siblings.map(x=>fmtDate(x.due_date)).join(", ")}.
       {siblings.length>=(t.recur_cap||3) ? " That's the cap, so no new ones are being created until some are closed out." : ""}
     </div>}
-    {t.requested_due && <div className="note" style={{marginBottom:10,background:"var(--warn-soft)",borderLeft:"3px solid var(--warn)"}}>
-      <b>{nameOf(people,t.requested_by)} asked to move this to {fmtDate(t.requested_due)}</b>
-      {t.requested_reason ? <div style={{marginTop:4}}>"{t.requested_reason}"</div> : null}
-      {(isMgr || t.created_by===me.id) && <div className="actions" style={{justifyContent:"flex-start",marginTop:8}}>
-        <button className="btn p" onClick={()=>answerDate(true)}>Accept {fmtDate(t.requested_due)}</button>
-        <button className="btn" onClick={()=>answerDate(false)}>Keep {fmtDate(t.due_date)}</button>
-      </div>}
+    {/* Slippage, where you cannot miss it. Overdue still measures against the date as it
+        stands now — that is the real commitment — so without this a task could slide four
+        times and stay green. */}
+    {t.push_count > 0 && t.original_due && <div className="note" style={{marginBottom:10,
+         background:t.push_count>=3?"var(--warn-soft)":undefined,
+         borderLeft:"3px solid "+(t.push_count>=3?"var(--warn)":"var(--line)")}}>
+      <b>Moved {t.push_count===1?"once":t.push_count+" times"}</b> {"\u2014"} originally due {fmtDate(t.original_due)},
+      now {t.due_date?fmtDate(t.due_date):"undated"}.
+      {t.push_count>=3 ? " Three moves usually means the task is the wrong shape rather than late." : ""}
     </div>}
     {dating && <div className="form card" style={{padding:14,marginBottom:12}}>
-      <div><b>Ask for a new due date</b><div style={{fontSize:13,color:"var(--muted)"}}>It stays due {fmtDate(t.due_date)} until {nameOf(people,t.created_by)} agrees.</div></div>
+      <div><b>Move the due date</b><div style={{fontSize:13,color:"var(--muted)"}}>
+        It moves straight away. {t.created_by===me.id ? "Nobody else needs telling \u2014 this one is yours."
+          : `${nameOf(people,t.created_by)} gets an email saying you moved it and why.`}
+      </div></div>
       <div className="two">
-        <label>New date<input type="date" value={wantDate} onChange={e=>setWantDate(e.target.value)}/></label>
+        <label>New date<input type="date" autoFocus min={todayISO()} value={wantDate}
+          onChange={e=>setWantDate(e.target.value)}/></label>
       </div>
-      <label>Why<textarea value={wantWhy} onChange={e=>setWantWhy(e.target.value)} placeholder="Waiting on the vendor to confirm pricing."/></label>
+      <label>Why{t.created_by===me.id ? " (optional)" : ""}
+        <textarea value={wantWhy} onChange={e=>setWantWhy(e.target.value)}
+          placeholder="Waiting on the vendor to confirm pricing."/></label>
+      {t.push_count >= 2 && <div className="note" style={{borderLeftColor:"var(--warn)"}}>
+        This date has already moved {t.push_count} times{t.original_due?` \u2014 it was originally ${fmtDate(t.original_due)}`:""}.
+        Worth a word with {nameOf(people,t.created_by)} rather than another nudge?
+      </div>}
       <div className="actions"><button className="btn" onClick={()=>{setDating(false);setWantDate("");setWantWhy("");}}>Cancel</button>
-        <button className="btn p" onClick={askDate}>Send the request</button></div>
+        <button className="btn p" disabled={!wantDate} onClick={askDate}>Move it</button></div>
     </div>}
     {parent && <div className="note" style={{marginBottom:10}}>Part of <a href="#" onClick={e=>{e.preventDefault();setOpen(parent.id);}}>{parent.title}</a></div>}
 
@@ -4023,14 +4070,14 @@ function TaskModal(ctx){
       {/* The same shortcuts the owner gets, minus the two that only make sense as
           theirs. Recording progress for somebody meant opening the whole edit form,
           and there was no way at all to say a task needed you. */}
-      <button className="upd" onClick={()=>setUpd({status:t.status==="not_started"?"working":t.status,waiting_on:t.waiting_on,next_action:t.next_action,note:""})}>Update</button>
+      <button className="upd" onClick={openUpd}>Update</button>
       {t.needs_from===me.id
         ? <button className="help" title="Take it off your agenda" onClick={dropMyFlag}>Needs me {"\u2713"}</button>
         : <button className="help" onClick={()=>setFlagging(true)}>Needs me</button>}
     </div>}
     {!upd && !skipping && !asking && !flagging && !raising && !finishing && t.assignee_id===me.id && !CLOSED(t.status) && <div className="big">
       <button className="done" onClick={()=>finish({status:"done",need_help:false,need_manager:false},"Marked done")}>Done</button>
-      <button className="upd" onClick={()=>setUpd({status:t.status==="not_started"?"working":t.status,waiting_on:t.waiting_on,next_action:t.next_action,note:""})}>Update</button>
+      <button className="upd" onClick={openUpd}>Update</button>
       {HASAUDIENCE(t) && t.status!=="ready_for_review" &&
         <button className="rev" title="Hand it back for a check before it counts as done"
           onClick={()=>quick({status:"ready_for_review"},"Sent for review")}>Ready for review</button>}
@@ -4054,10 +4101,78 @@ function TaskModal(ctx){
       </div>
       {upd.status==="waiting" && <label>Waiting on<input value={upd.waiting_on} onChange={e=>setUpd({...upd,waiting_on:e.target.value})} placeholder="Vendor, customer, a coworker, Kathleen…"/></label>}
       <label>Next action<input value={upd.next_action} onChange={e=>setUpd({...upd,next_action:e.target.value})} placeholder="Call Goodman back Thursday"/></label>
-      <label>Add a note (optional)<textarea value={upd.note} onChange={e=>setUpd({...upd,note:e.target.value})}/></label>
+
+      {/* What the task IS, folded under how it is GOING. These were a separate button and
+          a separate form, and the history says that cost a second trip through the drawer
+          about once every three days — 37 times in 90 days somebody saved one form and
+          opened the other within a minute. The fold stays shut so the quick path is still
+          status, note, save. */}
+      {canReshape && !upd.open && <button className="btn sm" style={{alignSelf:"flex-start"}}
+        onClick={()=>setUpd({...upd, open:true})}>Also change the task itself{"…"}</button>}
+
+      {canReshape && upd.open && <div className="card edged" style={{"--edge":"var(--navy)",padding:"12px 14px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+          <b style={{flex:1}}>The task itself</b>
+          <button className="btn sm" onClick={()=>setUpd({...upd, open:false, ...resetShape()})}>
+            Leave it as it is</button>
+        </div>
+        <div className="form">
+          <label>Task<input value={upd.title} onChange={e=>setUpd({...upd,title:e.target.value})}/></label>
+          <div className="three">
+            <label>Assign to<select value={upd.assignee_id} onChange={e=>setUpd({...upd,assignee_id:e.target.value})}>
+              <option value="">Unassigned</option>
+              {people.filter(p=>p.active && (me.role==="owner" || p.id===me.id || p.manager_id===me.id))
+                     .map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}
+              {isMgr && (INVITEES||[]).length>0 && <optgroup label="Invited — not signed up yet">
+                {INVITEES.map(i=><option key={i.email} value={"email:"+i.email}>{i.full_name||i.email}</option>)}</optgroup>}
+            </select></label>
+            <label>Due<input type="date" value={upd.due_date} onChange={e=>setUpd({...upd,due_date:e.target.value})}/></label>
+            <label>Priority<select value={upd.priority} onChange={e=>setUpd({...upd,priority:e.target.value})}>
+              <option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option>
+            </select></label>
+          </div>
+          {upd.context ? <label>Context
+            <div style={{fontSize:13,color:"var(--muted)",fontWeight:400,marginBottom:4}}>No longer asked for on new tasks — clear it if it isn't telling you anything.</div>
+            <input value={upd.context} onChange={e=>setUpd({...upd,context:e.target.value})}/></label> : null}
+          <label>Details<textarea value={upd.details} onChange={e=>setUpd({...upd,details:e.target.value})}/></label>
+          {(upd.recur_rule || upd.standing_notes) && <label>Standing notes
+            <div style={{fontSize:13,color:"var(--muted)",fontWeight:400,marginBottom:4}}>
+              {upd.recur_rule ? "Carried to every occurrence, and included in the email each time."
+                              : "This task no longer repeats, so these notes won't carry anywhere."}
+            </div>
+            <textarea value={upd.standing_notes} onChange={e=>setUpd({...upd,standing_notes:e.target.value})}/></label>}
+          <Recur f={upd} setF={(v)=>setUpd(typeof v==="function"?v(upd):{...upd,...v})}/>
+        </div>
+      </div>}
+
+      <label>Add a note (optional)
+        <div style={{fontSize:13,color:"var(--muted)",fontWeight:400,marginBottom:4}}>
+          Goes on the task with whatever you changed, so a month from now the history says why.
+        </div>
+        <textarea value={upd.note} onChange={e=>setUpd({...upd,note:e.target.value})}/></label>
       <div className="actions"><button className="btn" onClick={()=>setUpd(null)}>Cancel</button>
         <button className="btn p" onClick={async()=>{
-          const ok = await update(t.id,{status:upd.status,waiting_on:upd.status==="waiting"?upd.waiting_on:"",next_action:upd.next_action});
+          const patch = {status:upd.status, waiting_on:upd.status==="waiting"?upd.waiting_on:"",
+                         next_action:upd.next_action};
+          // Only send the identity fields when the fold was actually opened. Sending them
+          // always would rewrite title and details on every status change, which turns a
+          // one-line history entry into noise and risks clobbering an edit made elsewhere
+          // while this drawer sat open.
+          if(canReshape && upd.open){
+            const mail = String(upd.assignee_id||"").startsWith("email:") ? upd.assignee_id.slice(6) : null;
+            Object.assign(patch, {
+              title: upd.title, context: upd.context, details: upd.details,
+              standing_notes: upd.standing_notes, priority: upd.priority,
+              assignee_id: mail ? null : (upd.assignee_id || null),
+              assignee_email: mail,
+              due_date: upd.due_date || null,
+              recur_rule: upd.recur_rule || null,
+              recur_day: (upd.recur_rule && upd.recur_rule!=="daily" && upd.recur_rule!=="yearly")
+                         ? (parseInt(upd.recur_day)||null) : null,
+              recur_cap: Math.max(2, parseInt(upd.recur_cap)||3),
+            });
+          }
+          const ok = await update(t.id, patch);
           if(ok){ if(upd.note.trim()) await sb.from("task_comments").insert({task_id:t.id,author_id:me.id,body:upd.note,is_private:false}); setUpd(null); refresh(); showToast("Updated"); }
         }}>Save update</button></div>
     </div>}
@@ -4249,7 +4364,7 @@ function TaskModal(ctx){
           {fileBusy ? "Saving…" : "Save"}</button>}
       </div>
     </div>}
-    {!edit && !skipping && !asking && !raising && !replying && !copying && !returning && !sending && !joining && !filing && (isMgr || iCreated || t.assignee_id===me.id) &&
+    {!skipping && !asking && !raising && !replying && !copying && !returning && !sending && !joining && !filing && (isMgr || iCreated || t.assignee_id===me.id) &&
      <div className="actions" style={{justifyContent:"flex-start",marginBottom:12}}>
       {/* Out front: whatever this task's state is actually asking of you right now,
           plus the one hand-off that is only ever Kathleen's. */}
@@ -4263,13 +4378,14 @@ function TaskModal(ctx){
       {isMgr && CLOSED(t.status) && t.assignee_id!==me.id && !t.seen_at && new Date(t.status==="skipped"?t.updated_at:(t.completed_at||t.updated_at)) > new Date(me.completions_seen_at||0) &&
         <button className="btn" style={{color:"var(--ok)",borderColor:"#bfe3c5"}}
           onClick={()=>update(t.id,{seen_at:new Date().toISOString()}).then(ok=>ok&&showToast("Seen \u2014 one fewer on the Finished count"))}>Mark as seen</button>}
-      {!canReshape && t.assignee_id===me.id && !CLOSED(t.status) && !t.requested_due &&
-        <button className="btn" onClick={()=>setDating(true)}>Need more time</button>}
+      {/* Anyone doing the work, including a manager on their own task. Moving a date you
+          own is not an event, so no email goes anywhere in that case. */}
+      {ON_TASK(t, me.id) && !CLOSED(t.status) &&
+        <button className="btn" onClick={()=>{setDating(true);setWantDate(t.due_date||"");setWantWhy("");}}>Move the date</button>}
       {fromBD && !CLOSED(t.status) && <button className="btn" style={{color:"#1f3a7a",borderColor:"#c7d7f5"}} onClick={()=>setReturning(true)}>Return to Kathleen</button>}
       {canSendBD && <button className="btn bd"
         title="Hand it to your own list \u2014 steps, comments and files come with it" onClick={()=>setSending(true)}>Send to my BD Inbox</button>}
 
-      {canReshape && <button className="btn" onClick={()=>setEdit(true)}>{isMgr?"Edit / reassign":"Edit"}</button>}
 
       <More>
         <button onClick={openFiling}>{(() => { const p = PROJECTS_OF(t.id);
@@ -4288,7 +4404,6 @@ function TaskModal(ctx){
         {canReshape ? <button className="danger" onClick={()=>trash(t)}>Trash</button> : null}
       </More>
     </div>}
-    {edit && <EditForm t={t} people={people} isMgr={isMgr} me={me} onCancel={()=>setEdit(false)} onSave={async p=>{ if(await update(t.id,p)){ setEdit(false); showToast("Saved"); } }}/>}
 
     <div className="panel edge-main"><h3>The task</h3><dl className="kv">
       {/* Shown here rather than up beside the status pills, because this is the one line
@@ -4578,40 +4693,6 @@ function More({children}){
       style={at ? {left:at.left, top:at.top} : {visibility:"hidden", left:0, top:0}}>
       {items}</div>}
   </span>;
-}
-
-function EditForm({t,people,onCancel,onSave,isMgr,me}){
-  const pending = isMgr ? INVITEES : [];
-  const [f,setF] = useState({title:t.title,assignee_id:t.assignee_id||(t.assignee_email?"email:"+t.assignee_email:""),due_date:t.due_date||"",priority:t.priority,context:t.context,details:t.details,definition_of_done:t.definition_of_done,standing_notes:t.standing_notes||"",recur_rule:t.recur_rule||"",recur_day:t.recur_day??"",recur_cap:t.recur_cap??3});
-  return <div className="form card" style={{padding:14,marginBottom:12}}>
-    <label>Task<input value={f.title} onChange={e=>setF({...f,title:e.target.value})}/></label>
-    <div className="three">
-      <label>Assign to<select value={f.assignee_id} onChange={e=>setF({...f,assignee_id:e.target.value})}><option value="">Unassigned</option>{people.filter(p=>p.active && (me.role==="owner" || p.id===me.id || p.manager_id===me.id)).map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}
-      {pending.length>0 && <optgroup label="Invited — not signed up yet">{pending.map(i=><option key={i.email} value={"email:"+i.email}>{i.full_name||i.email}</option>)}</optgroup>}</select></label>
-      <label>Due<input type="date" value={f.due_date} onChange={e=>setF({...f,due_date:e.target.value})}/></label>
-      <label>Priority<select value={f.priority} onChange={e=>setF({...f,priority:e.target.value})}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></label>
-    </div>
-    {/* Status lives on Update, not here. Edit is what the task IS — its name, owner,
-        date, shape. Update is how it is GOING, and it takes a note with the change so
-        that a month later the history says why it went to Waiting. Both forms setting
-        status was one fix too many. */}
-    {f.context ? <label>Context
-      <div style={{fontSize:13,color:"var(--muted)",fontWeight:400,marginBottom:4}}>No longer asked for on new tasks — clear it if it isn't telling you anything.</div>
-      <input value={f.context} onChange={e=>setF({...f,context:e.target.value})}/></label> : null}
-    <label>Details<textarea value={f.details} onChange={e=>setF({...f,details:e.target.value})}/></label>
-    {(f.recur_rule || f.standing_notes) && <label>Standing notes
-      <div style={{fontSize:13,color:"var(--muted)",fontWeight:400,marginBottom:4}}>
-        {f.recur_rule ? "Carried to every occurrence, and included in the email each time."
-                      : "This task no longer repeats, so these notes won't carry anywhere."}
-      </div>
-      <textarea value={f.standing_notes} onChange={e=>setF({...f,standing_notes:e.target.value})}/></label>}
-    <Recur f={f} setF={setF}/>
-    <div className="actions"><button className="btn" onClick={onCancel}>Cancel</button><button className="btn p" onClick={()=>onSave({...f,
-      assignee_id:String(f.assignee_id).startsWith("email:")?null:(f.assignee_id||null),
-      assignee_email:String(f.assignee_id).startsWith("email:")?f.assignee_id.slice(6):null,
-      due_date:f.due_date||null,recur_rule:f.recur_rule||null,recur_day:(f.recur_rule && f.recur_rule!=="daily" && f.recur_rule!=="yearly")?(parseInt(f.recur_day)||null):null,recur_cap:Math.max(2, parseInt(f.recur_cap)||3),
-})}>Save</button></div>
-  </div>;
 }
 
 // ---------- team (manager) ----------
